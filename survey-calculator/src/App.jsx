@@ -141,6 +141,7 @@ function App() {
           Survey<span className="app-title-accent">Calc</span> Geomatics Suite
         </h1>
         <p className="app-subtitle">Coordinate Conversion, Benchmarking, and Survey Computation Workspace</p>
+        <p className="app-subtitle">Live deployment check: this version was pushed from VS Code.</p>
       </header>
 
       {/* ── Two-column layout ── */}
