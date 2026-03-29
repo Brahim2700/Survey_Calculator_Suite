@@ -1,5 +1,6 @@
 // src/App.jsx
 import { useEffect, useState } from "react";
+import { Analytics } from "@vercel/analytics/react";
 import CoordinateConverter from "./Components/CoordinateConverter";
 import MapVisualization from "./Components/MapVisualization";
 import proj4 from "proj4";
@@ -364,6 +365,7 @@ function App() {
       </div>
 
       <footer className="app-signature">by FRAH Brahim</footer>
+      <Analytics />
     </div>
   );
 }
