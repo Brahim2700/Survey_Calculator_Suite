@@ -1,0 +1,47 @@
+{
+  "name": "survey-calculator",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "test:crs": "node ./scripts/crs-detection-test.mjs",
+    "test:benchmark": "node ./scripts/benchmark-regression-test.mjs",
+    "preview": "vite preview",
+    "generate:samples": "node ./scripts/generate-samples.mjs"
+  },
+  "dependencies": {
+    "@mapbox/shp-write": "^0.4.3",
+    "buffer": "^6.0.3",
+    "cesium": "^1.136.0",
+    "dxf-parser": "^1.1.2",
+    "epsg-index": "^2.0.0",
+    "geotiff": "^2.1.4-beta.1",
+    "jszip": "^3.10.1",
+    "leaflet": "^1.9.4",
+    "mathjs": "^15.1.0",
+    "proj4": "^2.20.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-globe.gl": "^2.37.0",
+    "react-leaflet": "^5.0.0",
+    "shpjs": "^6.2.0",
+    "three": "^0.182.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
+    "vite": "^7.2.4",
+    "vite-plugin-cesium": "^1.2.23",
+    "vite-plugin-static-copy": "^3.1.4"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "horizontalBenchmarks": [
+    {
+      "name": "Lambert93 to WGS84 - Bureau ST1",
+      "from": "EPSG:2154",
+      "to": "EPSG:4326",
+      "input": [837221.572, 6577325.343],
+      "expected": [4.78233015, 46.28187695],
+      "toleranceDegrees": 0.000001
+    },
+    {
+      "name": "Lambert93 to WGS84 - Bureau ST5",
+      "from": "EPSG:2154",
+      "to": "EPSG:4326",
+      "input": [837300.370, 6577411.520],
+      "expected": [4.78337857, 46.28263674],
+      "toleranceDegrees": 0.000001
+    },
+    {
+      "name": "WGS84 to Lambert93 - Paris center",
+      "from": "EPSG:4326",
+      "to": "EPSG:2154",
+      "input": [2.3522, 48.8566],
+      "expected": [652469.023, 6862035.259],
+      "toleranceMeters": 0.5
+    }
+  ],
+  "heightRoundtripBenchmarks": [
+    {
+      "name": "EGM96 roundtrip NYC",
+      "grid": "EGM96",
+      "lon": -73.985656,
+      "lat": 40.748433,
+      "H": 30,
+      "toleranceMeters": 0.01
+    }
+  ]
+}

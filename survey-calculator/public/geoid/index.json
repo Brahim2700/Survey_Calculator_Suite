@@ -1,0 +1,8 @@
+[
+  { "name": "RAF20", "url": "/geoid/fr_ign_RAF20.tif", "country": "France", "resolution": "0.0083 deg" },
+  { "name": "RAF18b", "url": "/geoid/fr_ign_RAF18b.tif", "country": "France", "resolution": "0.01 deg" },
+  { "name": "RAF18", "url": "/geoid/fr_ign_RAF18.tif", "country": "France", "resolution": "0.01 deg" },
+  { "name": "RAF09", "url": "/geoid/fr_ign_RAF09.tif", "country": "France", "resolution": "0.0167 deg" },
+  { "name": "EGM96", "url": "/geoid/us_nga_egm96_15.tif", "country": "Global", "resolution": "0.25 deg" },
+  { "name": "EGM08", "url": "/geoid/us_nga_egm08_25.tif", "country": "Global", "resolution": "0.25 deg" }
+]

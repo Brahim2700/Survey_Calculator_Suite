@@ -1,0 +1,105 @@
+/* ====================================================
+   src/index.css – global reset + design token system
+   ==================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+
+/* ── Design tokens ── */
+:root {
+  /* Colors */
+  --c-bg:              #0b1729;
+  --c-bg-mid:          #112240;
+  --c-surface:         #ffffff;
+  --c-surface-raised:  #f8fafc;
+  --c-surface-inset:   #f1f5f9;
+  --c-border:          #e2e8f0;
+  --c-border-strong:   #cbd5e1;
+
+  --c-primary:         #1d4ed8;
+  --c-primary-hover:   #1e40af;
+  --c-primary-light:   #dbeafe;
+  --c-secondary:       #0891b2;
+  --c-secondary-light: #cffafe;
+  --c-accent:          #f97316;
+  --c-accent-dark:     #ea580c;
+  --c-accent-light:    #fff7ed;
+  --c-success:         #059669;
+  --c-success-light:   #d1fae5;
+  --c-warning:         #d97706;
+  --c-warning-light:   #fef3c7;
+  --c-danger:          #dc2626;
+  --c-danger-light:    #fee2e2;
+
+  --c-text:            #0f172a;
+  --c-text-secondary:  #475569;
+  --c-text-muted:      #94a3b8;
+  --c-text-invert:     #ffffff;
+
+  /* Radii */
+  --r-xs:  4px;
+  --r-sm:  6px;
+  --r-md:  10px;
+  --r-lg:  14px;
+  --r-xl:  20px;
+
+  /* Shadows */
+  --shadow-xs:  0 1px 2px rgba(0,0,0,.06);
+  --shadow-sm:  0 1px 4px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.05);
+  --shadow-md:  0 4px 16px rgba(0,0,0,.10), 0 2px 6px rgba(0,0,0,.06);
+  --shadow-lg:  0 10px 40px rgba(0,0,0,.18), 0 4px 12px rgba(0,0,0,.10);
+  --shadow-xl:  0 20px 60px rgba(0,0,0,.28), 0 8px 24px rgba(0,0,0,.14);
+
+  /* Fonts */
+  --font-sans: 'Manrope', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  --font-mono: 'Manrope', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+
+  /* Transitions */
+  --transition: 150ms ease;
+}
+
+/* ── Reset ── */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--c-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+input,
+button,
+select,
+textarea,
+table,
+th,
+td,
+label {
+  font-family: var(--font-sans);
+}
+
+#root {
+  width: 100%;
+  min-height: 100%;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar        { width: 6px; height: 6px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: #cbd5e1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* ── Focus ring ── */
+:focus-visible {
+  outline: 2px solid var(--c-primary);
+  outline-offset: 2px;
+}

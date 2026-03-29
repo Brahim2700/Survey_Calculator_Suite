@@ -1,0 +1,7 @@
+id,x,y,comment
+lambert93_1,700000,6600000,Lambert-93 (RGF93)
+utm31_1,500000,4640000,UTM31N sample
+wgs84_paris,2.3522,48.8566,WGS84 geographic (lon,lat)
+swapped_paris,48.8566,2.3522,Swapped lat/lon (should be swapped)
+local_cartesian,12345,67890,Local cartesian sample
+lambert_i,500000,100000,Lambert I-ish sample

@@ -1,0 +1,497 @@
+/* ====================================================
+   src/App.css – app-level component classes
+   ==================================================== */
+
+/* ── Page shell ── */
+.app-shell {
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1.75rem 1.5rem 3rem;
+  background: transparent;
+  box-sizing: border-box;
+}
+
+.app-shell::before {
+  content: "";
+  position: fixed;
+  inset: -9vh -9vw;
+  z-index: -2;
+  background-image: url("/backgrounds/survey-bg.png?v=2");
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center center;
+  filter: saturate(1.05) brightness(1.05);
+  opacity: 1;
+  transform: scale(1.14);
+  transform-origin: center center;
+}
+
+.app-shell::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(56, 189, 248, 0.06) 0%, transparent 24%),
+    radial-gradient(circle at 82% 14%, rgba(37, 99, 235, 0.08) 0%, transparent 26%),
+    linear-gradient(180deg, rgba(4, 10, 20, 0.14), rgba(4, 10, 20, 0.28));
+  pointer-events: none;
+}
+
+/* ── Header ── */
+.app-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+.app-kicker {
+  color: rgba(224, 234, 255, 0.86);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin-bottom: 0.35rem;
+}
+.app-title {
+  color: var(--c-text-invert);
+  font-size: clamp(2rem, 2.5vw, 2.35rem);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+}
+.app-title-accent {
+  color: #60a5fa;
+}
+.app-subtitle {
+  color: #93c5fd;
+  font-size: 0.92rem;
+  margin-top: 0.4rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.app-signature {
+  margin-top: auto;
+  padding-top: 1.4rem;
+  color: rgba(224, 234, 255, 0.72);
+  font-size: 0.76rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: center;
+  width: min(1760px, 100%);
+  border-top: 1px solid rgba(191, 219, 254, 0.16);
+}
+
+/* ── Main two-column grid ── */
+.app-columns {
+  display: flex;
+  gap: 1.75rem;
+  width: 100%;
+  max-width: 1760px;
+  align-items: flex-start;
+}
+.app-col-left  { flex: 0 1 820px; display: flex; flex-direction: column; gap: 1.5rem; }
+.app-col-right { flex: 1 1 520px; position: sticky; top: 1.75rem; display: flex; flex-direction: column; }
+
+.app-col-left,
+.app-col-right {
+  font-size: 0.95rem;
+}
+
+.app-col-left > * {
+  background: rgba(255, 255, 255, 0.84);
+  backdrop-filter: blur(14px) saturate(1.04);
+  -webkit-backdrop-filter: blur(14px) saturate(1.04);
+  border: 1px solid rgba(255, 255, 255, 0.38);
+}
+
+/* ── Map card ── */
+.map-card {
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-xl);
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(14px) saturate(1.06);
+  -webkit-backdrop-filter: blur(14px) saturate(1.06);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+}
+.map-toolbar {
+  padding: 0.65rem 1rem;
+  background: #0f2040;
+  border-bottom: 1px solid rgba(255,255,255,.07);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.map-toolbar-title {
+  color: #e0eaff;
+  font-weight: 800;
+  font-size: 0.83rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.map-toolbar-actions {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+/* ── Toolbar buttons ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.38rem 0.9rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: none;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--transition), box-shadow var(--transition), transform var(--transition);
+  white-space: nowrap;
+  font-family: inherit;
+}
+.btn:active { transform: scale(0.97); }
+.btn-ghost {
+  background: rgba(255,255,255,.10);
+  color: var(--c-text-invert);
+}
+.btn-ghost:hover { background: rgba(255,255,255,.18); }
+.btn-danger {
+  background: rgba(220,38,38,.80);
+  color: var(--c-text-invert);
+}
+.btn-danger:hover { background: rgba(220,38,38,.95); }
+.btn-measure {
+  background: rgba(255,255,255,.12);
+  color: var(--c-text-invert);
+  letter-spacing: 0.02em;
+}
+.btn-measure.active {
+  background: linear-gradient(135deg, #f97316, #ea580c);
+  box-shadow: 0 0 0 2px #fbbf24;
+  color: #fff;
+}
+.btn-measure:hover { background: rgba(255,255,255,.20); }
+.btn-measure.active:hover { background: linear-gradient(135deg, #fb923c, #f97316); }
+
+/* ── Measure results panel ── */
+.measure-panel {
+  background: var(--c-surface);
+  border-top: 3px solid var(--c-accent);
+  padding: 1rem 1rem 0.75rem;
+}
+.measure-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.8rem;
+}
+.measure-panel-title {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--c-primary-hover);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.measure-unit-controls {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.measure-unit-label {
+  font-size: 0.78rem;
+  color: var(--c-text-secondary);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.measure-unit-label select {
+  padding: 0.18rem 0.28rem;
+  font-size: 0.78rem;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--c-border-strong);
+  background: var(--c-surface-raised);
+  color: var(--c-text);
+  cursor: pointer;
+  font-family: inherit;
+}
+.measure-hint {
+  font-size: 0.8rem;
+  color: var(--c-accent);
+  font-weight: 600;
+}
+.measure-empty {
+  font-size: 0.83rem;
+  color: var(--c-text-muted);
+  margin: 0 0 0.5rem;
+}
+.measure-p1-info {
+  font-size: 0.83rem;
+  color: var(--c-text-secondary);
+  padding: 0.5rem 0.65rem;
+  background: var(--c-surface-inset);
+  border-radius: var(--r-sm);
+  margin-bottom: 0.5rem;
+  border-left: 3px solid var(--c-primary);
+}
+
+/* ── Leg card ── */
+.leg-card {
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  margin-bottom: 0.75rem;
+}
+.leg-card-header {
+  background: #fff7ed;
+  padding: 0.45rem 0.7rem;
+  font-weight: 800;
+  color: #9a3412;
+  font-size: 0.78rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #fed7aa;
+}
+.leg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.leg-table th {
+  padding: 0.36rem 0.5rem;
+  background: var(--c-surface-raised);
+  color: var(--c-text-secondary);
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--c-border);
+}
+.leg-table th:nth-child(2) { text-align: right; }
+.leg-table td { padding: 0.3rem 0.5rem; border-top: 1px solid var(--c-border); }
+.leg-table td:nth-child(2) { text-align: right; font-family: var(--font-mono); font-size: 0.78rem; font-weight: 600; }
+.leg-table td:nth-child(3) { color: var(--c-text-muted); font-size: 0.74rem; }
+.leg-row-highlight-green { background: #f0fdf4; }
+.leg-row-highlight-green td { color: var(--c-success) !important; font-weight: 700; }
+.leg-row-highlight-blue td:nth-child(2)  { color: var(--c-primary) !important; }
+.leg-row-factors { background: var(--c-surface-raised); }
+.leg-row-factors td:first-child { font-weight: 700; color: var(--c-text-secondary); }
+.leg-row-cf { background: #fff7ed; }
+.leg-row-cf td:first-child, .leg-row-cf td:nth-child(2) { color: #9a3412 !important; font-weight: 700; }
+
+/* ── Traverse totals ── */
+.totals-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  margin-bottom: 0.6rem;
+  border: 1px solid #fdba74;
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.totals-table thead tr { background: #ffedd5; }
+.totals-table th { padding: 0.38rem 0.5rem; color: #9a3412; font-weight: 800; font-size: 0.74rem; letter-spacing: 0.04em; text-transform: uppercase; }
+.totals-table th:last-child { text-align: right; }
+.totals-table td { padding: 0.32rem 0.5rem; border-top: 1px solid #fed7aa; }
+.totals-table td:last-child { text-align: right; font-family: var(--font-mono); font-weight: 700; font-size: 0.78rem; }
+
+/* ── Legend key ── */
+.measure-legend {
+  border-top: 1px dashed var(--c-border-strong);
+  padding-top: 0.55rem;
+  margin-top: 0.15rem;
+  font-size: 0.76rem;
+  color: var(--c-text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+}
+.measure-legend strong { color: var(--c-text); }
+
+/* ── Geoid bar ── */
+.geoid-bar {
+  padding: 0.5rem 1rem;
+  background: #0f2040;
+  border-top: 1px solid rgba(255,255,255,.06);
+  font-size: 0.74rem;
+  color: #7c9cc0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+.geoid-bar strong { color: #93c5fd; font-weight: 700; }
+.geoid-chip {
+  padding: 0.1rem 0.45rem;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.7rem;
+}
+
+/* ── CRS swap button ── */
+.crs-swap-btn:hover {
+  background: var(--c-surface-inset) !important;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+.crs-swap-btn:focus-visible {
+  background: var(--c-surface-inset) !important;
+  box-shadow: 0 0 0 3px rgba(29,78,216,.28);
+  outline: none;
+}
+@media (max-width: 768px) {
+  .crs-swap-btn          { transform: rotate(90deg); }
+  .crs-swap-btn:hover    { transform: rotate(90deg) translateY(-1px); }
+}
+
+/* ── Converter card inner improvements ── */
+
+/* Make all plain inputs consistent */
+.app-col-left input[type="text"],
+.app-col-left input[type="number"],
+.app-col-left input[type="email"],
+.app-col-left textarea {
+  font-family: var(--font-sans);
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.app-col-left input[type="text"]:focus,
+.app-col-left input[type="number"]:focus,
+.app-col-left textarea:focus {
+  border-color: var(--c-primary) !important;
+  box-shadow: 0 0 0 3px rgba(29,78,216,.15) !important;
+  outline: none;
+}
+
+/* Make all plain selects consistent */
+.app-col-left select {
+  font-family: var(--font-sans);
+  cursor: pointer;
+}
+
+/* Keep visible controls at a consistent button height across the app */
+.app-shell button:not(.crs-swap-btn),
+.app-shell .button-like-label {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
+.app-shell .button-like-label {
+  font-family: var(--font-sans);
+}
+
+.app-col-left button,
+.app-col-left select,
+.app-col-left input,
+.app-col-left textarea,
+.app-col-left label {
+  letter-spacing: 0.005em;
+}
+
+/* Converter readability pass: slightly larger controls and clearer helper text rhythm */
+.app-col-left {
+  line-height: 1.5;
+  color: var(--c-text);
+}
+
+.app-col-left label {
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.app-col-left input,
+.app-col-left select,
+.app-col-left textarea,
+.app-col-left button,
+.app-col-left .button-like-label {
+  font-size: 0.86rem;
+}
+
+.app-col-left input,
+.app-col-left select,
+.app-col-left textarea {
+  color: #0f172a;
+  background-color: rgba(255, 255, 255, 0.92);
+  border-color: #bfcddd;
+}
+
+.app-col-left input::placeholder,
+.app-col-left textarea::placeholder {
+  color: #64748b;
+  opacity: 1;
+}
+
+.app-col-left ul {
+  margin-top: 0.4rem;
+  margin-bottom: 0.2rem;
+}
+
+.app-col-left li {
+  margin-bottom: 0.22rem;
+  line-height: 1.45;
+}
+
+.app-col-left [style*="font-size: 0.82rem"],
+.app-col-left [style*="font-size: 0.85rem"],
+.app-col-left [style*="font-size: 0.8rem"] {
+  line-height: 1.5 !important;
+  color: #334155 !important;
+}
+
+/* Force legacy inline monospace values to follow unified typography */
+.app-shell [style*="font-family: monospace"],
+.app-shell [style*="font-family: 'monospace'"],
+.app-shell [style*='font-family: "monospace"'] {
+  font-family: var(--font-sans) !important;
+}
+
+/* Primary action button inside converter */
+.app-col-left button[style*="background: #2563eb"],
+.app-col-left button[style*="background: \"#2563eb\""] {
+  box-shadow: 0 2px 8px rgba(37,99,235,.35);
+  transition: background var(--transition), box-shadow var(--transition), transform var(--transition);
+}
+.app-col-left button[style*="background: #2563eb"]:hover {
+  box-shadow: 0 4px 14px rgba(37,99,235,.45);
+  transform: translateY(-1px);
+}
+
+/* Single conversion result panel polish */
+.app-col-left div[style*="background: #eff6ff"],
+.app-col-left div[style*="background: \"#eff6ff\""] {
+  border-left: 3px solid var(--c-primary) !important;
+}
+
+/* Geoid loader wrapper */
+.app-col-left div[style*="background: \"#f8fafc\""] {
+  border-left: 3px solid #64748b;
+}
+
+/* CrsSearchSelector.css additions - make dropdown match design */
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-slide-in { animation: fadeSlideIn 200ms ease both; }
+
+/* ── Responsive ── */
+@media (max-width: 1100px) {
+  .app-columns { flex-direction: column; }
+  .app-col-right { position: static; }
+}

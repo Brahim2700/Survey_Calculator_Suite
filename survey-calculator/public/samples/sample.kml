@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <Placemark>
+      <name>Sydney</name>
+      <Point>
+        <coordinates>151.2093,-33.8688,75</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>Melbourne</name>
+      <Point>
+        <coordinates>144.9631,-37.8136,45</coordinates>
+      </Point>
+    </Placemark>
+  </Document>
+</kml>

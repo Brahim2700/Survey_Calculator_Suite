@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="SurveyCalculator">
+  <wpt lat="-33.8688" lon="151.2093">
+    <name>Sydney</name>
+    <ele>75</ele>
+  </wpt>
+  <wpt lat="-37.8136" lon="144.9631">
+    <name>Melbourne</name>
+    <ele>45</ele>
+  </wpt>
+</gpx>
