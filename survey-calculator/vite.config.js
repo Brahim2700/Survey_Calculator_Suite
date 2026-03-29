@@ -44,6 +44,8 @@ export default defineConfig({
         }
       }
     },
-    chunkSizeWarningLimit: 1200
+    // Cesium/geospatial libraries produce intentionally large chunks in this app.
+    // Raise the warning limit so Vercel logs focus on actionable issues.
+    chunkSizeWarningLimit: 5000
   }
 })
