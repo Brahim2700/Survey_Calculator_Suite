@@ -8,7 +8,6 @@ import { on } from "./utils/eventBus";
 import "./App.css";
 
 function App() {
-  const deploymentTestLabel = "DEPLOY TEST - 2026-03-29";
   const [converterPoints, setConverterPoints] = useState([]);
   const [measureMode, setMeasureMode] = useState(false);
   const [measurePoints, setMeasurePoints] = useState([]);
@@ -142,22 +141,6 @@ function App() {
           Survey<span className="app-title-accent">Calc</span> Geomatics Suite
         </h1>
         <p className="app-subtitle">Coordinate Conversion, Benchmarking, and Survey Computation Workspace</p>
-        <p
-          style={{
-            display: "inline-block",
-            marginTop: "0.75rem",
-            padding: "0.35rem 0.7rem",
-            borderRadius: "999px",
-            border: "1px solid rgba(255, 255, 255, 0.35)",
-            background: "rgba(16, 185, 129, 0.15)",
-            color: "#a7f3d0",
-            fontSize: "0.8rem",
-            letterSpacing: "0.04em",
-            fontWeight: 700,
-          }}
-        >
-          {deploymentTestLabel}
-        </p>
       </header>
 
       {/* ── Two-column layout ── */}
