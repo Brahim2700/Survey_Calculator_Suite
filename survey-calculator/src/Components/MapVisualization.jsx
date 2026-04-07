@@ -9,10 +9,13 @@ const MapVisualization = ({ points, isVisible, onPointSelect, measureMode = fals
   const mapContainer = useRef(null);
   const map = useRef(null);
   const markers = useRef([]);
+  const pointLayersRef = useRef([]);
+  const fittedPointsSignatureRef = useRef('');
   const measureLayerRef = useRef({ polyline: null, markers: [] });
   const basemapLayers = useRef(null);
   const layerControl = useRef(null);
   const [selectedPoint, setSelectedPoint] = useState(null);
+  const [viewTick, setViewTick] = useState(0);
 
   // Add CSS for detection labels on first render
   useEffect(() => {
@@ -43,6 +46,52 @@ const MapVisualization = ({ points, isVisible, onPointSelect, measureMode = fals
       }
       .detection-cluster-label.leaflet-tooltip-top:before {
         border-top-color: rgba(30, 58, 138, 0.92);
+      }
+      .point-name-label .leaflet-tooltip-content {
+        background: rgba(9, 17, 30, 0.86);
+        color: #e6edf7;
+        border: 1px solid rgba(147, 197, 253, 0.48);
+        border-radius: 7px;
+        padding: 3px 8px 4px;
+        font-size: 11px;
+        font-weight: 650;
+        line-height: 1.2;
+        letter-spacing: 0.01em;
+        font-family: 'Avenir Next', 'Segoe UI Variable Text', 'Trebuchet MS', sans-serif;
+        text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
+        box-shadow: 0 2px 8px rgba(2, 6, 23, 0.45);
+        white-space: nowrap;
+      }
+      .point-name-label.leaflet-tooltip-top:before {
+        border-top-color: rgba(9, 17, 30, 0.86);
+      }
+      .point-name-label.leaflet-tooltip-right:before {
+        border-right-color: rgba(9, 17, 30, 0.86);
+      }
+      .point-name-label.leaflet-tooltip-left:before {
+        border-left-color: rgba(9, 17, 30, 0.86);
+      }
+      .point-name-label.leaflet-tooltip-bottom:before {
+        border-bottom-color: rgba(9, 17, 30, 0.86);
+      }
+      .point-name-label.dense .leaflet-tooltip-content {
+        font-size: 10px;
+        padding: 2px 7px 3px;
+        background: rgba(7, 13, 24, 0.9);
+      }
+      .point-cluster-label .leaflet-tooltip-content {
+        background: rgba(30, 41, 59, 0.92);
+        color: #f8fafc;
+        border: 1px solid rgba(148, 163, 184, 0.58);
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 700;
+        padding: 2px 8px;
+        box-shadow: 0 2px 6px rgba(2, 6, 23, 0.4);
+        font-family: 'Avenir Next', 'Segoe UI Variable Text', 'Trebuchet MS', sans-serif;
+      }
+      .point-cluster-label.leaflet-tooltip-top:before {
+        border-top-color: rgba(30, 41, 59, 0.92);
       }
     `;
     document.head.appendChild(style);
@@ -78,6 +127,53 @@ const MapVisualization = ({ points, isVisible, onPointSelect, measureMode = fals
   });
 
   const getCoordKey = (lat, lng) => `${lat.toFixed(5)}|${lng.toFixed(5)}`;
+
+  const getPointLabel = (point) => {
+    const raw = String(point?.label || point?.id || 'Point');
+    return raw.length > 42 ? `${raw.slice(0, 39)}...` : raw;
+  };
+
+  const getLabelBudget = (zoom, totalPoints) => {
+    if (zoom >= 18) return Math.min(totalPoints, 520);
+    if (zoom >= 17) return Math.min(totalPoints, 340);
+    if (zoom >= 16) return Math.min(totalPoints, 220);
+    if (zoom >= 15) return Math.min(totalPoints, 140);
+    if (zoom >= 14) return Math.min(totalPoints, 90);
+    if (zoom >= 13) return Math.min(totalPoints, 60);
+    return Math.min(totalPoints, 36);
+  };
+
+  const getDeclutterCellSize = (zoom) => {
+    if (zoom >= 17) return 24;
+    if (zoom >= 16) return 28;
+    if (zoom >= 15) return 34;
+    if (zoom >= 14) return 40;
+    return 48;
+  };
+
+  const getSmartLabelLayout = (index, total) => {
+    if (total <= 1) {
+      return { direction: 'top', offset: [0, -17], isDense: false };
+    }
+
+    const ring = total <= 4 ? 22 : total <= 9 ? 30 : 36;
+    const angle = ((2 * Math.PI * index) / total) - Math.PI / 2;
+    const ox = Math.round(Math.cos(angle) * ring);
+    const oy = Math.round(Math.sin(angle) * ring);
+
+    let direction = 'top';
+    if (Math.abs(ox) > Math.abs(oy)) {
+      direction = ox >= 0 ? 'right' : 'left';
+    } else {
+      direction = oy >= 0 ? 'bottom' : 'top';
+    }
+
+    return {
+      direction,
+      offset: [ox, oy],
+      isDense: total >= 8,
+    };
+  };
 
   const extractCrsCode = (point) => {
     if (!point || !point.label) return null;
@@ -171,23 +267,31 @@ const MapVisualization = ({ points, isVisible, onPointSelect, measureMode = fals
 
     // Initialize map if not already done
     if (!map.current) {
-      map.current = L.map(mapContainer.current).setView([20, 0], 2);
+      map.current = L.map(mapContainer.current, {
+        zoomSnap: 0.25,
+        zoomDelta: 0.5,
+        maxZoom: 23,
+        minZoom: 2,
+      }).setView([20, 0], 2);
 
       basemapLayers.current = {
         'Street (OSM)': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           attribution: '© OpenStreetMap contributors',
-          maxZoom: 19,
+          maxNativeZoom: 19,
+          maxZoom: 23,
         }),
         'Satellite (Esri)': L.tileLayer(
           'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
           {
             attribution: 'Tiles © Esri',
-            maxZoom: 19,
+            maxNativeZoom: 19,
+            maxZoom: 23,
           }
         ),
         'Terrain (OpenTopoMap)': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
           attribution: '© OpenTopoMap contributors',
-          maxZoom: 17,
+          maxNativeZoom: 17,
+          maxZoom: 23,
         })
       };
 
@@ -214,12 +318,17 @@ const MapVisualization = ({ points, isVisible, onPointSelect, measureMode = fals
       }
     };
 
+    const handleViewChange = () => setViewTick((prev) => prev + 1);
+
     map.current.on('click', handleMapClick);
     map.current.on('baselayerchange', handleBasemapChange);
+    map.current.on('zoomend', handleViewChange);
+    map.current.on('moveend', handleViewChange);
 
     // Clear existing markers
     markers.current.forEach((marker) => map.current.removeLayer(marker));
     markers.current = [];
+    pointLayersRef.current = [];
 
     const validPoints = points.filter((point, idx) => {
       if (!point || typeof point !== 'object') {
@@ -237,6 +346,21 @@ const MapVisualization = ({ points, isVisible, onPointSelect, measureMode = fals
         return false;
       }
       return true;
+    });
+
+    const overlapGroups = new Map();
+    validPoints.forEach((point) => {
+      const key = getCoordKey(point.lat, point.lng);
+      const existing = overlapGroups.get(key);
+      if (existing) {
+        existing.points.push(point);
+      } else {
+        overlapGroups.set(key, {
+          lat: point.lat,
+          lng: point.lng,
+          points: [point],
+        });
+      }
     });
 
     // Group detection points by near-identical position so superposed CRS can be labeled clearly.
@@ -287,6 +411,62 @@ const MapVisualization = ({ points, isVisible, onPointSelect, measureMode = fals
     });
 
     // Add new markers for each point
+    const convertedPoints = validPoints.filter((p) => !p.detectionMarker);
+    const viewportBounds = map.current.getBounds().pad(0.08);
+    const inViewConvertedPoints = convertedPoints.filter((p) => viewportBounds.contains([p.lat, p.lng]));
+    const labelBudget = getLabelBudget(map.current.getZoom(), inViewConvertedPoints.length);
+    const cellSize = getDeclutterCellSize(map.current.getZoom());
+    const occupiedCells = new Set();
+    const visibleConvertedLabelIds = new Set();
+
+    const representativePoints = [];
+    const secondaryPoints = [];
+    overlapGroups.forEach((group) => {
+      const groupConverted = group.points.filter((p) => !p.detectionMarker && viewportBounds.contains([p.lat, p.lng]));
+      if (groupConverted.length === 0) return;
+      representativePoints.push(groupConverted[0]);
+      secondaryPoints.push(...groupConverted.slice(1));
+    });
+
+    const selectedId = selectedPoint?.id !== undefined ? String(selectedPoint.id) : null;
+    const selectedCandidate = selectedId
+      ? inViewConvertedPoints.find((p) => p.id !== undefined && String(p.id) === selectedId)
+      : null;
+
+    const placeLabelCandidate = (point) => {
+      if (!point) return;
+      const pointId = point.id !== undefined ? String(point.id) : null;
+      if (pointId && visibleConvertedLabelIds.has(pointId)) return;
+      if (visibleConvertedLabelIds.size >= labelBudget) return;
+      const px = map.current.latLngToContainerPoint([point.lat, point.lng]);
+      const cellKey = `${Math.floor(px.x / cellSize)}|${Math.floor(px.y / cellSize)}`;
+      if (occupiedCells.has(cellKey)) return;
+      occupiedCells.add(cellKey);
+      if (pointId) visibleConvertedLabelIds.add(pointId);
+    };
+
+    if (selectedCandidate?.id !== undefined) {
+      visibleConvertedLabelIds.add(String(selectedCandidate.id));
+      const selectedPx = map.current.latLngToContainerPoint([selectedCandidate.lat, selectedCandidate.lng]);
+      occupiedCells.add(`${Math.floor(selectedPx.x / cellSize)}|${Math.floor(selectedPx.y / cellSize)}`);
+    }
+
+    representativePoints.forEach(placeLabelCandidate);
+    secondaryPoints.forEach(placeLabelCandidate);
+
+    const hiddenCountByCoordKey = new Map();
+    overlapGroups.forEach((group) => {
+      const groupConverted = group.points.filter((p) => !p.detectionMarker);
+      if (!groupConverted.length) return;
+      const hidden = groupConverted.filter((p) => {
+        if (p.id === undefined) return false;
+        return !visibleConvertedLabelIds.has(String(p.id));
+      }).length;
+      if (hidden > 0) {
+        hiddenCountByCoordKey.set(getCoordKey(group.lat, group.lng), hidden);
+      }
+    });
+
     validPoints.forEach((point) => {
       const coordKey = getCoordKey(point.lat, point.lng);
       const group = point.detectionMarker ? detectionGroups.get(coordKey) : null;
@@ -337,6 +517,7 @@ const MapVisualization = ({ points, isVisible, onPointSelect, measureMode = fals
         )
         .on('click', () => {
           setSelectedPoint(point);
+          setViewTick((prev) => prev + 1);
           if (onPointSelect) onPointSelect(point);
         })
         .addTo(map.current);
@@ -355,27 +536,76 @@ const MapVisualization = ({ points, isVisible, onPointSelect, measureMode = fals
         markers.current.push(markerTooltip);
       }
 
+      if (!point.detectionMarker) {
+        const overlapGroup = overlapGroups.get(getCoordKey(point.lat, point.lng));
+        const overlapSize = overlapGroup ? overlapGroup.points.length : 1;
+        const overlapIndex = overlapGroup ? overlapGroup.points.findIndex((p) => String(p.id) === String(point.id) && p.label === point.label) : 0;
+        const labelLayout = getSmartLabelLayout(Math.max(overlapIndex, 0), overlapSize);
+        const pointId = point.id !== undefined ? String(point.id) : null;
+        const shouldShowConvertedLabel = pointId
+          ? visibleConvertedLabelIds.has(pointId)
+          : false;
+
+        if (shouldShowConvertedLabel) {
+          const nameTooltip = L.tooltip({
+            permanent: true,
+            direction: labelLayout.direction,
+            className: `point-name-label${labelLayout.isDense ? ' dense' : ''}`,
+            offset: labelLayout.offset,
+            opacity: 1,
+          })
+            .setContent(getPointLabel(point))
+            .setLatLng([displayLat, displayLng])
+            .addTo(map.current);
+          markers.current.push(nameTooltip);
+        }
+      }
+
       if (isSelectableConverted) {
         circleMarker.bringToFront();
       }
 
+      pointLayersRef.current.push(circleMarker);
       markers.current.push(circleMarker);
     });
 
-    // Fit map to show all markers; otherwise restore world extent when empty.
-    if (markers.current.length > 0) {
-      const group = new L.featureGroup(markers.current);
-      map.current.fitBounds(group.getBounds().pad(0.1));
-    } else if (!measurePoints || measurePoints.length === 0) {
+    hiddenCountByCoordKey.forEach((hiddenCount, key) => {
+      const group = overlapGroups.get(key);
+      if (!group || !viewportBounds.contains([group.lat, group.lng])) return;
+      const hiddenTooltip = L.tooltip({
+        permanent: true,
+        direction: 'top',
+        className: 'point-cluster-label',
+        offset: [0, -32],
+        opacity: 1,
+      })
+        .setContent(`+${hiddenCount} more`)
+        .setLatLng([group.lat, group.lng])
+        .addTo(map.current);
+      markers.current.push(hiddenTooltip);
+    });
+
+    // Fit map only when point data changes; do not fight user zoom/pan interactions.
+    const pointsSignature = validPoints.map((p) => `${p.id ?? ''}:${p.lat.toFixed(6)}:${p.lng.toFixed(6)}`).join('|');
+    if (pointLayersRef.current.length > 0) {
+      if (fittedPointsSignatureRef.current !== pointsSignature) {
+        const group = new L.featureGroup(pointLayersRef.current);
+        map.current.fitBounds(group.getBounds().pad(0.1));
+        fittedPointsSignatureRef.current = pointsSignature;
+      }
+    } else if (validPoints.length === 0 && (!measurePoints || measurePoints.length === 0)) {
       map.current.setView([20, 0], 2);
+      fittedPointsSignatureRef.current = '';
     }
     return () => {
       if (map.current) {
         map.current.off('click', handleMapClick);
         map.current.off('baselayerchange', handleBasemapChange);
+        map.current.off('zoomend', handleViewChange);
+        map.current.off('moveend', handleViewChange);
       }
     };
-  }, [points, isVisible, onPointSelect, getMarkerColor, measureMode, measurePoints]);
+  }, [points, isVisible, onPointSelect, getMarkerColor, measureMode, measurePoints, selectedPoint, viewTick]);
 
   return (
     <div

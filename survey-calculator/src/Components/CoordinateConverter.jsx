@@ -380,10 +380,30 @@ const getCoordinateLabels = (fromCrs, toCrs, inputZType, outputZType) => {
 };
 
 
+const splitCoordinateLine = (line) => {
+  const trimmed = String(line || "").trim();
+  if (!trimmed) return [];
+
+  if (trimmed.includes("\t")) {
+    return trimmed.split("\t").map((t) => t.trim()).filter(Boolean);
+  }
+
+  const separators = [",", ";", "|"];
+  const separatorCounts = separators
+    .map((sep) => ({ sep, count: (trimmed.match(new RegExp(`\\${sep}`, "g")) || []).length }))
+    .sort((a, b) => b.count - a.count);
+
+  if (separatorCounts[0].count > 0) {
+    return trimmed.split(separatorCounts[0].sep).map((t) => t.trim()).filter(Boolean);
+  }
+
+  return trimmed.split(/\s+/).filter(Boolean);
+};
+
 const parseBulkLine = (line, fromCrsCode, inputFormat) => {
-  // Accept CSV or whitespace separated: [ID] x y [z]
-  // If first token is non-numeric, treat as ID/point name
-  const tokens = line.split(/\t|\s+|[,;]+/).filter(Boolean);
+  // Accept delimited or whitespace-separated lines: [ID] x y [z]
+  // If first token is non-numeric, treat as ID/point name/code
+  const tokens = splitCoordinateLine(line);
   if (tokens.length < 2) return null;
   
   let id = null;
@@ -445,7 +465,7 @@ const normalizeNumericToken = (value) => {
 //  - Z/H/Height/OrthometricHeight/Elevation (orthometric)
 //  - h/EllipsoidalHeight/GeodeticHeight/Ellipsoidal (ellipsoidal)
 const parseHeaderMapping = (line) => {
-  const cols = line.split(/[\s,;]+|,/).map((c) => c.trim()).filter(Boolean);
+  const cols = splitCoordinateLine(line);
   let xIdx = -1;
   let yIdx = -1;
   let zIdx = -1;
@@ -493,7 +513,7 @@ const parseHeaderMapping = (line) => {
   // Try to detect if first columns are non-numeric (point names/IDs)
   // If header wasn't explicitly matched but has letters, check if columns are numeric
   if (hasLetters && xIdx === 0 && yIdx === 1) {
-    const tokens = line.split(/[\s,;]+/).filter(Boolean);
+    const tokens = splitCoordinateLine(line);
     if (tokens.length >= 2) {
       // Check if first token is non-numeric (likely a point name/ID)
       const firstIsNumeric = !isNaN(parseFloat(tokens[0])) && isFinite(tokens[0]);
@@ -2260,36 +2280,70 @@ const CoordinateConverter = () => {
       // If we already have parsed (from structured format), skip re-parsing
       if (parsed.length === 0) {
         parsed = lines.map((line) => {
-        const tokens = line.split(/[\s,;]+/).filter(Boolean);
-        // WKT and UTM detection within file lines
-        const wkt = tryParseWKT(line);
-        if (wkt) {
-          return { x: wkt.x, y: wkt.y, z: wkt.z ?? null, zType: mapping.zType, zTypeSource: mapping.zTypeSource, detectedFromCrs: wkt.detectedFromCrs };
-        }
-        const utm = tryParseUTM(tokens);
-        if (utm) {
-          return { x: utm.x, y: utm.y, z: utm.z ?? null, zType: mapping.zType, zTypeSource: mapping.zTypeSource, detectedFromCrs: utm.detectedFromCrs };
-        }
-        
-        const xTok = tokens[mapping.xIdx];
-        const yTok = tokens[mapping.yIdx];
-        const zTok = mapping.zIdx >= 0 ? tokens[mapping.zIdx] : undefined;
-        
-        // Parse coordinates - handle DMS if geographic CRS and DMS format
-        let x, y;
-        const isGeographic = CRS_LIST.find((c) => c.code === fromCrs)?.type === "geographic";
-        if (isGeographic && inputFormat === "DMS") {
-          x = parseDMSToDD(xTok);
-          y = parseDMSToDD(yTok);
-        } else {
-          x = parseFloat(normalizeNumericToken(xTok));
-          y = parseFloat(normalizeNumericToken(yTok));
-        }
-        
-        const z = zTok !== undefined ? parseFloat(normalizeNumericToken(zTok)) : null;
-        if ([x, y].some((n) => Number.isNaN(n))) return null;
-        return { x, y, z: Number.isNaN(z) ? null : z, zType: mapping.zType, zTypeSource: mapping.zTypeSource };
-      });
+          const fallback = parseBulkLine(line, fromCrs, inputFormat);
+
+          if (!mapping.hasHeader) {
+            if (!fallback) return null;
+            return {
+              id: fallback.id ?? null,
+              x: fallback.x,
+              y: fallback.y,
+              z: fallback.z ?? null,
+              zType: mapping.zType,
+              zTypeSource: mapping.zTypeSource,
+              detectedFromCrs: fallback.detectedFromCrs,
+            };
+          }
+
+          const tokens = splitCoordinateLine(line);
+          if (tokens.length < 2) return null;
+
+          const xTok = tokens[mapping.xIdx];
+          const yTok = tokens[mapping.yIdx];
+          const zTok = mapping.zIdx >= 0 ? tokens[mapping.zIdx] : undefined;
+
+          // Parse coordinates - handle DMS if geographic CRS and DMS format
+          let xCoord;
+          let yCoord;
+          const isGeographic = CRS_LIST.find((c) => c.code === fromCrs)?.type === "geographic";
+          if (isGeographic && inputFormat === "DMS") {
+            xCoord = parseDMSToDD(xTok);
+            yCoord = parseDMSToDD(yTok);
+          } else {
+            const xHem = parseHemisphericNumber(xTok);
+            const yHem = parseHemisphericNumber(yTok);
+            xCoord = xHem ?? parseFloat(normalizeNumericToken(xTok));
+            yCoord = yHem ?? parseFloat(normalizeNumericToken(yTok));
+          }
+
+          const zCoord = zTok !== undefined ? parseFloat(normalizeNumericToken(zTok)) : null;
+          if ([xCoord, yCoord].some((n) => Number.isNaN(n))) {
+            // Header mapping may be wrong for this file; try generic parser as backup.
+            if (!fallback) return null;
+            return {
+              id: fallback.id ?? null,
+              x: fallback.x,
+              y: fallback.y,
+              z: fallback.z ?? null,
+              zType: mapping.zType,
+              zTypeSource: mapping.zTypeSource,
+              detectedFromCrs: fallback.detectedFromCrs,
+            };
+          }
+
+          const idIdx = tokens.findIndex((_, idx) => idx !== mapping.xIdx && idx !== mapping.yIdx && idx !== mapping.zIdx);
+          const id = idIdx >= 0 ? tokens[idIdx] : (fallback?.id ?? null);
+
+          return {
+            id,
+            x: xCoord,
+            y: yCoord,
+            z: Number.isNaN(zCoord) ? null : zCoord,
+            zType: mapping.zType,
+            zTypeSource: mapping.zTypeSource,
+            detectedFromCrs: fallback?.detectedFromCrs,
+          };
+        });
       }
       
       const bad = parsed.findIndex((p) => p === null);
@@ -2359,7 +2413,7 @@ const CoordinateConverter = () => {
           setBulkProgress(`Canceled at ${i}/${parsed.length}`);
           break;
         }
-        const { x: xIn, y: yIn, z: zIn, zType, zTypeSource } = parsed[i];
+        const { id: pointId, x: xIn, y: yIn, z: zIn, zType, zTypeSource } = parsed[i];
         let xOut = null;
         let yOut = null;
         let zOut = zIn;
@@ -2522,7 +2576,7 @@ const CoordinateConverter = () => {
           }
 
           const row = {
-            id: i + 1,
+            id: pointId || i + 1,
             inputX: fmtNum(xIn, inputPrecision),
             inputY: fmtNum(yIn, inputPrecision),
             outputX: outXStr,
@@ -2545,7 +2599,7 @@ const CoordinateConverter = () => {
         } catch (err) {
           const { type: outputHType } = resolveOutputHeightType(null, toCrs);
           const row = {
-            id: i + 1,
+            id: pointId || i + 1,
             inputX: fmtNum(xIn, 4),
             inputY: fmtNum(yIn, 4),
             outputX: "ERROR",
