@@ -8,7 +8,7 @@ import proj4 from "proj4";
 import CRS_LIST from "../crsList";
 import CrsSearchSelector from "./CrsSearchSelector";
 import GeoidLoader from "./GeoidLoader";
-import { tryParseWKT, tryParseUTM, parseHemisphericNumber, parseGeoJSONFile, parseGPXFile, parseKMLFile, parseShapefileZip, parseXLSXFile } from "../utils/fileImport";
+import { tryParseWKT, tryParseUTM, parseHemisphericNumber, parseGeoJSONFile, parseGPXFile, parseKMLFile, parseShapefileZip, parseXLSXFile, parseDXFFile, parseDWGFile } from "../utils/fileImport";
 import { exportAsCSV, exportAsGeoJSON, exportAsKML, exportAsGPX, exportAsXLSX, exportAsWKT, exportAsDXF, exportAllFormats, downloadFile } from "../utils/exportData";
 // Import the map visualization component
 import MapVisualization from "./MapVisualization";
@@ -2165,6 +2165,10 @@ const CoordinateConverter = () => {
         rows = await parseShapefileZip(file);
       } else if (ext === "xlsx" || ext === "xls") {
         rows = await parseXLSXFile(file);
+      } else if (ext === "dxf") {
+        rows = await parseDXFFile(file);
+      } else if (ext === "dwg") {
+        rows = await parseDWGFile(file);
       }
       
       if (rows && rows.length > 0) {
@@ -2199,7 +2203,7 @@ const CoordinateConverter = () => {
     const file = fileArg || bulkUploadFile;
     if (!file) {
       setBulkIsConverting(false);
-      setBulkUploadError("Please select a supported file (.csv, .txt, .geojson, .json, .gpx, .kml, .zip, .xlsx, .xls).");
+      setBulkUploadError("Please select a supported file (.csv, .txt, .geojson, .json, .gpx, .kml, .zip, .xlsx, .xls, .dxf, .dwg).");
       return;
     }
 
@@ -2224,6 +2228,10 @@ const CoordinateConverter = () => {
           rows = await parseShapefileZip(file);
         } else if (ext === "xlsx" || ext === "xls") {
           rows = await parseXLSXFile(file);
+        } else if (ext === "dxf") {
+          rows = await parseDXFFile(file);
+        } else if (ext === "dwg") {
+          rows = await parseDWGFile(file);
         } else {
           throw new Error(`Unsupported file type: .${ext}`);
         }
@@ -3654,7 +3662,7 @@ const CoordinateConverter = () => {
           </div>
         </div>
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
-          <input ref={bulkFileInputRef} type="file" accept=".csv,.txt,.geojson,.json,.gpx,.kml,.zip,.xlsx,.xls" onChange={(e) => { 
+          <input ref={bulkFileInputRef} type="file" accept=".csv,.txt,.geojson,.json,.gpx,.kml,.zip,.xlsx,.xls,.dxf,.dwg" onChange={(e) => { 
             const f = e.target.files?.[0] || null; 
             setBulkUploadFile(f); 
             setBulkUploadError(""); 
