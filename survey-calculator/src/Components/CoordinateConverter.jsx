@@ -3651,7 +3651,7 @@ const CoordinateConverter = () => {
             <li>WKT/EWKT: <em>POINT(lon lat [h])</em> or <em>SRID=4326;POINT(...)</em></li>
             <li>UTM: <em>55S 334368.6336 6250948.3454 [H]</em> or <em>32756, X, Y, H</em></li>
             <li>DD with hemispheres: <em>48.8566N, 2.3522E, 35</em> or DMS <em>48°51'24"N, 2°21'08"E</em></li>
-            <li>Files: .csv/.txt, .geojson/.json, .gpx, .kml, .zip (shapefile), .xlsx/.xls</li>
+            <li>Files: .csv/.txt, .geojson/.json, .gpx, .kml, .zip (shapefile), .xlsx/.xls, .dxf, .dwg</li>
           </ul>
           <div style={{ marginTop: "0.5rem" }}>
             Quick samples: 
