@@ -1,0 +1,11 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "dockerfilePath": "Dockerfile.cad-api"
+  },
+  "deploy": {
+    "healthcheckPath": "/api/cad/health",
+    "healthcheckTimeout": 30,
+    "restartPolicyType": "on_failure"
+  }
+}

@@ -9,6 +9,7 @@ import CRS_LIST from "../crsList";
 import CrsSearchSelector from "./CrsSearchSelector";
 import GeoidLoader from "./GeoidLoader";
 import { tryParseWKT, tryParseUTM, parseHemisphericNumber, parseGeoJSONFile, parseGPXFile, parseKMLFile, parseShapefileZip, parseXLSXFile, parseDXFFile, parseDWGFile } from "../utils/fileImport";
+import { getCadBackendStatus } from "../utils/cadApi";
 import { exportAsCSV, exportAsGeoJSON, exportAsKML, exportAsGPX, exportAsXLSX, exportAsWKT, exportAsDXF, exportAllFormats, downloadFile } from "../utils/exportData";
 // Import the map visualization component
 import MapVisualization from "./MapVisualization";
@@ -21,6 +22,50 @@ const loadGeoidModule = () => {
     geoidModulePromise = import("../utils/geoid");
   }
   return geoidModulePromise;
+};
+
+const formatBytes = (value) => {
+  if (!Number.isFinite(value) || value <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let size = value;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  return `${size.toFixed(unitIndex === 0 ? 0 : 2)} ${units[unitIndex]}`;
+};
+
+const buildCadInspectionSummary = (file, rows, status, payload = null) => {
+  const xs = rows.map((row) => Number(row.x)).filter(Number.isFinite);
+  const ys = rows.map((row) => Number(row.y)).filter(Number.isFinite);
+  const zs = rows.map((row) => Number(row.z)).filter(Number.isFinite);
+  const detectedFromCrs = rows.find((row) => row.detectedFromCrs)?.detectedFromCrs || payload?.inspection?.detectedFromCrs || null;
+  const extension = `.${(file?.name.split('.')?.pop() || '').toLowerCase()}`;
+  const route = payload?.inspection?.processingRoute
+    || (extension === ".dwg" ? (status?.dwgEnabled ? "dwg-converted" : "dwg-backend-unavailable") : "local-dxf");
+
+  return {
+    fileName: file?.name || null,
+    extension,
+    fileSizeBytes: file?.size || 0,
+    rowCount: rows.length,
+    detectedFromCrs,
+    warnings: payload?.warnings || [],
+    nativeDwg: payload?.inspection?.nativeDwg || false,
+    usedConverter: payload?.inspection?.usedConverter || false,
+    processingRoute: route,
+    bounds: {
+      minX: xs.length ? Math.min(...xs) : null,
+      maxX: xs.length ? Math.max(...xs) : null,
+      minY: ys.length ? Math.min(...ys) : null,
+      maxY: ys.length ? Math.max(...ys) : null,
+      minZ: zs.length ? Math.min(...zs) : null,
+      maxZ: zs.length ? Math.max(...zs) : null,
+    },
+    backendMode: status?.converterMode || "none",
+    backendPath: status?.converterPath || null,
+  };
 };
 
 // Register all CRS definitions for proj4 one time
@@ -664,6 +709,9 @@ const CoordinateConverter = () => {
   const [bulkProgress, setBulkProgress] = useState(null);
   const [bulkUploadFile, setBulkUploadFile] = useState(null);
   const [bulkUploadError, setBulkUploadError] = useState("");
+  const [cadBackendStatus, setCadBackendStatus] = useState(null);
+  const [cadBackendStatusError, setCadBackendStatusError] = useState("");
+  const [cadInspection, setCadInspection] = useState(null);
   
   // CRS Detection State
   const [crsSuggestions, setCrsSuggestions] = useState([]);
@@ -726,6 +774,23 @@ const CoordinateConverter = () => {
   const redoStackRef = useRef([]);
   // Auto-detect is enabled by default. Picking a From CRS manually locks it until reset.
   const fromCrsManualRef = useRef(false);
+
+  const refreshCadStatus = useCallback(async () => {
+    try {
+      const status = await getCadBackendStatus();
+      setCadBackendStatus(status);
+      setCadBackendStatusError("");
+      return status;
+    } catch (err) {
+      setCadBackendStatus(null);
+      setCadBackendStatusError(err.message || "CAD backend unavailable");
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshCadStatus();
+  }, [refreshCadStatus]);
 
   const getPresetStorageKey = useCallback((scope = presetScope) => {
     if (scope === "global") return "survey_calc_presets_global";
@@ -2093,6 +2158,7 @@ const CoordinateConverter = () => {
     // Clear bulk file conversion
     setBulkUploadFile(null);
     setBulkUploadError("");
+    setCadInspection(null);
     setSelectedBulkRows([]);
     setShowBulkTextInput(false);
 
@@ -2203,7 +2269,7 @@ const CoordinateConverter = () => {
     const file = fileArg || bulkUploadFile;
     if (!file) {
       setBulkIsConverting(false);
-      setBulkUploadError("Please select a supported file (.csv, .txt, .geojson, .json, .gpx, .kml, .zip, .xlsx, .xls, .dxf, .dwg).");
+      setBulkUploadError("Please select a supported file (.csv, .txt, .geojson, .json, .gpx, .kml, .zip, .xlsx, .xls, .dxf, .dwg). Native DWG requires the CAD backend service.");
       return;
     }
 
@@ -2211,6 +2277,7 @@ const CoordinateConverter = () => {
       let parsed = []; // Declare at the beginning before any use
       setBulkProgress("Reading file...");
       const ext = (file.name.split('.')?.pop() || '').toLowerCase();
+      const latestCadStatus = ["dwg", "dxf"].includes(ext) ? await refreshCadStatus() : cadBackendStatus;
       let lines = [];
       if (["csv","txt"].includes(ext)) {
         const text = await file.text();
@@ -2218,6 +2285,7 @@ const CoordinateConverter = () => {
         lines = rawLines.filter((l) => l.length > 0);
       } else {
         let rows = [];
+        let cadPayload = null;
         if (ext === "geojson" || ext === "json") {
           rows = await parseGeoJSONFile(file);
         } else if (ext === "gpx") {
@@ -2229,9 +2297,11 @@ const CoordinateConverter = () => {
         } else if (ext === "xlsx" || ext === "xls") {
           rows = await parseXLSXFile(file);
         } else if (ext === "dxf") {
-          rows = await parseDXFFile(file);
+          cadPayload = await parseDXFFile(file, { returnPayload: true });
+          rows = cadPayload.rows;
         } else if (ext === "dwg") {
-          rows = await parseDWGFile(file);
+          cadPayload = await parseDWGFile(file, { returnPayload: true });
+          rows = cadPayload.rows;
         } else {
           throw new Error(`Unsupported file type: .${ext}`);
         }
@@ -2254,6 +2324,10 @@ const CoordinateConverter = () => {
         })).filter(p => Number.isFinite(p.x) && Number.isFinite(p.y));
         
         if (parsed.length === 0) throw new Error("No valid coordinates in file");
+
+        if (["dxf", "dwg"].includes(ext)) {
+          setCadInspection(buildCadInspectionSummary(file, rows, latestCadStatus, cadPayload));
+        }
         
         // Skip the normal line-based parsing since we already have parsed coordinates
       }
@@ -3651,7 +3725,7 @@ const CoordinateConverter = () => {
             <li>WKT/EWKT: <em>POINT(lon lat [h])</em> or <em>SRID=4326;POINT(...)</em></li>
             <li>UTM: <em>55S 334368.6336 6250948.3454 [H]</em> or <em>32756, X, Y, H</em></li>
             <li>DD with hemispheres: <em>48.8566N, 2.3522E, 35</em> or DMS <em>48°51'24"N, 2°21'08"E</em></li>
-            <li>Files: .csv/.txt, .geojson/.json, .gpx, .kml, .zip (shapefile), .xlsx/.xls, .dxf, .dwg</li>
+            <li>Files: .csv/.txt, .geojson/.json, .gpx, .kml, .zip (shapefile), .xlsx/.xls, .dxf, .dwg (native DWG via backend)</li>
           </ul>
           <div style={{ marginTop: "0.5rem" }}>
             Quick samples: 
@@ -3666,6 +3740,23 @@ const CoordinateConverter = () => {
             const f = e.target.files?.[0] || null; 
             setBulkUploadFile(f); 
             setBulkUploadError(""); 
+            setCadInspection(f ? {
+              fileName: f.name,
+              extension: `.${(f.name.split('.')?.pop() || '').toLowerCase()}`,
+              fileSizeBytes: f.size,
+              rowCount: null,
+              detectedFromCrs: null,
+              warnings: [],
+              nativeDwg: false,
+              usedConverter: false,
+              processingRoute: null,
+              bounds: null,
+              backendMode: cadBackendStatus?.converterMode || "none",
+              backendPath: cadBackendStatus?.converterPath || null,
+            } : null);
+            if (f && ["dwg", "dxf"].includes((f.name.split('.')?.pop() || '').toLowerCase())) {
+              refreshCadStatus();
+            }
             detectFileFormatsAndCRS(f); // Detect CRS immediately
           }} style={{ display: "none" }} />
           <button onClick={() => bulkFileInputRef.current?.click()} style={{ padding: "0.5rem 0.9rem", background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", borderRadius: "6px", cursor: "pointer" }}>
@@ -3691,6 +3782,46 @@ const CoordinateConverter = () => {
           {bulkUploadFile && <span style={{ fontSize: "0.85rem", color: "#059669", fontWeight: 500 }}>✓ {bulkUploadFile.name}</span>}
         </div>
         {bulkUploadError && <div role="alert" style={{ color: "#b91c1c" }}>{bulkUploadError}</div>}
+        <div style={{ display: "grid", gap: "0.55rem", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
+          <div style={{ border: "1px solid #dbeafe", borderRadius: "8px", background: "#f8fbff", padding: "0.75rem" }}>
+            <div style={{ fontWeight: 700, color: "#1d4ed8", fontSize: "0.76rem", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.35rem" }}>CAD Backend</div>
+            <div style={{ fontSize: "0.84rem", color: "#334155" }}>
+              Mode: <strong>{cadBackendStatus?.converterMode || "offline"}</strong>
+            </div>
+            <div style={{ fontSize: "0.84rem", color: cadBackendStatus?.dwgEnabled ? "#166534" : "#92400e" }}>
+              {cadBackendStatus?.dwgEnabled ? "Native DWG conversion ready" : (cadBackendStatusError || cadBackendStatus?.setupHint || "Native DWG converter not available")}
+            </div>
+            {cadBackendStatus?.converterPath && (
+              <div style={{ fontSize: "0.78rem", color: "#475569", marginTop: "0.35rem", wordBreak: "break-all" }}>
+                {cadBackendStatus.converterPath}
+              </div>
+            )}
+          </div>
+          <div style={{ border: "1px solid #e2e8f0", borderRadius: "8px", background: "#ffffff", padding: "0.75rem" }}>
+            <div style={{ fontWeight: 700, color: "#0f172a", fontSize: "0.76rem", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.35rem" }}>CAD Inspection</div>
+            {!cadInspection && <div style={{ fontSize: "0.84rem", color: "#64748b" }}>Select and convert a DXF or DWG file to inspect file routing, detected CRS, and parsed bounds.</div>}
+            {cadInspection && (
+              <div style={{ display: "grid", gap: "0.18rem", fontSize: "0.84rem", color: "#334155" }}>
+                <div><strong>{cadInspection.fileName}</strong> {cadInspection.extension ? `(${cadInspection.extension})` : ""}</div>
+                <div>Size: {formatBytes(cadInspection.fileSizeBytes)}</div>
+                <div>Route: {cadInspection.processingRoute || "pending"}</div>
+                <div>Rows: {cadInspection.rowCount ?? "pending"}</div>
+                <div>Detected CRS: {cadInspection.detectedFromCrs || "pending"}</div>
+                {cadInspection.bounds && cadInspection.bounds.minX !== null && (
+                  <div>
+                    Bounds: X {cadInspection.bounds.minX.toFixed(3)} to {cadInspection.bounds.maxX.toFixed(3)} | Y {cadInspection.bounds.minY.toFixed(3)} to {cadInspection.bounds.maxY.toFixed(3)}
+                  </div>
+                )}
+                {cadInspection.bounds && cadInspection.bounds.minZ !== null && (
+                  <div>Z range: {cadInspection.bounds.minZ.toFixed(3)} to {cadInspection.bounds.maxZ.toFixed(3)}</div>
+                )}
+                {cadInspection.warnings?.length > 0 && (
+                  <div style={{ color: "#92400e" }}>{cadInspection.warnings.join(" ")}</div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <div style={{ marginTop: "0.6rem", padding: "0.7rem", border: "1px solid #dbeafe", borderRadius: "8px", background: "#f8fbff" }}>

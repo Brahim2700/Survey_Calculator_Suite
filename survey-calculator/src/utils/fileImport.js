@@ -1,13 +1,14 @@
 // src/utils/fileImport.js
-// Lightweight file import helpers for GeoJSON, GPX, KML, Shapefile ZIP, and XLSX
+// Lightweight file import helpers for GeoJSON, GPX, KML, Shapefile ZIP, XLSX, and CAD imports.
 // All parsers return an array of rows: { id, x, y, z, detectedFromCrs, crsSuggestions }
 // - x,y in numeric lon/lat for geographic sources unless otherwise noted
 // - z may be null
 // - detectedFromCrs may be an EPSG string if the file carries CRS info
 // - crsSuggestions is an array of detected CRS options with confidence scores
 
-import DxfParser from 'dxf-parser';
 import { detectCRS } from './crsDetection';
+import { parseCadFileViaBackend } from './cadApi';
+import { isLikelyDxfText, isLikelyNativeDwgData, parseDxfTextContent } from './cadShared';
 
 export async function parseGeoJSONFile(file) {
   const text = await file.text();
@@ -210,185 +211,42 @@ export async function parseShapefileZip(file) {
   return parseGeoJSONFile(pseudoFile);
 }
 
-// --------- CAD helpers (DXF/DWG) ---------
-const detectCrsFromDxf = (dxfData) => {
-  // Try to detect CRS from DXF header variables
-  const header = dxfData?.header || {};
-  
-  // Check for custom CRS variables (some exporters add these)
-  if (header.$EPSG || header.$EPSGCODE) {
-    const code = header.$EPSG || header.$EPSGCODE;
-    if (typeof code === 'number' || typeof code === 'string') {
-      return `EPSG:${code}`;
-    }
-  }
-  
-  // Check layer names for CRS hints (e.g., layer named "UTM_32N" or "EPSG_2154")
-  const layers = dxfData?.tables?.layer?.layers || {};
-  for (const layerName of Object.keys(layers)) {
-    const epsgMatch = layerName.match(/EPSG[_:]?(\d{4,5})/i);
-    if (epsgMatch) return `EPSG:${epsgMatch[1]}`;
-    
-    const utmMatch = layerName.match(/UTM[_:]?(\d{1,2})([NS])/i);
-    if (utmMatch) {
-      const zone = utmMatch[1].padStart(2, '0');
-      const hemi = utmMatch[2].toUpperCase();
-      return hemi === 'N' ? `EPSG:326${zone}` : `EPSG:327${zone}`;
-    }
-  }
-  
-  // Check blocks for CRS info
-  const blocks = dxfData?.blocks || {};
-  for (const blockName of Object.keys(blocks)) {
-    const epsgMatch = blockName.match(/EPSG[_:]?(\d{4,5})/i);
-    if (epsgMatch) return `EPSG:${epsgMatch[1]}`;
-  }
-  
-  // Default to WGS84 if no CRS detected
-  return 'EPSG:4326';
-};
-
-const collectPointRowsFromDxf = (dxfData, options = {}) => {
-  const rows = [];
-  let idx = 1;
-  const pointsOnly = options.pointsOnly || false;
-  let detectedFromCrs = detectCrsFromDxf(dxfData);
-  const seenCoords = new Map(); // Track coordinates to prefer non-zero Z values
-
-  const addRow = (x, y, z, idHint) => {
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-    const coordKey = `${x.toFixed(3)},${y.toFixed(3)}`;
-    
-    // If we've seen this coordinate before, prefer the one with non-zero Z
-    if (seenCoords.has(coordKey)) {
-      const existing = seenCoords.get(coordKey);
-      if (existing.z === 0 && Number.isFinite(z) && z !== 0) {
-        // Replace with non-zero Z
-        existing.z = z;
-      }
-      return; // Don't add duplicate coordinates
-    }
-    
-    const id = idHint || idx;
-    const row = { id, x, y, z: Number.isFinite(z) ? z : null, detectedFromCrs };
-    rows.push(row);
-    seenCoords.set(coordKey, row);
-    idx += 1;
-  };
-
-  const visitEntities = (entities) => {
-    if (!entities || !Array.isArray(entities)) return;
-    entities.forEach((ent) => {
-      const layer = ent?.layer || ent?.type;
-      switch (ent?.type) {
-        case 'POINT': {
-          // Extract Z coordinate
-          const z = ent.position?.z ?? ent.z ?? ent.position?.[2] ?? ent.vertices?.[0]?.z;
-          addRow(ent.position?.x, ent.position?.y, z, layer);
-          break;
-        }
-        case 'LINE': {
-          if (!pointsOnly) {
-            const startZ = ent.start?.z ?? ent.startZ ?? ent.start?.[2];
-            const endZ = ent.end?.z ?? ent.endZ ?? ent.end?.[2];
-            addRow(ent.start?.x, ent.start?.y, startZ, `${layer || 'LINE'}-start`);
-            addRow(ent.end?.x, ent.end?.y, endZ, `${layer || 'LINE'}-end`);
-          }
-          break;
-        }
-        case 'LWPOLYLINE':
-        case 'POLYLINE': {
-          if (!pointsOnly) {
-            (ent.vertices || []).forEach((v, i) => {
-              const vz = v?.z ?? v?.[2];
-              addRow(v?.x, v?.y, vz, `${layer || ent.type}-${i + 1}`);
-            });
-          }
-          break;
-        }
-        case 'VERTEX': {
-          if (!pointsOnly) {
-            const vz = ent.position?.z ?? ent.z ?? ent.position?.[2];
-            addRow(ent.position?.x, ent.position?.y, vz, layer);
-          }
-          break;
-        }
-        case 'CIRCLE':
-        case 'ARC': {
-          if (!pointsOnly) {
-            const cz = ent.center?.z ?? ent.centerZ ?? ent.center?.[2];
-            addRow(ent.center?.x, ent.center?.y, cz, layer);
-          }
-          break;
-        }
-        case 'INSERT': {
-          if (!pointsOnly) {
-            const iz = ent.position?.z ?? ent.z ?? ent.position?.[2];
-            addRow(ent.position?.x, ent.position?.y, iz, ent.name || layer || 'INSERT');
-          }
-          break;
-        }
-        default:
-          break;
-      }
-    });
-  };
-
-  visitEntities(dxfData?.entities);
-  const blocks = dxfData?.blocks || {};
-  Object.values(blocks).forEach((b) => visitEntities(b?.entities));
-  
-  // Smart CRS detection
-  const coordinates = rows.map(r => ({ x: r.x, y: r.y, z: r.z }));
-  const metadata = { projection: detectedFromCrs !== 'EPSG:4326' ? detectedFromCrs : null };
-  const crsSuggestions = detectCRS(coordinates, metadata);
-  
-  // Use smart detection if basic detection didn't find CRS
-  if (detectedFromCrs === 'EPSG:4326' && crsSuggestions.length > 0 && crsSuggestions[0].confidence > 0.7) {
-    detectedFromCrs = crsSuggestions[0].code;
-  }
-  
-  // Add metadata to rows
-  rows.forEach(row => {
-    row.detectedFromCrs = detectedFromCrs;
-    row.crsSuggestions = crsSuggestions;
-  });
-  
-  return rows;
-};
-
 export async function parseDXFFile(file, options = {}) {
   const text = await file.text();
-  const parser = new DxfParser();
-  let dxf;
-  try {
-    dxf = parser.parseSync(text);
-  } catch (err) {
-    throw new Error(`Failed to parse DXF: ${err.message || err}`);
-  }
-  const rows = collectPointRowsFromDxf(dxf, options);
-  if (!rows.length) {
-    const hint = options.pointsOnly ? 'No POINT entities found in DXF. Try unchecking "Points only" to extract vertices from lines/polylines.' : 'No point-like entities found in DXF';
-    throw new Error(hint);
+  const rows = parseDxfTextContent(text, options);
+  if (options.returnPayload) {
+    return {
+      rows,
+      sourceFormat: 'dxf',
+      warnings: [],
+      inspection: null,
+    };
   }
   return rows;
 }
 
 export async function parseDWGFile(file, options = {}) {
-  const buffer = await file.arrayBuffer();
+  const buffer = new Uint8Array(await file.arrayBuffer());
 
-  // Try to parse DWG content as DXF text if it is a text-based export
-  try {
-    const text = new TextDecoder().decode(buffer);
-    const parser = new DxfParser();
-    const dxf = parser.parseSync(text);
-    const rows = collectPointRowsFromDxf(dxf, options);
-    if (rows.length) return rows;
-  } catch {
-    // Continue to friendly error below
+  if (isLikelyNativeDwgData(buffer)) {
+    return parseCadFileViaBackend(file, options);
   }
 
-  throw new Error('DWG parsing failed. Please export/save the drawing as DXF (ASCII) and try again.');
+  const text = await file.text();
+  if (!isLikelyDxfText(text)) {
+    throw new Error('Unsupported DWG content. Native DWG requires the CAD backend service, or you can export the drawing as DXF and retry.');
+  }
+
+  const rows = parseDxfTextContent(text, options);
+  if (options.returnPayload) {
+    return {
+      rows,
+      sourceFormat: 'dwg',
+      warnings: ['The uploaded .dwg file contains DXF text and was parsed in the browser.'],
+      inspection: null,
+    };
+  }
+  return rows;
 }
 
 // --------- Text helpers (CSV/WKT/UTM) ---------

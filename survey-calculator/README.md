@@ -2,10 +2,14 @@
 
 Client-side CRS conversion and visualization tool built with React + Vite. Supports geoid-based height conversions (h↔H), single and bulk transforms, and importing multiple geospatial formats.
 
+The repo now also includes an optional CAD backend service for native DWG parsing. The frontend stays in this app; DWG conversion happens server-side.
+
 ## Quick Start
 
 - Install: `npm install`
 - Dev server: `npm run dev`
+- CAD backend: `npm run dev:server`
+- Full stack dev: `npm run dev:full`
 - Build: `npm run build`
 - Preview: `npm run preview`
 
@@ -16,6 +20,7 @@ Client-side CRS conversion and visualization tool built with React + Vite. Suppo
 - Single and bulk conversion, including zone guidance for UTM.
 - Flexible parsers for text/CSV with WKT, UTM, hemispheric DD.
 - Import structured formats: GeoJSON, GPX, KML, XLSX, Shapefile ZIP.
+- DXF parsing in-browser, plus native DWG parsing through the optional backend service.
 
 ## Supported Import Formats
 
@@ -28,8 +33,63 @@ Client-side CRS conversion and visualization tool built with React + Vite. Suppo
 - KML: Placemarks with Point coordinates and optional altitude.
 - XLSX/XLS: sheet with columns like `id, lon, lat, h, SRID, WKT`.
 - Shapefile ZIP: zipped .shp/.shx/.dbf (+ optional .prj); parsed to GeoJSON.
+- DXF: parsed locally in the browser.
+- DWG: uploaded to the backend service, converted to DXF, then normalized for conversion/inspection.
 
-Accepted file types in the UI: `.csv,.txt,.geojson,.json,.gpx,.kml,.zip,.xlsx,.xls`.
+Accepted file types in the UI: `.csv,.txt,.geojson,.json,.gpx,.kml,.zip,.xlsx,.xls,.dxf,.dwg`.
+
+## DWG Backend Setup
+
+The DWG backend is included under `server/` and exposes `/api/cad/health` and `/api/cad/parse`.
+
+On Windows, the backend now auto-detects a standard ODA File Converter install such as `C:\Program Files\ODA\ODAFileConverter 27.1.0\ODAFileConverter.exe`.
+
+For native DWG support, configure one of these on the machine running `npm run dev:server`:
+
+- `ODA_FILE_CONVERTER_PATH`: path to ODA File Converter executable. This is the easiest supported setup in the current backend.
+- `DWG_CONVERTER_COMMAND`: custom command template for another converter. Supported placeholders: `{inputPath}`, `{inputDir}`, `{inputFileName}`, `{outputDir}`, `{outputDxfPath}`, `{outputBaseName}`.
+
+Quick Windows install:
+
+- `winget install --id ODA.ODAFileConverter -e --accept-package-agreements --accept-source-agreements`
+
+Optional backend environment variables:
+
+- `CAD_API_PORT`: backend port, defaults to `4000`.
+- `CAD_MAX_UPLOAD_MB`: upload limit in MB, defaults to `100`.
+- `DWG_CONVERTER_TIMEOUT_MS`: converter timeout, defaults to `120000`.
+- `ODA_OUTPUT_VERSION`: output target for ODA conversion, defaults to `ACAD2018`.
+
+Frontend development proxy:
+
+- Vite proxies `/api/cad` to `http://localhost:4000` by default.
+- Override it with `VITE_CAD_BACKEND_PROXY_TARGET` if your backend runs elsewhere.
+
+## Production Deployment
+
+For production, deploy the frontend and CAD backend separately.
+
+- Frontend: deploy this Vite app to Vercel.
+- CAD backend: deploy `server/` on infrastructure that supports native binaries and child processes.
+
+Important:
+
+- Do not rely on a local machine path like `C:\Program Files\...` for production.
+- Vercel should call a hosted CAD API using `VITE_CAD_API_BASE_URL`, for example `https://cad-api.yourdomain.com/api/cad`.
+- The hosted CAD backend is where ODA File Converter or another DWG converter must be installed/configured.
+
+Files added for this flow:
+
+- `Dockerfile.cad-api`
+- `.env.cad-api.example`
+- `.env.vercel.example`
+- `CAD_BACKEND_DEPLOYMENT.md`
+
+Recommended production shape:
+
+- Vercel for the frontend UI.
+- A dedicated CAD service on a VM, container host, or managed backend platform for DWG/DXF processing.
+- Optional object storage and job queue for large CAD files.
 
 ## Sample Files
 
