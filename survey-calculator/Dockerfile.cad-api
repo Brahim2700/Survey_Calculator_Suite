@@ -20,7 +20,7 @@ RUN set -eux; \
     curl -fsSL "https://ftp.gnu.org/gnu/libredwg/libredwg-${LIBREDWG_VERSION}.tar.xz" -o /tmp/libredwg.tar.xz; \
     tar -xJf /tmp/libredwg.tar.xz -C /tmp; \
     cd /tmp/libredwg-${LIBREDWG_VERSION}; \
-    ./configure --disable-bindings --prefix=/usr/local; \
+    ./configure --disable-bindings --disable-python --prefix=/usr/local; \
     make -j"$(nproc)"; \
     make install; \
     ln -sf /usr/local/bin/dwg2dxf /usr/bin/dwg2dxf; \
