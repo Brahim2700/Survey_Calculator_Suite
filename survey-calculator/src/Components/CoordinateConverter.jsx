@@ -709,6 +709,7 @@ const CoordinateConverter = () => {
   const [bulkProgress, setBulkProgress] = useState(null);
   const [bulkUploadFile, setBulkUploadFile] = useState(null);
   const [bulkUploadError, setBulkUploadError] = useState("");
+  const [cadPreviewLoading, setCadPreviewLoading] = useState(false);
   const [cadBackendStatus, setCadBackendStatus] = useState(null);
   const [cadBackendStatusError, setCadBackendStatusError] = useState("");
   const [cadInspection, setCadInspection] = useState(null);
@@ -1516,6 +1517,44 @@ const CoordinateConverter = () => {
     return { lines, polylines };
   }, []);
 
+  const projectCadRowsToWgs84 = useCallback((rows, sourceCrs) => {
+    const source = sourceCrs || 'EPSG:4326';
+    const sourceDef = CRS_LIST.find((c) => c.code === source);
+    const sourceIsGeo = sourceDef?.type === 'geographic' || source === 'EPSG:4326';
+
+    return (Array.isArray(rows) ? rows : [])
+      .map((row, index) => {
+        const xVal = Number(row?.x);
+        const yVal = Number(row?.y);
+        if (!Number.isFinite(xVal) || !Number.isFinite(yVal)) return null;
+
+        if (sourceIsGeo) {
+          return {
+            id: String(row?.id ?? `cad_${index + 1}`),
+            lat: yVal,
+            lng: xVal,
+            label: String(row?.id ?? `CAD ${index + 1}`),
+            height: Number.isFinite(Number(row?.z)) ? Number(row.z) : 0,
+          };
+        }
+
+        try {
+          const [lon, lat] = proj4(source, 'EPSG:4326', [xVal, yVal]);
+          if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+          return {
+            id: String(row?.id ?? `cad_${index + 1}`),
+            lat,
+            lng: lon,
+            label: String(row?.id ?? `CAD ${index + 1}`),
+            height: Number.isFinite(Number(row?.z)) ? Number(row.z) : 0,
+          };
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  }, []);
+
   // Auto-emit points after bulk conversion for map/sidebar consumers
   useEffect(() => {
     if (bulkResults && bulkResults.length > 0) {
@@ -2306,6 +2345,60 @@ const CoordinateConverter = () => {
       setBulkUploadError(err.message || 'Failed to load DWG sample file.');
     }
   }, [applyBulkFileSelection]);
+
+  const handleDetectAndVisualizeCadOnly = useCallback(async () => {
+    const file = bulkUploadFile;
+    if (!file) {
+      setBulkUploadError("Please choose a DXF or DWG file first.");
+      return;
+    }
+
+    const ext = (file.name.split('.')?.pop() || '').toLowerCase();
+    if (!['dxf', 'dwg'].includes(ext)) {
+      setBulkUploadError("Detect + visualize only is available for DXF/DWG files.");
+      return;
+    }
+
+    setCadPreviewLoading(true);
+    setBulkUploadError("");
+    setError(null);
+    setBulkProgress("Detecting CRS and preparing CAD preview...");
+
+    try {
+      const latestCadStatus = await refreshCadStatus();
+      const cadPayload = ext === 'dxf'
+        ? await parseDXFFile(file, { returnPayload: true })
+        : await parseDWGFile(file, { returnPayload: true });
+
+      const rows = Array.isArray(cadPayload?.rows) ? cadPayload.rows : [];
+      if (!rows.length) {
+        throw new Error("No point features found in this CAD file.");
+      }
+
+      const detectedFromRows = rows.find((r) => r.detectedFromCrs)?.detectedFromCrs;
+      const detectedFromPayload = cadPayload?.inspection?.detectedFromCrs;
+      const sourceCrs = detectedFromRows || detectedFromPayload || fromCrs;
+
+      if (detectedFromRows || detectedFromPayload) {
+        setFromCrsAutomatically(sourceCrs);
+      }
+
+      setCadInspection(buildCadInspectionSummary(file, rows, latestCadStatus, cadPayload));
+
+      const previewPoints = projectCadRowsToWgs84(rows, sourceCrs);
+      emit("converter:pointsForMap", { points: previewPoints });
+
+      const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrs);
+      emit("converter:cadGeometryForMap", { geometry: projectedGeometry });
+
+      setBulkProgress(null);
+    } catch (err) {
+      setBulkProgress(null);
+      setBulkUploadError(err.message || "Failed to detect CRS and visualize CAD file.");
+    } finally {
+      setCadPreviewLoading(false);
+    }
+  }, [bulkUploadFile, fromCrs, projectCadGeometryToWgs84, projectCadRowsToWgs84, refreshCadStatus]);
 
   // Detect CRS immediately when file is selected
   const detectFileFormatsAndCRS = async (file) => {
@@ -3855,6 +3948,23 @@ const CoordinateConverter = () => {
           <button onClick={handleBulkConvert} style={{ padding: "0.5rem 0.9rem", background: "#0f766e", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: 600 }}>
             Convert File/Bulk
           </button>
+          <button
+            onClick={handleDetectAndVisualizeCadOnly}
+            disabled={cadPreviewLoading || !bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())}
+            style={{
+              padding: "0.5rem 0.9rem",
+              background: "#0284c7",
+              color: "#fff",
+              border: "none",
+              borderRadius: "6px",
+              cursor: cadPreviewLoading ? "wait" : "pointer",
+              fontWeight: 600,
+              opacity: (!bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())) ? 0.65 : 1,
+            }}
+            title="Detect CRS and preview DXF/DWG geometry on map without converting to target CRS"
+          >
+            {cadPreviewLoading ? "Preparing Preview..." : "Detect CRS + Visualize Only"}
+          </button>
           {bulkIsConverting && (
             <button
               onClick={() => { bulkCancelRef.current = true; }}
@@ -3889,7 +3999,7 @@ const CoordinateConverter = () => {
           </div>
           <div style={{ border: "1px solid #e2e8f0", borderRadius: "8px", background: "#ffffff", padding: "0.75rem" }}>
             <div style={{ fontWeight: 700, color: "#0f172a", fontSize: "0.76rem", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.35rem" }}>CAD Inspection</div>
-            {!cadInspection && <div style={{ fontSize: "0.84rem", color: "#64748b" }}>Select and convert a DXF or DWG file to inspect file routing, detected CRS, and parsed bounds.</div>}
+            {!cadInspection && <div style={{ fontSize: "0.84rem", color: "#64748b" }}>Select a DXF or DWG file, then use Detect CRS + Visualize Only (preview) or Convert File/Bulk to inspect routing, detected CRS, and parsed bounds.</div>}
             {cadInspection && (
               <div style={{ display: "grid", gap: "0.18rem", fontSize: "0.84rem", color: "#334155" }}>
                 <div><strong>{cadInspection.fileName}</strong> {cadInspection.extension ? `(${cadInspection.extension})` : ""}</div>
