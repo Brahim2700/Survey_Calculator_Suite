@@ -125,8 +125,8 @@ async function runLibreDwgConverter(vars, timeoutMs) {
   if (!dwg2dxfPath) {
     throw new Error('dwg2dxf binary not found. Check DEFAULT_DWG2DXF_PATHS or set DWG2DXF_PATH env var.');
   }
-  // dwg2dxf writes baseName.dxf next to the input .dwg file
-  await runSpawnedCommand(dwg2dxfPath, [vars.inputPath], timeoutMs);
+  // Force explicit output path to avoid converter defaults varying across versions.
+  return await runSpawnedCommand(dwg2dxfPath, [vars.inputPath, vars.outputDxfPath], timeoutMs);
 }
 
 async function runOdaConverter(vars, timeoutMs) {
@@ -210,12 +210,12 @@ async function convertDwgBufferToDxfText(buffer, originalName) {
   try {
     let searchDir = outputDir;
     let preferredPath = outputDxfPath;
+    let converterStdout = '';
 
     if (converterMode === 'libredwg') {
-      // dwg2dxf places the .dxf next to the .dwg in tempRoot, not in outputDir
-      await runLibreDwgConverter(vars, timeoutMs);
-      searchDir = tempRoot;
-      preferredPath = path.join(tempRoot, `${baseName}.dxf`);
+      // For LibreDWG we request a specific DXF output path in outputDir.
+      const result = await runLibreDwgConverter(vars, timeoutMs);
+      converterStdout = result?.stdout || '';
     } else if (converterMode === 'oda') {
       await runOdaConverter(vars, timeoutMs);
     } else {
@@ -224,6 +224,10 @@ async function convertDwgBufferToDxfText(buffer, originalName) {
 
     const convertedPath = await findFirstDxfFile(searchDir, preferredPath);
     if (!convertedPath) {
+      // Some dwg2dxf builds can emit DXF to stdout; accept that as fallback.
+      if (converterMode === 'libredwg' && isLikelyDxfData(converterStdout)) {
+        return converterStdout;
+      }
       throw new Error('The DWG converter finished without producing a DXF file.');
     }
 
