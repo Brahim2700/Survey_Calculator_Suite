@@ -120,13 +120,49 @@ async function runSpawnedCommand(command, args, timeoutMs) {
   });
 }
 
+async function fileExists(filePath) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function runLibreDwgConverter(vars, timeoutMs) {
   const dwg2dxfPath = resolveDwg2DxfPath();
   if (!dwg2dxfPath) {
     throw new Error('dwg2dxf binary not found. Check DEFAULT_DWG2DXF_PATHS or set DWG2DXF_PATH env var.');
   }
-  // Force explicit output path to avoid converter defaults varying across versions.
-  return await runSpawnedCommand(dwg2dxfPath, [vars.inputPath, vars.outputDxfPath], timeoutMs);
+
+  const defaultNeighborPath = path.join(vars.inputDir, `${vars.outputBaseName}.dxf`);
+  const attempts = [
+    { args: [vars.inputPath, vars.outputDxfPath], expected: vars.outputDxfPath },
+    { args: ['-o', vars.outputDxfPath, vars.inputPath], expected: vars.outputDxfPath },
+    { args: [vars.inputPath], expected: defaultNeighborPath },
+  ];
+
+  let lastError = null;
+  for (const attempt of attempts) {
+    try {
+      const result = await runSpawnedCommand(dwg2dxfPath, attempt.args, timeoutMs);
+      if (await fileExists(attempt.expected)) {
+        return { ...result, outputPath: attempt.expected };
+      }
+      if (isLikelyDxfData(result.stdout)) {
+        return { ...result, outputPath: null };
+      }
+    } catch (err) {
+      // Some files emit warnings or non-zero exits; still accept if output file exists.
+      if (await fileExists(attempt.expected)) {
+        return { stdout: '', stderr: err.message || '', outputPath: attempt.expected };
+      }
+      lastError = err;
+    }
+  }
+
+  if (lastError) throw lastError;
+  throw new Error('dwg2dxf completed but did not produce a readable DXF output.');
 }
 
 async function runOdaConverter(vars, timeoutMs) {
@@ -213,9 +249,13 @@ async function convertDwgBufferToDxfText(buffer, originalName) {
     let converterStdout = '';
 
     if (converterMode === 'libredwg') {
-      // For LibreDWG we request a specific DXF output path in outputDir.
+      // LibreDWG CLI syntax differs across versions; run converter with fallbacks.
       const result = await runLibreDwgConverter(vars, timeoutMs);
       converterStdout = result?.stdout || '';
+      if (result?.outputPath) {
+        preferredPath = result.outputPath;
+        searchDir = path.dirname(result.outputPath);
+      }
     } else if (converterMode === 'oda') {
       await runOdaConverter(vars, timeoutMs);
     } else {

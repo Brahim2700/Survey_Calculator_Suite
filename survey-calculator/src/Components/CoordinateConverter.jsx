@@ -2211,6 +2211,49 @@ const CoordinateConverter = () => {
     performResetAll();
   };
 
+  const applyBulkFileSelection = useCallback((file) => {
+    setBulkUploadFile(file || null);
+    setBulkUploadError("");
+    setCadInspection(file ? {
+      fileName: file.name,
+      extension: `.${(file.name.split('.')?.pop() || '').toLowerCase()}`,
+      fileSizeBytes: file.size,
+      rowCount: null,
+      detectedFromCrs: null,
+      warnings: [],
+      nativeDwg: false,
+      usedConverter: false,
+      processingRoute: null,
+      bounds: null,
+      backendMode: cadBackendStatus?.converterMode || "none",
+      backendPath: cadBackendStatus?.converterPath || null,
+    } : null);
+
+    const ext = (file?.name?.split('.')?.pop() || '').toLowerCase();
+    if (file && ["dwg", "dxf"].includes(ext)) {
+      refreshCadStatus();
+    }
+    detectFileFormatsAndCRS(file);
+  }, [cadBackendStatus, refreshCadStatus]);
+
+  const handleLoadSampleDwg = useCallback(async () => {
+    try {
+      setBulkUploadError("");
+      const response = await fetch('/samples/sample_test_text.dwg', { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error('Unable to load DWG sample file from /samples/sample_test_text.dwg');
+      }
+      const blob = await response.blob();
+      const sampleFile = new File([blob], 'sample_test_text.dwg', {
+        type: 'application/acad',
+        lastModified: Date.now(),
+      });
+      applyBulkFileSelection(sampleFile);
+    } catch (err) {
+      setBulkUploadError(err.message || 'Failed to load DWG sample file.');
+    }
+  }, [applyBulkFileSelection]);
+
   // Detect CRS immediately when file is selected
   const detectFileFormatsAndCRS = async (file) => {
     if (!file) return;
@@ -3732,36 +3775,21 @@ const CoordinateConverter = () => {
             <a href="/samples/sample.csv" target="_blank" rel="noreferrer">CSV</a> · 
             <a href="/samples/sample.geojson" target="_blank" rel="noreferrer">GeoJSON</a> · 
             <a href="/samples/sample.gpx" target="_blank" rel="noreferrer">GPX</a> · 
-            <a href="/samples/sample.kml" target="_blank" rel="noreferrer">KML</a>
+              <a href="/samples/sample.kml" target="_blank" rel="noreferrer">KML</a> · 
+              <a href="/samples/sample_test_text.dwg" target="_blank" rel="noreferrer">DWG test</a>
           </div>
         </div>
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
           <input ref={bulkFileInputRef} type="file" accept=".csv,.txt,.geojson,.json,.gpx,.kml,.zip,.xlsx,.xls,.dxf,.dwg" onChange={(e) => { 
             const f = e.target.files?.[0] || null; 
-            setBulkUploadFile(f); 
-            setBulkUploadError(""); 
-            setCadInspection(f ? {
-              fileName: f.name,
-              extension: `.${(f.name.split('.')?.pop() || '').toLowerCase()}`,
-              fileSizeBytes: f.size,
-              rowCount: null,
-              detectedFromCrs: null,
-              warnings: [],
-              nativeDwg: false,
-              usedConverter: false,
-              processingRoute: null,
-              bounds: null,
-              backendMode: cadBackendStatus?.converterMode || "none",
-              backendPath: cadBackendStatus?.converterPath || null,
-            } : null);
-            if (f && ["dwg", "dxf"].includes((f.name.split('.')?.pop() || '').toLowerCase())) {
-              refreshCadStatus();
-            }
-            detectFileFormatsAndCRS(f); // Detect CRS immediately
+              applyBulkFileSelection(f);
           }} style={{ display: "none" }} />
           <button onClick={() => bulkFileInputRef.current?.click()} style={{ padding: "0.5rem 0.9rem", background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", borderRadius: "6px", cursor: "pointer" }}>
             Choose file
           </button>
+            <button onClick={handleLoadSampleDwg} style={{ padding: "0.5rem 0.9rem", background: "#eef2ff", color: "#3730a3", border: "1px solid #c7d2fe", borderRadius: "6px", cursor: "pointer", fontWeight: 600 }}>
+              Load DWG Sample
+            </button>
           <button onClick={handleBulkConvert} style={{ padding: "0.5rem 0.9rem", background: "#0f766e", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: 600 }}>
             Convert File/Bulk
           </button>
