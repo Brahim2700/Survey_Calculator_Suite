@@ -4,7 +4,7 @@ import multer from 'multer';
 import { getCadBackendStatus, parseCadUpload } from './cadService.js';
 
 const app = express();
-const port = Number(process.env.CAD_API_PORT || 4000);
+const port = Number(process.env.PORT || process.env.CAD_API_PORT || 4000);
 const uploadLimitMb = Number(process.env.CAD_MAX_UPLOAD_MB || 100);
 const allowedOrigins = String(process.env.CAD_ALLOWED_ORIGINS || '')
   .split(',')
