@@ -1,9 +1,30 @@
 FROM node:20-bookworm-slim
 
-# Install LibreDWG tools (provides dwg2dxf)
+# Build and install LibreDWG (provides dwg2dxf)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libredwg-tools \
+    ca-certificates \
+    curl \
+    build-essential \
+    autoconf \
+    automake \
+    libtool \
+    pkg-config \
+    texinfo \
+    flex \
+    bison \
+    xz-utils \
     && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    LIBREDWG_VERSION=0.13.3; \
+    curl -fsSL "https://ftp.gnu.org/gnu/libredwg/libredwg-${LIBREDWG_VERSION}.tar.xz" -o /tmp/libredwg.tar.xz; \
+    tar -xJf /tmp/libredwg.tar.xz -C /tmp; \
+    cd /tmp/libredwg-${LIBREDWG_VERSION}; \
+    ./configure --disable-bindings --prefix=/usr/local; \
+    make -j"$(nproc)"; \
+    make install; \
+    ln -sf /usr/local/bin/dwg2dxf /usr/bin/dwg2dxf; \
+    rm -rf /tmp/libredwg /tmp/libredwg-* /tmp/libredwg.tar.xz
 
 WORKDIR /app
 
