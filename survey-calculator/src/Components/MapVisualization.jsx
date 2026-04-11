@@ -4,6 +4,7 @@ import 'leaflet/dist/leaflet.css';
 import { emit } from '../utils/eventBus';
 
 const BASEMAP_STORAGE_KEY = 'survey_calc_basemap';
+const LABEL_AUTO_HIDE_THRESHOLD = 300;
 
 const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, isVisible, onPointSelect, measureMode = false, measurePoints = [] }) => {
   const mapContainer = useRef(null);
@@ -20,6 +21,22 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
   const [showPointLayer, setShowPointLayer] = useState(true);
   const [showLineLayer, setShowLineLayer] = useState(true);
   const [showPolylineLayer, setShowPolylineLayer] = useState(true);
+  const [showLabels, setShowLabels] = useState(true);
+  const labelsTouchedRef = useRef(false);
+
+  useEffect(() => {
+    if (!Array.isArray(points)) return;
+
+    if (points.length === 0) {
+      labelsTouchedRef.current = false;
+      setShowLabels(true);
+      return;
+    }
+
+    if (!labelsTouchedRef.current && points.length > LABEL_AUTO_HIDE_THRESHOLD) {
+      setShowLabels(false);
+    }
+  }, [points]);
 
   // Add CSS for detection labels on first render
   useEffect(() => {
@@ -399,7 +416,7 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
     });
 
     // Add cluster labels for superposed detections (same position, multiple CRS).
-    detectionGroups.forEach((group) => {
+    if (showLabels) detectionGroups.forEach((group) => {
       if (group.points.length < 2) return;
       const ranked = [...group.points].sort((a, b) => getPointConfidence(b) - getPointConfidence(a));
       const topTwoCodes = ranked.slice(0, 2).map((p) => extractCrsCode(p)).filter(Boolean);
@@ -530,7 +547,7 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
         .addTo(map.current);
 
       // Add permanent label for detection markers
-      if (point.detectionMarker && point.label && visibleDetectionLabelIds.has(point.id)) {
+      if (showLabels && point.detectionMarker && point.label && visibleDetectionLabelIds.has(point.id)) {
         const markerTooltip = L.tooltip({
           permanent: true,
           direction: 'top',
@@ -553,7 +570,7 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
           ? visibleConvertedLabelIds.has(pointId)
           : false;
 
-        if (shouldShowConvertedLabel) {
+        if (showLabels && shouldShowConvertedLabel) {
           const nameTooltip = L.tooltip({
             permanent: true,
             direction: labelLayout.direction,
@@ -576,7 +593,7 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
       markers.current.push(circleMarker);
     });
 
-    hiddenCountByCoordKey.forEach((hiddenCount, key) => {
+    if (showLabels) hiddenCountByCoordKey.forEach((hiddenCount, key) => {
       const group = overlapGroups.get(key);
       if (!group || !viewportBounds.contains([group.lat, group.lng])) return;
       const hiddenTooltip = L.tooltip({
@@ -661,7 +678,7 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
         map.current.off('moveend', handleViewChange);
       }
     };
-  }, [points, cadGeometry, isVisible, onPointSelect, getMarkerColor, measureMode, measurePoints, selectedPoint, viewTick, showPointLayer, showLineLayer, showPolylineLayer]);
+  }, [points, cadGeometry, isVisible, onPointSelect, getMarkerColor, measureMode, measurePoints, selectedPoint, viewTick, showPointLayer, showLineLayer, showPolylineLayer, showLabels]);
 
   return (
     <div
@@ -738,6 +755,23 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
             }}
           >
             Polylines {showPolylineLayer ? 'On' : 'Off'}
+          </button>
+          <button
+            onClick={() => {
+              labelsTouchedRef.current = true;
+              setShowLabels((v) => !v);
+            }}
+            style={{
+              border: '1px solid rgba(148,163,184,0.55)',
+              background: showLabels ? 'rgba(56,189,248,0.75)' : 'rgba(15,23,42,0.65)',
+              color: '#e2e8f0',
+              borderRadius: '999px',
+              fontSize: '10px',
+              padding: '2px 8px',
+              cursor: 'pointer'
+            }}
+          >
+            Labels {showLabels ? 'On' : 'Off'}
           </button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '3px' }}>
