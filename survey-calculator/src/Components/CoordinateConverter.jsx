@@ -3837,6 +3837,7 @@ const CoordinateConverter = () => {
               <a href="/samples/sample.kml" target="_blank" rel="noreferrer">KML</a> · 
             <a href="/samples/sample_test_text.dwg" target="_blank" rel="noreferrer">DWG test</a> · 
             <a href="/samples/sample_l93_complex_with_crs.dxf" target="_blank" rel="noreferrer">DXF L93 (complex + CRS)</a> · 
+            <a href="/samples/sample_urban_plan_l93.dxf" target="_blank" rel="noreferrer">DXF Urban Plan (Saint-Denis)</a> · 
             <a href="/samples/sample_l93_complex_expected_wgs84.csv" target="_blank" rel="noreferrer">Expected WGS84</a>
           </div>
         </div>
