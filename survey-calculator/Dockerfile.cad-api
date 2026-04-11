@@ -1,8 +1,8 @@
 FROM node:20-bookworm-slim
 
-# Install LibreDWG (provides dwg2dxf) — free, open-source, no license required
+# Install LibreDWG tools (provides dwg2dxf)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libredwg-utils \
+    libredwg-tools \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
