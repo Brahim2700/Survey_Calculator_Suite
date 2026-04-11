@@ -5,17 +5,21 @@ import { emit } from '../utils/eventBus';
 
 const BASEMAP_STORAGE_KEY = 'survey_calc_basemap';
 
-const MapVisualization = ({ points, isVisible, onPointSelect, measureMode = false, measurePoints = [] }) => {
+const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, isVisible, onPointSelect, measureMode = false, measurePoints = [] }) => {
   const mapContainer = useRef(null);
   const map = useRef(null);
   const markers = useRef([]);
   const pointLayersRef = useRef([]);
+  const geometryLayersRef = useRef([]);
   const fittedPointsSignatureRef = useRef('');
   const measureLayerRef = useRef({ polyline: null, markers: [] });
   const basemapLayers = useRef(null);
   const layerControl = useRef(null);
   const [selectedPoint, setSelectedPoint] = useState(null);
   const [viewTick, setViewTick] = useState(0);
+  const [showPointLayer, setShowPointLayer] = useState(true);
+  const [showLineLayer, setShowLineLayer] = useState(true);
+  const [showPolylineLayer, setShowPolylineLayer] = useState(true);
 
   // Add CSS for detection labels on first render
   useEffect(() => {
@@ -325,12 +329,15 @@ const MapVisualization = ({ points, isVisible, onPointSelect, measureMode = fals
     map.current.on('zoomend', handleViewChange);
     map.current.on('moveend', handleViewChange);
 
-    // Clear existing markers
+    // Clear existing markers and geometry overlays
     markers.current.forEach((marker) => map.current.removeLayer(marker));
     markers.current = [];
     pointLayersRef.current = [];
+    geometryLayersRef.current.forEach((layer) => map.current.removeLayer(layer));
+    geometryLayersRef.current = [];
 
-    const validPoints = points.filter((point, idx) => {
+    const inputPoints = showPointLayer ? points : [];
+    const validPoints = inputPoints.filter((point, idx) => {
       if (!point || typeof point !== 'object') {
         console.warn(`[MapViz] Point ${idx} is not an object:`, point);
         return false;
@@ -585,17 +592,66 @@ const MapVisualization = ({ points, isVisible, onPointSelect, measureMode = fals
       markers.current.push(hiddenTooltip);
     });
 
+    // Render CAD geometry overlays (already projected to WGS84 by converter).
+    const cadLines = Array.isArray(cadGeometry?.lines) ? cadGeometry.lines : [];
+    const cadPolylines = Array.isArray(cadGeometry?.polylines) ? cadGeometry.polylines : [];
+
+    if (showLineLayer) cadLines.forEach((line) => {
+      const start = line?.start;
+      const end = line?.end;
+      if (!Array.isArray(start) || !Array.isArray(end)) return;
+      if (!Number.isFinite(start[0]) || !Number.isFinite(start[1]) || !Number.isFinite(end[0]) || !Number.isFinite(end[1])) return;
+      const layer = L.polyline(
+        [
+          [start[0], start[1]],
+          [end[0], end[1]],
+        ],
+        {
+          color: '#0ea5e9',
+          weight: 2.5,
+          opacity: 0.85,
+        }
+      ).addTo(map.current);
+      geometryLayersRef.current.push(layer);
+      markers.current.push(layer);
+    });
+
+    if (showPolylineLayer) cadPolylines.forEach((poly) => {
+      const pts = Array.isArray(poly?.points) ? poly.points : [];
+      const latlngs = pts
+        .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+        .map((p) => [p[0], p[1]]);
+      if (latlngs.length < 2) return;
+      const layer = L.polyline(latlngs, {
+        color: '#2563eb',
+        weight: 2,
+        opacity: 0.8,
+      }).addTo(map.current);
+      geometryLayersRef.current.push(layer);
+      markers.current.push(layer);
+    });
+
     // Fit map only when point data changes; do not fight user zoom/pan interactions.
     const pointsSignature = validPoints.map((p) => `${p.id ?? ''}:${p.lat.toFixed(6)}:${p.lng.toFixed(6)}`).join('|');
-    if (pointLayersRef.current.length > 0) {
-      if (fittedPointsSignatureRef.current !== pointsSignature) {
-        const group = new L.featureGroup(pointLayersRef.current);
+    const geometrySignature = [
+      cadLines.map((l) => `${l?.start?.[0] ?? ''},${l?.start?.[1] ?? ''}->${l?.end?.[0] ?? ''},${l?.end?.[1] ?? ''}`).join('|'),
+      cadPolylines.map((pl) => (pl?.points || []).map((p) => `${p?.[0] ?? ''},${p?.[1] ?? ''}`).join(';')).join('|'),
+    ].join('||');
+    const fitSignature = `${pointsSignature}__${geometrySignature}`;
+
+    if (pointLayersRef.current.length > 0 || geometryLayersRef.current.length > 0) {
+      const fitLayers = [...pointLayersRef.current, ...geometryLayersRef.current];
+      const group = new L.featureGroup(fitLayers);
+      if (fittedPointsSignatureRef.current !== fitSignature) {
         map.current.fitBounds(group.getBounds().pad(0.1));
-        fittedPointsSignatureRef.current = pointsSignature;
+        fittedPointsSignatureRef.current = fitSignature;
       }
     } else if (validPoints.length === 0 && (!measurePoints || measurePoints.length === 0)) {
-      map.current.setView([20, 0], 2);
-      fittedPointsSignatureRef.current = '';
+      // Do not force-reset view on each zoom/move event when no data is loaded.
+      if (fittedPointsSignatureRef.current !== '') {
+        map.current.setView([20, 0], 2);
+        fittedPointsSignatureRef.current = '';
+      }
     }
     return () => {
       if (map.current) {
@@ -605,7 +661,7 @@ const MapVisualization = ({ points, isVisible, onPointSelect, measureMode = fals
         map.current.off('moveend', handleViewChange);
       }
     };
-  }, [points, isVisible, onPointSelect, getMarkerColor, measureMode, measurePoints, selectedPoint, viewTick]);
+  }, [points, cadGeometry, isVisible, onPointSelect, getMarkerColor, measureMode, measurePoints, selectedPoint, viewTick, showPointLayer, showLineLayer, showPolylineLayer]);
 
   return (
     <div
@@ -640,6 +696,50 @@ const MapVisualization = ({ points, isVisible, onPointSelect, measureMode = fals
         }}
       >
         <div style={{ fontWeight: 700, marginBottom: '6px', color: '#e0eaff', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Geoid Undulation</div>
+        <div style={{ marginBottom: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setShowPointLayer((v) => !v)}
+            style={{
+              border: '1px solid rgba(148,163,184,0.55)',
+              background: showPointLayer ? 'rgba(30,64,175,0.75)' : 'rgba(15,23,42,0.65)',
+              color: '#e2e8f0',
+              borderRadius: '999px',
+              fontSize: '10px',
+              padding: '2px 8px',
+              cursor: 'pointer'
+            }}
+          >
+            Points {showPointLayer ? 'On' : 'Off'}
+          </button>
+          <button
+            onClick={() => setShowLineLayer((v) => !v)}
+            style={{
+              border: '1px solid rgba(148,163,184,0.55)',
+              background: showLineLayer ? 'rgba(14,165,233,0.75)' : 'rgba(15,23,42,0.65)',
+              color: '#e2e8f0',
+              borderRadius: '999px',
+              fontSize: '10px',
+              padding: '2px 8px',
+              cursor: 'pointer'
+            }}
+          >
+            Lines {showLineLayer ? 'On' : 'Off'}
+          </button>
+          <button
+            onClick={() => setShowPolylineLayer((v) => !v)}
+            style={{
+              border: '1px solid rgba(148,163,184,0.55)',
+              background: showPolylineLayer ? 'rgba(37,99,235,0.75)' : 'rgba(15,23,42,0.65)',
+              color: '#e2e8f0',
+              borderRadius: '999px',
+              fontSize: '10px',
+              padding: '2px 8px',
+              cursor: 'pointer'
+            }}
+          >
+            Polylines {showPolylineLayer ? 'On' : 'Off'}
+          </button>
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '3px' }}>
           <div style={{ width: '10px', height: '10px', backgroundColor: '#0000FF', marginRight: '6px', borderRadius: '2px', flexShrink: 0 }} />
           &lt; −10 m

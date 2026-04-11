@@ -302,22 +302,29 @@ export async function parseCadUpload({ buffer, originalName, fileSizeBytes = 0, 
   }
 
   const data = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-  const options = { pointsOnly };
+  const options = { pointsOnly, returnPayload: true };
   let rows;
+  let geometry = null;
   let warnings = [];
   let usedConverter = false;
   let processingRoute = 'client';
 
   if (ext === '.dxf') {
-    rows = parseDxfTextContent(Buffer.from(data).toString('utf8'), options);
+    const parsed = parseDxfTextContent(Buffer.from(data).toString('utf8'), options);
+    rows = parsed.rows;
+    geometry = parsed.geometry || null;
     processingRoute = 'local-dxf';
   } else if (!isLikelyNativeDwgData(data) && isLikelyDxfData(data)) {
-    rows = parseDxfTextContent(Buffer.from(data).toString('utf8'), options);
+    const parsed = parseDxfTextContent(Buffer.from(data).toString('utf8'), options);
+    rows = parsed.rows;
+    geometry = parsed.geometry || null;
     warnings = ['The uploaded .dwg file contained DXF text and was parsed without converter assistance.'];
     processingRoute = 'dwg-dxf-text';
   } else {
     const dxfText = await convertDwgBufferToDxfText(Buffer.from(data), originalName);
-    rows = parseDxfTextContent(dxfText, options);
+    const parsed = parseDxfTextContent(dxfText, options);
+    rows = parsed.rows;
+    geometry = parsed.geometry || null;
     usedConverter = true;
     processingRoute = 'dwg-converted';
   }
@@ -325,6 +332,7 @@ export async function parseCadUpload({ buffer, originalName, fileSizeBytes = 0, 
   return {
     sourceFormat: ext.slice(1),
     rows,
+    geometry,
     warnings,
     inspection: {
       fileName: originalName,

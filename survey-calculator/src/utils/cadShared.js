@@ -159,6 +159,73 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
   return rows;
 };
 
+export const collectCadGeometryFromDxf = (dxfData) => {
+  const geometry = {
+    lines: [],
+    polylines: [],
+  };
+
+  const addLine = (start, end, layer, sourceType) => {
+    if (!start || !end) return;
+    const x1 = Number(start.x);
+    const y1 = Number(start.y);
+    const z1 = Number(start.z ?? 0);
+    const x2 = Number(end.x);
+    const y2 = Number(end.y);
+    const z2 = Number(end.z ?? 0);
+    if (!Number.isFinite(x1) || !Number.isFinite(y1) || !Number.isFinite(x2) || !Number.isFinite(y2)) return;
+    geometry.lines.push({
+      layer: layer || 'LINE',
+      sourceType: sourceType || 'LINE',
+      start: [x1, y1, Number.isFinite(z1) ? z1 : 0],
+      end: [x2, y2, Number.isFinite(z2) ? z2 : 0],
+    });
+  };
+
+  const addPolyline = (vertices, layer, sourceType) => {
+    if (!Array.isArray(vertices) || vertices.length < 2) return;
+    const coords = vertices
+      .map((v) => {
+        const x = Number(v?.x);
+        const y = Number(v?.y);
+        const z = Number(v?.z ?? 0);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+        return [x, y, Number.isFinite(z) ? z : 0];
+      })
+      .filter(Boolean);
+
+    if (coords.length < 2) return;
+    geometry.polylines.push({
+      layer: layer || sourceType || 'POLYLINE',
+      sourceType: sourceType || 'POLYLINE',
+      points: coords,
+    });
+  };
+
+  const visitEntities = (entities) => {
+    if (!Array.isArray(entities)) return;
+    entities.forEach((ent) => {
+      const layer = ent?.layer || ent?.type;
+      switch (ent?.type) {
+        case 'LINE':
+          addLine(ent.start, ent.end, layer, 'LINE');
+          break;
+        case 'LWPOLYLINE':
+        case 'POLYLINE':
+          addPolyline(ent.vertices || [], layer, ent.type);
+          break;
+        default:
+          break;
+      }
+    });
+  };
+
+  visitEntities(dxfData?.entities);
+  Object.values(dxfData?.blocks || {}).forEach((block) => visitEntities(block?.entities));
+
+  return geometry;
+};
+
 export function parseDxfTextContent(text, options = {}) {
   const parser = new DxfParser();
   let dxf;
@@ -169,11 +236,16 @@ export function parseDxfTextContent(text, options = {}) {
   }
 
   const rows = collectPointRowsFromDxf(dxf, options);
+  const geometry = collectCadGeometryFromDxf(dxf);
   if (!rows.length) {
     const hint = options.pointsOnly
       ? 'No POINT entities found in DXF. Try unchecking "Points only" to extract vertices from lines/polylines.'
       : 'No point-like entities found in DXF';
     throw new Error(hint);
+  }
+
+  if (options.returnPayload) {
+    return { rows, geometry };
   }
 
   return rows;

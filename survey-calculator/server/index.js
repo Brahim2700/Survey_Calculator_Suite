@@ -45,6 +45,7 @@ app.post('/api/cad/parse', upload.single('file'), async (req, res) => {
 
     res.json({
       rows: result.rows,
+      geometry: result.geometry || null,
       sourceFormat: result.sourceFormat,
       warnings: result.warnings || [],
       inspection: result.inspection || null,

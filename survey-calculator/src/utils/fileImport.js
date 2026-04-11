@@ -213,10 +213,12 @@ export async function parseShapefileZip(file) {
 
 export async function parseDXFFile(file, options = {}) {
   const text = await file.text();
-  const rows = parseDxfTextContent(text, options);
+  const parsed = parseDxfTextContent(text, { ...options, returnPayload: true });
+  const rows = parsed.rows;
   if (options.returnPayload) {
     return {
       rows,
+      geometry: parsed.geometry || null,
       sourceFormat: 'dxf',
       warnings: [],
       inspection: null,
@@ -237,10 +239,12 @@ export async function parseDWGFile(file, options = {}) {
     throw new Error('Unsupported DWG content. Native DWG requires the CAD backend service, or you can export the drawing as DXF and retry.');
   }
 
-  const rows = parseDxfTextContent(text, options);
+  const parsed = parseDxfTextContent(text, { ...options, returnPayload: true });
+  const rows = parsed.rows;
   if (options.returnPayload) {
     return {
       rows,
+      geometry: parsed.geometry || null,
       sourceFormat: 'dwg',
       warnings: ['The uploaded .dwg file contains DXF text and was parsed in the browser.'],
       inspection: null,

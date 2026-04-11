@@ -10,6 +10,7 @@ import "./App.css";
 
 function App() {
   const [converterPoints, setConverterPoints] = useState([]);
+  const [cadGeometry, setCadGeometry] = useState({ lines: [], polylines: [] });
   const [measureMode, setMeasureMode] = useState(false);
   const [measurePoints, setMeasurePoints] = useState([]);
   const [distanceDisplayUnit, setDistanceDisplayUnit] = useState("m"); // m | km
@@ -18,6 +19,7 @@ function App() {
 
   const resetAppWorkspace = ({ remountConverter = false } = {}) => {
     setConverterPoints([]);
+    setCadGeometry({ lines: [], polylines: [] });
     setMeasureMode(false);
     setMeasurePoints([]);
     setDistanceDisplayUnit("m");
@@ -33,6 +35,20 @@ function App() {
       if (Array.isArray(points)) {
         setConverterPoints(points.map((p) => ({ ...p, sourceType: "converted" })));
       }
+    });
+    return () => off && off();
+  }, []);
+
+  useEffect(() => {
+    const off = on("converter:cadGeometryForMap", ({ geometry }) => {
+      if (geometry && (Array.isArray(geometry.lines) || Array.isArray(geometry.polylines))) {
+        setCadGeometry({
+          lines: Array.isArray(geometry.lines) ? geometry.lines : [],
+          polylines: Array.isArray(geometry.polylines) ? geometry.polylines : [],
+        });
+        return;
+      }
+      setCadGeometry({ lines: [], polylines: [] });
     });
     return () => off && off();
   }, []);
@@ -200,6 +216,7 @@ function App() {
             <div style={{ width: "100%", height: "520px", flexShrink: 0 }}>
               <MapVisualization
                 points={allPoints}
+                cadGeometry={cadGeometry}
                 isVisible={true}
                 measureMode={measureMode}
                 measurePoints={measurePoints}

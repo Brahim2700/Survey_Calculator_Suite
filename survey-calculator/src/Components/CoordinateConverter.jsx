@@ -1464,6 +1464,58 @@ const CoordinateConverter = () => {
       .filter(Boolean);
   }, [toCrs]);
 
+  const projectCadGeometryToWgs84 = useCallback((geometry, sourceCrs) => {
+    const safeGeometry = {
+      lines: Array.isArray(geometry?.lines) ? geometry.lines : [],
+      polylines: Array.isArray(geometry?.polylines) ? geometry.polylines : [],
+    };
+
+    if (!safeGeometry.lines.length && !safeGeometry.polylines.length) {
+      return { lines: [], polylines: [] };
+    }
+
+    const source = sourceCrs || 'EPSG:4326';
+    const sourceDef = CRS_LIST.find((c) => c.code === source);
+    const sourceIsGeo = sourceDef?.type === 'geographic' || source === 'EPSG:4326';
+
+    const toLatLng = (x, y, z = 0) => {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      if (sourceIsGeo) {
+        return [y, x, Number.isFinite(z) ? z : 0];
+      }
+      try {
+        const [lon, lat] = proj4(source, 'EPSG:4326', [x, y]);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+        return [lat, lon, Number.isFinite(z) ? z : 0];
+      } catch {
+        return null;
+      }
+    };
+
+    const lines = safeGeometry.lines
+      .map((line) => {
+        const s = Array.isArray(line?.start) ? line.start : [];
+        const e = Array.isArray(line?.end) ? line.end : [];
+        const start = toLatLng(Number(s[0]), Number(s[1]), Number(s[2] ?? 0));
+        const end = toLatLng(Number(e[0]), Number(e[1]), Number(e[2] ?? 0));
+        if (!start || !end) return null;
+        return { ...line, start, end };
+      })
+      .filter(Boolean);
+
+    const polylines = safeGeometry.polylines
+      .map((poly) => {
+        const points = (Array.isArray(poly?.points) ? poly.points : [])
+          .map((p) => toLatLng(Number(p?.[0]), Number(p?.[1]), Number(p?.[2] ?? 0)))
+          .filter(Boolean);
+        if (points.length < 2) return null;
+        return { ...poly, points };
+      })
+      .filter(Boolean);
+
+    return { lines, polylines };
+  }, []);
+
   // Auto-emit points after bulk conversion for map/sidebar consumers
   useEffect(() => {
     if (bulkResults && bulkResults.length > 0) {
@@ -2192,6 +2244,7 @@ const CoordinateConverter = () => {
     setBulkIsConverting(false);
     bulkCancelRef.current = false;
     emit("converter:pointsForMap", { points: [] });
+    emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [] } });
     emit("converter:resetAll");
   };
 
@@ -2370,6 +2423,12 @@ const CoordinateConverter = () => {
 
         if (["dxf", "dwg"].includes(ext)) {
           setCadInspection(buildCadInspectionSummary(file, rows, latestCadStatus, cadPayload));
+
+          const sourceCrsForGeometry = rows.find((r) => r.detectedFromCrs)?.detectedFromCrs || fromCrs;
+          const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrsForGeometry);
+          emit("converter:cadGeometryForMap", { geometry: projectedGeometry });
+        } else {
+          emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [] } });
         }
         
         // Skip the normal line-based parsing since we already have parsed coordinates
