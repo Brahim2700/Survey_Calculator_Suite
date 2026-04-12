@@ -299,6 +299,21 @@ const collectFallbackVertices = (segments, addRow) => {
   });
 };
 
+const countEntityTypes = (dxfData) => {
+  const counts = {};
+  const addEntities = (entities) => {
+    if (!Array.isArray(entities)) return;
+    entities.forEach((ent) => {
+      const type = String(ent?.type || 'UNKNOWN').toUpperCase();
+      counts[type] = (counts[type] || 0) + 1;
+    });
+  };
+
+  addEntities(dxfData?.entities);
+  Object.values(dxfData?.blocks || {}).forEach((block) => addEntities(block?.entities));
+  return counts;
+};
+
 export const collectPointRowsFromDxf = (dxfData, options = {}) => {
   const rows = [];
   let idx = 1;
@@ -316,8 +331,18 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
   ];
   const drawingBounds = getBoundingBoxFromPoints(drawingPoints);
   const drawingDiagonal = drawingBounds?.diagonal || 0;
+  const diagnostics = {
+    entityTypeCounts: countEntityTypes(dxfData),
+    extraction: {
+      explicitPointEntities: 0,
+      insertPointSymbols: 0,
+      inferredSymbolCenters: 0,
+      fallbackVertices: 0,
+      dedupMerged: 0,
+    },
+  };
 
-  const addRow = (x, y, z, idHint, hasExplicitName = false) => {
+  const addRow = (x, y, z, idHint, hasExplicitName = false, source = 'unknown') => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     const coordKey = `${x.toFixed(3)},${y.toFixed(3)}`;
     const normalizedHint = normalizeCadLabelCandidate(idHint);
@@ -325,6 +350,7 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
 
     if (seenCoords.has(coordKey)) {
       const existing = seenCoords.get(coordKey);
+      diagnostics.extraction.dedupMerged += 1;
       if (existing.z === 0 && Number.isFinite(z) && z !== 0) {
         existing.z = z;
       }
@@ -347,6 +373,11 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
     rows.push(row);
     seenCoords.set(coordKey, row);
     idx += 1;
+
+    if (source === 'point-entity') diagnostics.extraction.explicitPointEntities += 1;
+    if (source === 'insert-symbol') diagnostics.extraction.insertPointSymbols += 1;
+    if (source === 'inferred-center') diagnostics.extraction.inferredSymbolCenters += 1;
+    if (source === 'fallback-vertex') diagnostics.extraction.fallbackVertices += 1;
   };
 
   const visitEntities = (entities) => {
@@ -356,7 +387,7 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
       switch (ent?.type) {
         case 'POINT': {
           const z = ent.position?.z ?? ent.z ?? ent.position?.[2] ?? ent.vertices?.[0]?.z;
-          addRow(ent.position?.x, ent.position?.y, z, null, false);
+          addRow(ent.position?.x, ent.position?.y, z, null, false, 'point-entity');
           break;
         }
         case 'INSERT': {
@@ -365,7 +396,7 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
           if (nameLooksPointLike || isBlockPointLike(block, drawingDiagonal)) {
             const iz = ent.position?.z ?? ent.z ?? ent.position?.[2];
             const pointName = extractInsertPointName(ent);
-            addRow(ent.position?.x, ent.position?.y, iz, pointName, Boolean(pointName));
+            addRow(ent.position?.x, ent.position?.y, iz, pointName, Boolean(pointName), 'insert-symbol');
           }
           break;
         }
@@ -379,11 +410,11 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
 
   const inferredCenters = inferPointCentersFromSegments(segments, drawingDiagonal);
   inferredCenters.forEach((center) => {
-    addRow(center.x, center.y, center.z, null, false);
+    addRow(center.x, center.y, center.z, null, false, 'inferred-center');
   });
 
   if (!rows.length && !pointsOnly) {
-    collectFallbackVertices(segments, addRow);
+    collectFallbackVertices(segments, (x, y, z, idHint) => addRow(x, y, z, idHint, false, 'fallback-vertex'));
   }
 
   const coordinates = rows.map((row) => ({ x: row.x, y: row.y, z: row.z }));
@@ -409,7 +440,10 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
     row.crsAssessment = referenceAssessment;
   });
 
-  return rows;
+  diagnostics.referenceAssessment = referenceAssessment;
+  diagnostics.detectedFromCrs = detectedFromCrs;
+
+  return { rows, diagnostics };
 };
 
 export const collectCadGeometryFromDxf = (dxfData) => {
@@ -487,7 +521,8 @@ export function parseDxfTextContent(text, options = {}) {
     throw new Error(`Failed to parse DXF: ${err.message || err}`);
   }
 
-  const rows = collectPointRowsFromDxf(dxf, options);
+  const pointResult = collectPointRowsFromDxf(dxf, options);
+  const rows = pointResult.rows;
   const geometry = collectCadGeometryFromDxf(dxf);
   if (!rows.length) {
     const hint = options.pointsOnly
@@ -497,7 +532,7 @@ export function parseDxfTextContent(text, options = {}) {
   }
 
   if (options.returnPayload) {
-    return { rows, geometry };
+    return { rows, geometry, diagnostics: pointResult.diagnostics || null };
   }
 
   return rows;

@@ -219,6 +219,7 @@ export async function parseDXFFile(file, options = {}) {
     return {
       rows,
       geometry: parsed.geometry || null,
+      diagnostics: parsed.diagnostics || null,
       sourceFormat: 'dxf',
       warnings: [],
       inspection: null,
@@ -245,6 +246,7 @@ export async function parseDWGFile(file, options = {}) {
     return {
       rows,
       geometry: parsed.geometry || null,
+      diagnostics: parsed.diagnostics || null,
       sourceFormat: 'dwg',
       warnings: ['The uploaded .dwg file contains DXF text and was parsed in the browser.'],
       inspection: null,

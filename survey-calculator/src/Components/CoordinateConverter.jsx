@@ -36,6 +36,15 @@ const formatBytes = (value) => {
   return `${size.toFixed(unitIndex === 0 ? 0 : 2)} ${units[unitIndex]}`;
 };
 
+const getCrsConfidenceClass = (assessment) => {
+  if (!assessment) return { label: "Unknown", color: "#64748b" };
+  if (assessment.status === "local-unreferenced") return { label: "Local/Unreferenced", color: "#b45309" };
+  if (assessment.status === "ambiguous") return { label: "Needs Review", color: "#b45309" };
+  if (Number(assessment.confidence) >= 0.9) return { label: "High Confidence", color: "#166534" };
+  if (Number(assessment.confidence) >= 0.75) return { label: "Medium Confidence", color: "#92400e" };
+  return { label: "Low Confidence", color: "#b91c1c" };
+};
+
 const buildCadInspectionSummary = (file, rows, status, payload = null) => {
   const xs = rows.map((row) => Number(row.x)).filter(Number.isFinite);
   const ys = rows.map((row) => Number(row.y)).filter(Number.isFinite);
@@ -44,6 +53,8 @@ const buildCadInspectionSummary = (file, rows, status, payload = null) => {
   const extension = `.${(file?.name.split('.')?.pop() || '').toLowerCase()}`;
   const referenceAssessment = rows.find((row) => row?.crsAssessment)?.crsAssessment || null;
   const localCrsLikely = Boolean(referenceAssessment?.isLocal) || detectedFromCrs === "LOCAL:ENGINEERING";
+  const diagnostics = payload?.diagnostics || payload?.inspection?.diagnostics || null;
+  const confidenceClass = getCrsConfidenceClass(referenceAssessment);
   const route = payload?.inspection?.processingRoute
     || (extension === ".dwg" ? (status?.dwgEnabled ? "dwg-converted" : "dwg-backend-unavailable") : "local-dxf");
 
@@ -55,6 +66,8 @@ const buildCadInspectionSummary = (file, rows, status, payload = null) => {
     detectedFromCrs,
     localCrsLikely,
     referenceAssessment,
+    confidenceClass,
+    diagnostics,
     warnings: payload?.warnings || [],
     nativeDwg: payload?.inspection?.nativeDwg || false,
     usedConverter: payload?.inspection?.usedConverter || false,
@@ -718,6 +731,7 @@ const CoordinateConverter = () => {
   const [cadBackendStatusError, setCadBackendStatusError] = useState("");
   const [cadInspection, setCadInspection] = useState(null);
   const [importCrsNotice, setImportCrsNotice] = useState("");
+  const [cadHandlingMode, setCadHandlingMode] = useState("strict"); // strict | permissive
   
   // CRS Detection State
   const [crsSuggestions, setCrsSuggestions] = useState([]);
@@ -915,6 +929,24 @@ const CoordinateConverter = () => {
     setFromCrs(code);
   };
 
+  const downloadCadDiagnosticReport = useCallback(() => {
+    if (!cadInspection) return;
+    const stamp = new Date().toISOString().replace(/[:]/g, "-");
+    const report = {
+      generatedAt: new Date().toISOString(),
+      handlingMode: cadHandlingMode,
+      importNotice: importCrsNotice || null,
+      inspection: cadInspection,
+    };
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `cad-diagnostic-${stamp}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [cadHandlingMode, cadInspection, importCrsNotice]);
+
   const detectLocalReferenceFromRows = useCallback((rows) => {
     if (!Array.isArray(rows) || rows.length === 0) return null;
     const assessment = rows.find((row) => row?.crsAssessment)?.crsAssessment;
@@ -931,6 +963,12 @@ const CoordinateConverter = () => {
   }, []);
 
   const localReferenceNotice = "Detected local/unreferenced plan coordinates. The drawing is not tied to a known CRS (engineering/local grid). Assign control points or set CRS manually before georeferenced conversion.";
+  const ambiguousReferenceNotice = "CRS detection is ambiguous for this plan. Please confirm the source CRS before running precise conversion.";
+  const shouldBlockCadAutoConversion = useCallback((assessment) => {
+    if (!assessment) return false;
+    if (cadHandlingMode !== "strict") return false;
+    return Boolean(assessment.isLocal) || assessment.status === "ambiguous";
+  }, [cadHandlingMode]);
 
   const handleSwapCrs = () => {
     if (!fromCrs || !toCrs) return;
@@ -2411,20 +2449,24 @@ const CoordinateConverter = () => {
       const sourceCrs = detectedFromRows || detectedFromPayload || fromCrs;
       const referenceStatus = detectLocalReferenceFromRows(rows);
       const isLocalUnreferenced = sourceCrs === "LOCAL:ENGINEERING" || Boolean(referenceStatus?.isLocal);
+      const isAmbiguous = referenceStatus?.status === "ambiguous";
+      const shouldBlock = shouldBlockCadAutoConversion(referenceStatus);
 
-      if (!isLocalUnreferenced && (detectedFromRows || detectedFromPayload)) {
+      if (!shouldBlock && !isLocalUnreferenced && (detectedFromRows || detectedFromPayload)) {
         setFromCrsAutomatically(sourceCrs);
       }
 
       if (isLocalUnreferenced) {
         setImportCrsNotice(referenceStatus?.reason || localReferenceNotice);
+      } else if (isAmbiguous) {
+        setImportCrsNotice(referenceStatus?.reason || ambiguousReferenceNotice);
       } else {
         setImportCrsNotice("");
       }
 
       setCadInspection(buildCadInspectionSummary(file, rows, latestCadStatus, cadPayload));
 
-      if (isLocalUnreferenced) {
+      if (shouldBlock && isLocalUnreferenced) {
         emit("converter:pointsForMap", { points: [] });
         emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [] } });
       } else {
@@ -2442,7 +2484,7 @@ const CoordinateConverter = () => {
     } finally {
       setCadPreviewLoading(false);
     }
-  }, [bulkUploadFile, detectLocalReferenceFromRows, fromCrs, localReferenceNotice, projectCadGeometryToWgs84, projectCadRowsToWgs84, refreshCadStatus]);
+  }, [ambiguousReferenceNotice, bulkUploadFile, detectLocalReferenceFromRows, fromCrs, localReferenceNotice, projectCadGeometryToWgs84, projectCadRowsToWgs84, refreshCadStatus, shouldBlockCadAutoConversion]);
 
   // Detect CRS immediately when file is selected
   const detectFileFormatsAndCRS = async (file) => {
@@ -2479,6 +2521,8 @@ const CoordinateConverter = () => {
         
         if (referenceStatus?.isLocal || anyCrs?.detectedFromCrs === "LOCAL:ENGINEERING") {
           setImportCrsNotice(referenceStatus?.reason || localReferenceNotice);
+        } else if (referenceStatus?.status === "ambiguous") {
+          setImportCrsNotice(referenceStatus?.reason || ambiguousReferenceNotice);
         } else {
           setImportCrsNotice("");
         }
@@ -2552,9 +2596,13 @@ const CoordinateConverter = () => {
         const anyCrs = rows.find((r) => r.detectedFromCrs);
         const referenceStatus = detectLocalReferenceFromRows(rows);
         const isLocalUnreferenced = anyCrs?.detectedFromCrs === "LOCAL:ENGINEERING" || Boolean(referenceStatus?.isLocal);
+        const isAmbiguous = referenceStatus?.status === "ambiguous";
+        const shouldBlock = shouldBlockCadAutoConversion(referenceStatus);
 
         if (isLocalUnreferenced) {
           setImportCrsNotice(referenceStatus?.reason || localReferenceNotice);
+        } else if (isAmbiguous) {
+          setImportCrsNotice(referenceStatus?.reason || ambiguousReferenceNotice);
         } else {
           setImportCrsNotice("");
           if (anyCrs?.detectedFromCrs) setFromCrsAutomatically(anyCrs.detectedFromCrs);
@@ -2577,12 +2625,14 @@ const CoordinateConverter = () => {
           setCadInspection(buildCadInspectionSummary(file, rows, latestCadStatus, cadPayload));
 
           const sourceCrsForGeometry = rows.find((r) => r.detectedFromCrs)?.detectedFromCrs || fromCrs;
-          if (isLocalUnreferenced) {
+          if (shouldBlock) {
             emit("converter:pointsForMap", { points: [] });
             emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [] } });
             setBulkProgress(null);
             setBulkIsConverting(false);
-            setBulkUploadError("Local/unreferenced plan detected. Automatic georeferenced conversion is disabled. Use control points/georeferencing or set a known CRS manually if available.");
+            setBulkUploadError(isLocalUnreferenced
+              ? "Local/unreferenced plan detected. Automatic georeferenced conversion is disabled in strict mode. Switch to permissive mode to continue at your own risk."
+              : "CRS detection is ambiguous. Conversion is blocked in strict mode until you confirm source CRS or switch to permissive mode.");
             return;
           }
 
@@ -4007,6 +4057,17 @@ const CoordinateConverter = () => {
           </div>
         </div>
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+          <label style={{ fontSize: "0.8rem", color: "#334155", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+            CAD handling mode
+            <select
+              value={cadHandlingMode}
+              onChange={(e) => setCadHandlingMode(e.target.value)}
+              style={{ padding: "0.32rem 0.42rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff" }}
+            >
+              <option value="strict">Strict (safe)</option>
+              <option value="permissive">Permissive (expert)</option>
+            </select>
+          </label>
           <input ref={bulkFileInputRef} type="file" accept=".csv,.txt,.geojson,.json,.gpx,.kml,.zip,.xlsx,.xls,.dxf,.dwg" onChange={(e) => { 
             const f = e.target.files?.[0] || null; 
               applyBulkFileSelection(f);
@@ -4051,6 +4112,14 @@ const CoordinateConverter = () => {
           >
             Reset Bulk
           </button>
+          <button
+            onClick={downloadCadDiagnosticReport}
+            disabled={!cadInspection}
+            style={{ padding: "0.5rem 0.9rem", background: "#fff", color: "#0f172a", border: "1px solid #cbd5e1", borderRadius: "6px", cursor: cadInspection ? "pointer" : "not-allowed", opacity: cadInspection ? 1 : 0.55, fontWeight: 600 }}
+            title="Download current CAD diagnostics report"
+          >
+            Download CAD Report
+          </button>
           {bulkUploadFile && <span style={{ fontSize: "0.85rem", color: "#059669", fontWeight: 500 }}>✓ {bulkUploadFile.name}</span>}
         </div>
         {bulkUploadError && <div role="alert" style={{ color: "#b91c1c" }}>{bulkUploadError}</div>}
@@ -4087,6 +4156,12 @@ const CoordinateConverter = () => {
                 {cadInspection.localCrsLikely && (
                   <div style={{ color: "#92400e", fontWeight: 600 }}>Reference: local/unreferenced engineering coordinates</div>
                 )}
+                {cadInspection.referenceAssessment && (
+                  <div style={{ color: cadInspection.confidenceClass?.color || "#334155", fontWeight: 600 }}>
+                    CRS confidence: {cadInspection.confidenceClass?.label || "Unknown"}
+                    {Number.isFinite(Number(cadInspection.referenceAssessment?.confidence)) ? ` (${(Number(cadInspection.referenceAssessment.confidence) * 100).toFixed(1)}%)` : ""}
+                  </div>
+                )}
                 {cadInspection.bounds && cadInspection.bounds.minX !== null && (
                   <div>
                     Bounds: X {cadInspection.bounds.minX.toFixed(3)} to {cadInspection.bounds.maxX.toFixed(3)} | Y {cadInspection.bounds.minY.toFixed(3)} to {cadInspection.bounds.maxY.toFixed(3)}
@@ -4097,6 +4172,16 @@ const CoordinateConverter = () => {
                 )}
                 {cadInspection.warnings?.length > 0 && (
                   <div style={{ color: "#92400e" }}>{cadInspection.warnings.join(" ")}</div>
+                )}
+                {cadInspection.diagnostics?.entityTypeCounts && (
+                  <div>
+                    <strong>Entities:</strong> {Object.entries(cadInspection.diagnostics.entityTypeCounts).map(([k, v]) => `${k}=${v}`).join(" | ")}
+                  </div>
+                )}
+                {cadInspection.diagnostics?.extraction && (
+                  <div>
+                    <strong>Extraction:</strong> explicit={cadInspection.diagnostics.extraction.explicitPointEntities ?? 0}, insert={cadInspection.diagnostics.extraction.insertPointSymbols ?? 0}, inferred={cadInspection.diagnostics.extraction.inferredSymbolCenters ?? 0}, fallback={cadInspection.diagnostics.extraction.fallbackVertices ?? 0}, merged={cadInspection.diagnostics.extraction.dedupMerged ?? 0}
+                  </div>
                 )}
               </div>
             )}
