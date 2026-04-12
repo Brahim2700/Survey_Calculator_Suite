@@ -178,15 +178,20 @@ export const exportMapAsPng = async (mapRootElement, exportInfo = {}, fileName =
   });
 };
 
-export const exportMapAsPdf = async (mapRootElement, exportInfo = {}, fileName = 'survey-plan.pdf') => {
+export const exportMapAsPdf = async (mapRootElement, exportInfo = {}, fileName = 'survey-plan.pdf', pdfOptions = {}) => {
   const mapCanvas = await captureMapCanvas(mapRootElement);
   const composedCanvas = composeExportCanvas(mapCanvas, exportInfo);
   const imageData = composedCanvas.toDataURL('image/png');
+  const targetFormat = String(pdfOptions.format || 'a4').toLowerCase();
+  const targetOrientation = String(pdfOptions.orientation || 'auto').toLowerCase();
+  const orientation = targetOrientation === 'portrait' || targetOrientation === 'landscape'
+    ? targetOrientation
+    : (composedCanvas.width > composedCanvas.height ? 'landscape' : 'portrait');
 
   const pdf = new jsPDF({
-    orientation: composedCanvas.width > composedCanvas.height ? 'landscape' : 'portrait',
+    orientation,
     unit: 'mm',
-    format: 'a4',
+    format: targetFormat === 'a3' ? 'a3' : 'a4',
     compress: true,
   });
 

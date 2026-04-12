@@ -181,6 +181,76 @@
 .btn-measure:hover { background: rgba(255,255,255,.20); }
 .btn-measure.active:hover { background: linear-gradient(135deg, #fb923c, #f97316); }
 
+.export-panel {
+  padding: 0.72rem 1rem 0.75rem;
+  background: linear-gradient(180deg, #12284d, #0f2040);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.export-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 0.55rem 0.65rem;
+}
+
+.export-field {
+  color: #dbeafe;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+  text-transform: uppercase;
+}
+
+.export-field input,
+.export-field select,
+.export-field textarea {
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.32);
+  color: #eff6ff;
+  font-size: 0.82rem;
+  font-weight: 500;
+  font-family: inherit;
+  padding: 0.42rem 0.52rem;
+}
+
+.export-field textarea {
+  resize: vertical;
+  min-height: 52px;
+}
+
+.export-field input::placeholder,
+.export-field textarea::placeholder {
+  color: rgba(191, 219, 254, 0.68);
+}
+
+.export-field input:focus,
+.export-field select:focus,
+.export-field textarea:focus {
+  outline: none;
+  border-color: #7dd3fc;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.22);
+}
+
+.export-field-wide {
+  grid-column: 1 / -1;
+}
+
+.export-panel-actions {
+  margin-top: 0.55rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* ── Measure results panel ── */
 .measure-panel {
   background: var(--c-surface);
@@ -494,4 +564,10 @@
 @media (max-width: 1100px) {
   .app-columns { flex-direction: column; }
   .app-col-right { position: static; }
+}
+
+@media (max-width: 760px) {
+  .export-panel-grid {
+    grid-template-columns: 1fr;
+  }
 }

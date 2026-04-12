@@ -19,6 +19,15 @@ function App() {
   const [converterSessionKey, setConverterSessionKey] = useState(0);
   const [mapExportRoot, setMapExportRoot] = useState(null);
   const [isExportingMap, setIsExportingMap] = useState(false);
+  const [showExportPanel, setShowExportPanel] = useState(false);
+  const [exportSettings, setExportSettings] = useState({
+    projectName: "Survey Plan",
+    surveyor: "",
+    scale: "",
+    notes: "",
+    pdfPageSize: "a4",
+    pdfOrientation: "landscape",
+  });
 
   const resetAppWorkspace = ({ remountConverter = false } = {}) => {
     setConverterPoints([]);
@@ -154,9 +163,17 @@ function App() {
 
   const getExportDetails = () => {
     const nowIso = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
+    const surveyorText = exportSettings.surveyor.trim();
+    const scaleText = exportSettings.scale.trim();
+    const notesText = exportSettings.notes.trim();
+
     return {
       stamp: nowIso,
       details: [
+        { label: "Project", value: exportSettings.projectName.trim() || "Survey Plan" },
+        { label: "Surveyor", value: surveyorText || "-" },
+        { label: "Scale", value: scaleText || "Not specified" },
+        { label: "Notes", value: notesText || "-" },
         { label: "Converted points", value: converterPoints.length },
         { label: "CAD lines", value: cadGeometry.lines.length },
         { label: "CAD polylines", value: cadGeometry.polylines.length },
@@ -178,22 +195,37 @@ function App() {
       setIsExportingMap(true);
       const info = getExportDetails();
       const exportInfo = {
-        title: "Survey Plan",
-        subtitle: "SurveyCalc Geomatics Suite",
+        title: exportSettings.projectName.trim() || "Survey Plan",
+        subtitle: exportSettings.surveyor.trim()
+          ? `Surveyor: ${exportSettings.surveyor.trim()}`
+          : "SurveyCalc Geomatics Suite",
         details: info.details,
       };
 
       if (format === "png") {
         await exportMapAsPng(mapExportRoot, exportInfo, `survey-plan-${info.stamp}.png`);
       } else {
-        await exportMapAsPdf(mapExportRoot, exportInfo, `survey-plan-${info.stamp}.pdf`);
+        await exportMapAsPdf(
+          mapExportRoot,
+          exportInfo,
+          `survey-plan-${info.stamp}.pdf`,
+          {
+            format: exportSettings.pdfPageSize,
+            orientation: exportSettings.pdfOrientation,
+          }
+        );
       }
+      setShowExportPanel(false);
     } catch (err) {
       console.error("Map export failed:", err);
       alert(`Map export failed: ${err.message || "Unknown error"}`);
     } finally {
       setIsExportingMap(false);
     }
+  };
+
+  const updateExportSetting = (key, value) => {
+    setExportSettings((prev) => ({ ...prev, [key]: value }));
   };
 
   return (
@@ -258,24 +290,94 @@ function App() {
                 </button>
                 <button
                   className="btn btn-ghost"
-                  onClick={() => handleMapExport("png")}
-                  title="Export plan as image (PNG)"
+                  onClick={() => setShowExportPanel((v) => !v)}
+                  title="Open export options"
                   disabled={isExportingMap}
                 >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-                  {isExportingMap ? "Exporting..." : "Export PNG"}
-                </button>
-                <button
-                  className="btn btn-ghost"
-                  onClick={() => handleMapExport("pdf")}
-                  title="Export plan as PDF"
-                  disabled={isExportingMap}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                  {isExportingMap ? "Exporting..." : "Export PDF"}
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  {showExportPanel ? "Close Export" : "Export Plan"}
                 </button>
               </div>
             </div>
+
+            {showExportPanel && (
+              <div className="export-panel fade-slide-in">
+                <div className="export-panel-grid">
+                  <label className="export-field">
+                    Project Name
+                    <input
+                      type="text"
+                      value={exportSettings.projectName}
+                      onChange={(e) => updateExportSetting("projectName", e.target.value)}
+                      placeholder="Survey Plan"
+                    />
+                  </label>
+                  <label className="export-field">
+                    Surveyor
+                    <input
+                      type="text"
+                      value={exportSettings.surveyor}
+                      onChange={(e) => updateExportSetting("surveyor", e.target.value)}
+                      placeholder="Name / team"
+                    />
+                  </label>
+                  <label className="export-field">
+                    Scale
+                    <input
+                      type="text"
+                      value={exportSettings.scale}
+                      onChange={(e) => updateExportSetting("scale", e.target.value)}
+                      placeholder="Example: 1:500"
+                    />
+                  </label>
+                  <label className="export-field">
+                    PDF Paper
+                    <select
+                      value={exportSettings.pdfPageSize}
+                      onChange={(e) => updateExportSetting("pdfPageSize", e.target.value)}
+                    >
+                      <option value="a4">A4</option>
+                      <option value="a3">A3</option>
+                    </select>
+                  </label>
+                  <label className="export-field">
+                    PDF Orientation
+                    <select
+                      value={exportSettings.pdfOrientation}
+                      onChange={(e) => updateExportSetting("pdfOrientation", e.target.value)}
+                    >
+                      <option value="landscape">Landscape</option>
+                      <option value="portrait">Portrait</option>
+                    </select>
+                  </label>
+                  <label className="export-field export-field-wide">
+                    Notes
+                    <textarea
+                      rows={2}
+                      value={exportSettings.notes}
+                      onChange={(e) => updateExportSetting("notes", e.target.value)}
+                      placeholder="Site notes, datum remarks, quality controls..."
+                    />
+                  </label>
+                </div>
+                <div className="export-panel-actions">
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => handleMapExport("png")}
+                    disabled={isExportingMap}
+                  >
+                    Export PNG
+                  </button>
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => handleMapExport("pdf")}
+                    disabled={isExportingMap}
+                  >
+                    Export PDF
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Leaflet map */}
             <div style={{ width: "100%", height: "520px", flexShrink: 0 }}>
