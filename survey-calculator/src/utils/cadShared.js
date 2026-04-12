@@ -60,14 +60,107 @@ const detectCrsFromDxf = (dxfData) => {
 const normalizeCadLabelCandidate = (value) => String(value || '').trim();
 const isCadPointNameProvided = (value) => normalizeCadLabelCandidate(value).length > 0;
 
+const isLikelyPointIdentifier = (value) => {
+  const text = normalizeCadLabelCandidate(value);
+  if (!text) return false;
+  if (text.length > 40) return false;
+  // Most point labels include at least one digit or mixed token pattern.
+  if (/[0-9]/.test(text)) return true;
+  if (/^[A-Za-z]+[-_][A-Za-z0-9]+$/.test(text)) return true;
+  return false;
+};
+
 const extractInsertPointName = (ent) => {
   const attrCandidates = [
     ...(Array.isArray(ent?.attribs) ? ent.attribs.map((attr) => attr?.text || attr?.value || attr?.tag) : []),
     ent?.text,
-    ent?.name,
+    isLikelyPointIdentifier(ent?.name) ? ent?.name : null,
   ];
 
   return attrCandidates.find(isCadPointNameProvided) || null;
+};
+
+const collectTextLabels = (dxfData) => {
+  const labels = [];
+
+  const normalizeTextContent = (raw) => {
+    const text = normalizeCadLabelCandidate(raw)
+      .replace(/\\P/g, ' ')
+      .replace(/\{\\[^}]*;/g, '')
+      .replace(/[{}]/g, '')
+      .trim();
+    return text;
+  };
+
+  const addFromEntities = (entities) => {
+    if (!Array.isArray(entities)) return;
+    entities.forEach((ent) => {
+      const type = String(ent?.type || '').toUpperCase();
+      if (type !== 'TEXT' && type !== 'MTEXT' && type !== 'ATTRIB') return;
+
+      const rawText = ent?.text ?? ent?.value ?? ent?.tag ?? '';
+      const text = normalizeTextContent(rawText);
+      if (!isCadPointNameProvided(text)) return;
+
+      const pos = ent?.position || ent?.startPoint || ent?.insertionPoint;
+      const x = Number(pos?.x);
+      const y = Number(pos?.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+
+      labels.push({
+        text,
+        x,
+        y,
+        layer: ent?.layer || null,
+      });
+    });
+  };
+
+  addFromEntities(dxfData?.entities);
+  Object.values(dxfData?.blocks || {}).forEach((block) => addFromEntities(block?.entities));
+  return labels;
+};
+
+const assignNearbyTextNames = (rows, labels, drawingDiagonal = 0) => {
+  if (!Array.isArray(rows) || rows.length === 0 || !Array.isArray(labels) || labels.length === 0) return 0;
+
+  const unnamedIndexes = rows
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => !row?.hasExplicitName)
+    .map(({ index }) => index);
+
+  if (!unnamedIndexes.length) return 0;
+
+  const tolerance = Math.max(2, Math.min(250, drawingDiagonal > 0 ? drawingDiagonal * 0.004 : 50));
+  const usedRowIndexes = new Set();
+  let assigned = 0;
+
+  labels.forEach((label) => {
+    const ranked = unnamedIndexes
+      .filter((idx) => !usedRowIndexes.has(idx))
+      .map((idx) => {
+        const row = rows[idx];
+        const dist = Math.hypot(row.x - label.x, row.y - label.y);
+        return { idx, dist, sameLayer: String(row?.layer || '') === String(label?.layer || '') };
+      })
+      .sort((a, b) => a.dist - b.dist);
+
+    if (!ranked.length) return;
+    const best = ranked[0];
+    const second = ranked[1] || null;
+    const secondDist = second ? second.dist : Number.POSITIVE_INFINITY;
+    const clearlyNearest = secondDist === Number.POSITIVE_INFINITY || best.dist <= secondDist * 0.55;
+    const closeEnough = best.dist <= tolerance;
+
+    if (!closeEnough || !clearlyNearest) return;
+
+    rows[best.idx].id = label.text;
+    rows[best.idx].hasExplicitName = true;
+    usedRowIndexes.add(best.idx);
+    assigned += 1;
+  });
+
+  return assigned;
 };
 
 const distance2d = (a, b) => Math.hypot((Number(a?.x) || 0) - (Number(b?.x) || 0), (Number(a?.y) || 0) - (Number(b?.y) || 0));
@@ -331,6 +424,7 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
   ];
   const drawingBounds = getBoundingBoxFromPoints(drawingPoints);
   const drawingDiagonal = drawingBounds?.diagonal || 0;
+  const textLabels = collectTextLabels(dxfData);
   const diagnostics = {
     entityTypeCounts: countEntityTypes(dxfData),
     extraction: {
@@ -339,6 +433,7 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
       inferredSymbolCenters: 0,
       fallbackVertices: 0,
       dedupMerged: 0,
+      textLabelAssigned: 0,
     },
   };
 
@@ -416,6 +511,8 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
   if (!rows.length && !pointsOnly) {
     collectFallbackVertices(segments, (x, y, z, idHint) => addRow(x, y, z, idHint, false, 'fallback-vertex'));
   }
+
+  diagnostics.extraction.textLabelAssigned = assignNearbyTextNames(rows, textLabels, drawingDiagonal);
 
   const coordinates = rows.map((row) => ({ x: row.x, y: row.y, z: row.z }));
   const metadata = { projection: detectedFromCrs || null };
