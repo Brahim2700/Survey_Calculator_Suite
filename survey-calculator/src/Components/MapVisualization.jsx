@@ -24,7 +24,7 @@ const getMapScaleDenominator = (zoom, latitudeDeg) => {
   return getRoundedScaleDenominator(denominator);
 };
 
-const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, isVisible, onPointSelect, measureMode = false, measurePoints = [], onMapContainerReady = null }) => {
+const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, isVisible, onPointSelect, measureMode = false, measurePoints = [], onMapContainerReady = null, onMapMetricsChange = null }) => {
   const mapContainer = useRef(null);
   const mapRootContainer = useRef(null);
   const map = useRef(null);
@@ -405,6 +405,28 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
       smartScaleLabel.current.innerHTML = `Scale 1:${formatted}`;
     };
 
+    const publishMapMetrics = () => {
+      if (!map.current || typeof onMapMetricsChange !== 'function') return;
+      const bounds = map.current.getBounds();
+      const south = bounds.getSouth();
+      const north = bounds.getNorth();
+      const west = bounds.getWest();
+      const east = bounds.getEast();
+      const midLat = (south + north) / 2;
+      const widthMeters = map.current.distance([midLat, west], [midLat, east]);
+      const heightMeters = map.current.distance([south, west], [north, west]);
+      const zoom = map.current.getZoom();
+      const denominator = getMapScaleDenominator(zoom, map.current.getCenter().lat);
+
+      onMapMetricsChange({
+        extentWidthMeters: Number.isFinite(widthMeters) ? widthMeters : null,
+        extentHeightMeters: Number.isFinite(heightMeters) ? heightMeters : null,
+        mapWidthPx: map.current.getSize().x,
+        mapHeightPx: map.current.getSize().y,
+        smartScaleDenominator: Number.isFinite(denominator) ? denominator : null,
+      });
+    };
+
     // Attach a single click handler to publish raw map clicks
     const handleMapClick = (e) => {
       const { lat, lng } = e.latlng || {};
@@ -422,6 +444,7 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
     const handleViewChange = () => {
       setViewTick((prev) => prev + 1);
       updateSmartScale();
+      publishMapMetrics();
     };
 
     map.current.on('click', handleMapClick);
@@ -429,6 +452,7 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
     map.current.on('zoomend', handleViewChange);
     map.current.on('moveend', handleViewChange);
     updateSmartScale();
+    publishMapMetrics();
 
     // Clear existing markers and geometry overlays
     markers.current.forEach((marker) => map.current.removeLayer(marker));
@@ -757,7 +781,7 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
         map.current.off('moveend', handleViewChange);
       }
     };
-  }, [points, cadGeometry, isVisible, onPointSelect, getMarkerColor, measureMode, measurePoints, selectedPoint, viewTick, showPointLayer, showLineLayer, showPolylineLayer, showLabels]);
+  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, getMarkerColor, measureMode, measurePoints, selectedPoint, viewTick, showPointLayer, showLineLayer, showPolylineLayer, showLabels]);
 
   return (
     <div

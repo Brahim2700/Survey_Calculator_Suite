@@ -1,5 +1,5 @@
 // src/App.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import CoordinateConverter from "./Components/CoordinateConverter";
 import MapVisualization from "./Components/MapVisualization";
@@ -8,6 +8,26 @@ import { calculateAllDistances, calculateGeodesicDistance, getUTMZone } from "./
 import { on } from "./utils/eventBus";
 import { exportMapAsPdf, exportMapAsPng } from "./utils/mapExport";
 import "./App.css";
+
+const PDF_MARGIN_MM = 8;
+const EXPORT_PANEL_WIDTH_PX = 350;
+const EXPORT_MIN_HEIGHT_PX = 980;
+const PDF_PAGE_SIZES_MM = {
+  a4: { w: 210, h: 297 },
+  a3: { w: 297, h: 420 },
+};
+const STANDARD_PRINT_SCALES = [
+  100, 200, 250, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000,
+  4000, 5000, 7500, 10000, 12500, 15000, 20000, 25000, 50000,
+];
+
+const pickNiceScale = (requiredDenominator) => {
+  if (!Number.isFinite(requiredDenominator) || requiredDenominator <= 0) return null;
+  const rounded = Math.ceil(requiredDenominator);
+  const fromList = STANDARD_PRINT_SCALES.find((value) => value >= rounded);
+  if (fromList) return fromList;
+  return Math.ceil(rounded / 5000) * 5000;
+};
 
 function App() {
   const [converterPoints, setConverterPoints] = useState([]);
@@ -18,6 +38,7 @@ function App() {
   const [angleDisplayUnit, setAngleDisplayUnit] = useState("deg"); // deg | gon
   const [converterSessionKey, setConverterSessionKey] = useState(0);
   const [mapExportRoot, setMapExportRoot] = useState(null);
+  const [mapMetrics, setMapMetrics] = useState(null);
   const [isExportingMap, setIsExportingMap] = useState(false);
   const [showExportPanel, setShowExportPanel] = useState(false);
   const [exportSettings, setExportSettings] = useState({
@@ -160,6 +181,39 @@ function App() {
   };
 
   const allPoints = [...converterPoints];
+
+  const suggestedPrintScale = useMemo(() => {
+    if (!mapMetrics) return null;
+
+    const extentWm = Number(mapMetrics.extentWidthMeters);
+    const extentHm = Number(mapMetrics.extentHeightMeters);
+    const mapWpx = Number(mapMetrics.mapWidthPx);
+    const mapHpx = Number(mapMetrics.mapHeightPx);
+    if (!Number.isFinite(extentWm) || !Number.isFinite(extentHm) || extentWm <= 0 || extentHm <= 0) return null;
+    if (!Number.isFinite(mapWpx) || !Number.isFinite(mapHpx) || mapWpx <= 0 || mapHpx <= 0) return null;
+
+    const pageBase = PDF_PAGE_SIZES_MM[exportSettings.pdfPageSize] || PDF_PAGE_SIZES_MM.a4;
+    const orientation = exportSettings.pdfOrientation === "portrait" ? "portrait" : "landscape";
+    const pageW = orientation === "landscape" ? pageBase.h : pageBase.w;
+    const pageH = orientation === "landscape" ? pageBase.w : pageBase.h;
+    const drawableW = pageW - PDF_MARGIN_MM * 2;
+    const drawableH = pageH - PDF_MARGIN_MM * 2;
+
+    const composedWpx = mapWpx + EXPORT_PANEL_WIDTH_PX;
+    const composedHpx = Math.max(mapHpx, EXPORT_MIN_HEIGHT_PX);
+    const fitFactor = Math.min(drawableW / composedWpx, drawableH / composedHpx);
+    if (!Number.isFinite(fitFactor) || fitFactor <= 0) return null;
+
+    const mapWmmOnPage = mapWpx * fitFactor;
+    const mapHmmOnPage = mapHpx * fitFactor;
+    if (mapWmmOnPage <= 0 || mapHmmOnPage <= 0) return null;
+
+    const scaleFromWidth = extentWm / (mapWmmOnPage / 1000);
+    const scaleFromHeight = extentHm / (mapHmmOnPage / 1000);
+    const required = Math.max(scaleFromWidth, scaleFromHeight);
+
+    return pickNiceScale(required);
+  }, [mapMetrics, exportSettings.pdfPageSize, exportSettings.pdfOrientation]);
 
   const getExportDetails = () => {
     const nowIso = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
@@ -329,6 +383,18 @@ function App() {
                       onChange={(e) => updateExportSetting("scale", e.target.value)}
                       placeholder="Example: 1:500"
                     />
+                    {suggestedPrintScale && (
+                      <div className="export-scale-suggestion">
+                        Suggested: <strong>1:{suggestedPrintScale.toLocaleString()}</strong>
+                        <button
+                          type="button"
+                          className="export-scale-apply"
+                          onClick={() => updateExportSetting("scale", `1:${suggestedPrintScale.toLocaleString()}`)}
+                        >
+                          Apply
+                        </button>
+                      </div>
+                    )}
                   </label>
                   <label className="export-field">
                     PDF Paper
@@ -389,6 +455,7 @@ function App() {
                 measurePoints={measurePoints}
                 onPointSelect={handleMapPointSelect}
                 onMapContainerReady={setMapExportRoot}
+                onMapMetricsChange={setMapMetrics}
               />
             </div>
 
