@@ -57,18 +57,8 @@ const detectCrsFromDxf = (dxfData) => {
   return 'EPSG:4326';
 };
 
-const GENERIC_POINT_NAME_PATTERN = /^(?:point|points?|pt|pts|node|nodes|station|stations|survey|symbol|insert|cross|borne|bench|cad)[_\-\s]*[a-z0-9]*$/i;
-
 const normalizeCadLabelCandidate = (value) => String(value || '').trim();
-
-const isMeaningfulCadPointName = (value) => {
-  const text = normalizeCadLabelCandidate(value);
-  if (!text) return false;
-  if (GENERIC_POINT_NAME_PATTERN.test(text)) return false;
-  if (/^symbol-\d+$/i.test(text)) return false;
-  if (/^[a-z_\-]+$/i.test(text) && text.toUpperCase() === text) return false;
-  return true;
-};
+const isCadPointNameProvided = (value) => normalizeCadLabelCandidate(value).length > 0;
 
 const extractInsertPointName = (ent) => {
   const attrCandidates = [
@@ -77,7 +67,7 @@ const extractInsertPointName = (ent) => {
     ent?.name,
   ];
 
-  return attrCandidates.find(isMeaningfulCadPointName) || null;
+  return attrCandidates.find(isCadPointNameProvided) || null;
 };
 
 const distance2d = (a, b) => Math.hypot((Number(a?.x) || 0) - (Number(b?.x) || 0), (Number(a?.y) || 0) - (Number(b?.y) || 0));
@@ -330,23 +320,29 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
   const addRow = (x, y, z, idHint, hasExplicitName = false) => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     const coordKey = `${x.toFixed(3)},${y.toFixed(3)}`;
+    const normalizedHint = normalizeCadLabelCandidate(idHint);
+    const explicitName = hasExplicitName && isCadPointNameProvided(normalizedHint) ? normalizedHint : null;
 
     if (seenCoords.has(coordKey)) {
       const existing = seenCoords.get(coordKey);
       if (existing.z === 0 && Number.isFinite(z) && z !== 0) {
         existing.z = z;
       }
+      if (!existing.hasExplicitName && explicitName) {
+        existing.id = explicitName;
+        existing.hasExplicitName = true;
+      }
       return;
     }
 
-    const id = hasExplicitName && isMeaningfulCadPointName(idHint) ? String(idHint).trim() : String(idx);
+    const id = explicitName || String(idx);
     const row = {
       id,
       x,
       y,
       z: Number.isFinite(z) ? z : null,
       detectedFromCrs,
-      hasExplicitName: hasExplicitName && isMeaningfulCadPointName(idHint),
+      hasExplicitName: Boolean(explicitName),
     };
     rows.push(row);
     seenCoords.set(coordKey, row);
