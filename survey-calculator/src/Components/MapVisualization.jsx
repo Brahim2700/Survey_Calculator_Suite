@@ -17,6 +17,7 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
   const measureLayerRef = useRef({ polyline: null, markers: [] });
   const basemapLayers = useRef(null);
   const layerControl = useRef(null);
+  const scaleControl = useRef(null);
   const [selectedPoint, setSelectedPoint] = useState(null);
   const [viewTick, setViewTick] = useState(0);
   const [showPointLayer, setShowPointLayer] = useState(true);
@@ -330,6 +331,7 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
 
       basemapLayers.current[initialBasemap].addTo(map.current);
       layerControl.current = L.control.layers(basemapLayers.current, null, { position: 'topleft' }).addTo(map.current);
+      scaleControl.current = L.control.scale({ position: 'bottomleft', metric: true, imperial: false }).addTo(map.current);
     }
 
     // Attach a single click handler to publish raw map clicks
