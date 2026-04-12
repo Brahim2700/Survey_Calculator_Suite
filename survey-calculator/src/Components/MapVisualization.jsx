@@ -6,8 +6,9 @@ import { emit } from '../utils/eventBus';
 const BASEMAP_STORAGE_KEY = 'survey_calc_basemap';
 const LABEL_AUTO_HIDE_THRESHOLD = 300;
 
-const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, isVisible, onPointSelect, measureMode = false, measurePoints = [] }) => {
+const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, isVisible, onPointSelect, measureMode = false, measurePoints = [], onMapContainerReady = null }) => {
   const mapContainer = useRef(null);
+  const mapRootContainer = useRef(null);
   const map = useRef(null);
   const markers = useRef([]);
   const pointLayersRef = useRef([]);
@@ -37,6 +38,12 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
       setShowLabels(false);
     }
   }, [points]);
+
+  useEffect(() => {
+    if (typeof onMapContainerReady !== 'function') return;
+    onMapContainerReady(mapRootContainer.current);
+    return () => onMapContainerReady(null);
+  }, [onMapContainerReady]);
 
   // Add CSS for detection labels on first render
   useEffect(() => {
@@ -682,6 +689,7 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
 
   return (
     <div
+      ref={mapRootContainer}
       style={{
         display: isVisible ? 'block' : 'none',
         width: '100%',

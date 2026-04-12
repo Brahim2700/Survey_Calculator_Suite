@@ -26,6 +26,8 @@
     "epsg-index": "^2.0.0",
     "express": "^5.1.0",
     "geotiff": "^2.1.4-beta.1",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
     "jszip": "^3.10.1",
     "leaflet": "^1.9.4",
     "mathjs": "^15.1.0",
