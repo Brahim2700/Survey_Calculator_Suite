@@ -731,7 +731,6 @@ const CoordinateConverter = () => {
   const [cadBackendStatusError, setCadBackendStatusError] = useState("");
   const [cadInspection, setCadInspection] = useState(null);
   const [importCrsNotice, setImportCrsNotice] = useState("");
-  const [cadHandlingMode, setCadHandlingMode] = useState("strict"); // strict | permissive
   
   // CRS Detection State
   const [crsSuggestions, setCrsSuggestions] = useState([]);
@@ -934,7 +933,7 @@ const CoordinateConverter = () => {
     const stamp = new Date().toISOString().replace(/[:]/g, "-");
     const report = {
       generatedAt: new Date().toISOString(),
-      handlingMode: cadHandlingMode,
+      handlingMode: "permissive-expert-auto",
       importNotice: importCrsNotice || null,
       inspection: cadInspection,
     };
@@ -945,7 +944,7 @@ const CoordinateConverter = () => {
     a.download = `cad-diagnostic-${stamp}.json`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [cadHandlingMode, cadInspection, importCrsNotice]);
+  }, [cadInspection, importCrsNotice]);
 
   const detectLocalReferenceFromRows = useCallback((rows) => {
     if (!Array.isArray(rows) || rows.length === 0) return null;
@@ -964,11 +963,6 @@ const CoordinateConverter = () => {
 
   const localReferenceNotice = "Detected local/unreferenced plan coordinates. The drawing is not tied to a known CRS (engineering/local grid). Assign control points or set CRS manually before georeferenced conversion.";
   const ambiguousReferenceNotice = "CRS detection is ambiguous for this plan. Please confirm the source CRS before running precise conversion.";
-  const shouldBlockCadAutoConversion = useCallback((assessment) => {
-    if (!assessment) return false;
-    if (cadHandlingMode !== "strict") return false;
-    return Boolean(assessment.isLocal) || assessment.status === "ambiguous";
-  }, [cadHandlingMode]);
 
   const handleSwapCrs = () => {
     if (!fromCrs || !toCrs) return;
@@ -2450,9 +2444,8 @@ const CoordinateConverter = () => {
       const referenceStatus = detectLocalReferenceFromRows(rows);
       const isLocalUnreferenced = sourceCrs === "LOCAL:ENGINEERING" || Boolean(referenceStatus?.isLocal);
       const isAmbiguous = referenceStatus?.status === "ambiguous";
-      const shouldBlock = shouldBlockCadAutoConversion(referenceStatus);
 
-      if (!shouldBlock && !isLocalUnreferenced && (detectedFromRows || detectedFromPayload)) {
+      if (!isLocalUnreferenced && (detectedFromRows || detectedFromPayload)) {
         setFromCrsAutomatically(sourceCrs);
       }
 
@@ -2466,16 +2459,11 @@ const CoordinateConverter = () => {
 
       setCadInspection(buildCadInspectionSummary(file, rows, latestCadStatus, cadPayload));
 
-      if (shouldBlock && isLocalUnreferenced) {
-        emit("converter:pointsForMap", { points: [] });
-        emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [] } });
-      } else {
-        const previewPoints = projectCadRowsToWgs84(rows, sourceCrs);
-        emit("converter:pointsForMap", { points: previewPoints });
+      const previewPoints = projectCadRowsToWgs84(rows, sourceCrs);
+      emit("converter:pointsForMap", { points: previewPoints });
 
-        const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrs);
-        emit("converter:cadGeometryForMap", { geometry: projectedGeometry });
-      }
+      const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrs);
+      emit("converter:cadGeometryForMap", { geometry: projectedGeometry });
 
       setBulkProgress(null);
     } catch (err) {
@@ -2484,7 +2472,7 @@ const CoordinateConverter = () => {
     } finally {
       setCadPreviewLoading(false);
     }
-  }, [ambiguousReferenceNotice, bulkUploadFile, detectLocalReferenceFromRows, fromCrs, localReferenceNotice, projectCadGeometryToWgs84, projectCadRowsToWgs84, refreshCadStatus, shouldBlockCadAutoConversion]);
+  }, [ambiguousReferenceNotice, bulkUploadFile, detectLocalReferenceFromRows, fromCrs, localReferenceNotice, projectCadGeometryToWgs84, projectCadRowsToWgs84, refreshCadStatus]);
 
   // Detect CRS immediately when file is selected
   const detectFileFormatsAndCRS = async (file) => {
@@ -2597,7 +2585,6 @@ const CoordinateConverter = () => {
         const referenceStatus = detectLocalReferenceFromRows(rows);
         const isLocalUnreferenced = anyCrs?.detectedFromCrs === "LOCAL:ENGINEERING" || Boolean(referenceStatus?.isLocal);
         const isAmbiguous = referenceStatus?.status === "ambiguous";
-        const shouldBlock = shouldBlockCadAutoConversion(referenceStatus);
 
         if (isLocalUnreferenced) {
           setImportCrsNotice(referenceStatus?.reason || localReferenceNotice);
@@ -2625,17 +2612,6 @@ const CoordinateConverter = () => {
           setCadInspection(buildCadInspectionSummary(file, rows, latestCadStatus, cadPayload));
 
           const sourceCrsForGeometry = rows.find((r) => r.detectedFromCrs)?.detectedFromCrs || fromCrs;
-          if (shouldBlock) {
-            emit("converter:pointsForMap", { points: [] });
-            emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [] } });
-            setBulkProgress(null);
-            setBulkIsConverting(false);
-            setBulkUploadError(isLocalUnreferenced
-              ? "Local/unreferenced plan detected. Automatic georeferenced conversion is disabled in strict mode. Switch to permissive mode to continue at your own risk."
-              : "CRS detection is ambiguous. Conversion is blocked in strict mode until you confirm source CRS or switch to permissive mode.");
-            return;
-          }
-
           const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrsForGeometry);
           emit("converter:cadGeometryForMap", { geometry: projectedGeometry });
         } else {
@@ -4057,17 +4033,6 @@ const CoordinateConverter = () => {
           </div>
         </div>
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
-          <label style={{ fontSize: "0.8rem", color: "#334155", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
-            CAD handling mode
-            <select
-              value={cadHandlingMode}
-              onChange={(e) => setCadHandlingMode(e.target.value)}
-              style={{ padding: "0.32rem 0.42rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff" }}
-            >
-              <option value="strict">Strict (safe)</option>
-              <option value="permissive">Permissive (expert)</option>
-            </select>
-          </label>
           <input ref={bulkFileInputRef} type="file" accept=".csv,.txt,.geojson,.json,.gpx,.kml,.zip,.xlsx,.xls,.dxf,.dwg" onChange={(e) => { 
             const f = e.target.files?.[0] || null; 
               applyBulkFileSelection(f);

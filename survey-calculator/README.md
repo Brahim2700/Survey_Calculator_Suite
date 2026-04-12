@@ -22,6 +22,12 @@ The repo now also includes an optional CAD backend service for native DWG parsin
 - Import structured formats: GeoJSON, GPX, KML, XLSX, Shapefile ZIP.
 - DXF parsing in-browser, plus native DWG parsing through the optional backend service.
 
+## CAD Handling Behavior
+
+- CAD imports (DXF/DWG) now run in automatic permissive expert mode by default.
+- The previous strict/permissive selector has been removed to keep the workflow simpler.
+- If CRS looks local/unreferenced or ambiguous, the app shows a notice but does not block preview/conversion.
+
 ## Supported Import Formats
 
 - CSV/TXT: columns for `lon, lat, h` or `x, y, z`; supports tabs/commas/semicolons.
