@@ -57,12 +57,252 @@ const detectCrsFromDxf = (dxfData) => {
   return 'EPSG:4326';
 };
 
+const distance2d = (a, b) => Math.hypot((Number(a?.x) || 0) - (Number(b?.x) || 0), (Number(a?.y) || 0) - (Number(b?.y) || 0));
+
+const getSegmentMidpoint = (segment) => ({
+  x: (segment.start.x + segment.end.x) / 2,
+  y: (segment.start.y + segment.end.y) / 2,
+});
+
+const getSegmentLength = (segment) => distance2d(segment.start, segment.end);
+
+const getSegmentOrientationBucket = (segment) => {
+  const dx = segment.end.x - segment.start.x;
+  const dy = segment.end.y - segment.start.y;
+  const angle = Math.atan2(dy, dx);
+  const octant = ((Math.round(angle / (Math.PI / 4)) % 8) + 8) % 8;
+  return octant;
+};
+
+const getBoundingBoxFromPoints = (points) => {
+  const xs = points.map((p) => Number(p?.x)).filter(Number.isFinite);
+  const ys = points.map((p) => Number(p?.y)).filter(Number.isFinite);
+  if (!xs.length || !ys.length) return null;
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  return {
+    minX,
+    maxX,
+    minY,
+    maxY,
+    width: maxX - minX,
+    height: maxY - minY,
+    diagonal: Math.hypot(maxX - minX, maxY - minY),
+    center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 },
+  };
+};
+
+const getEntitySegments = (entities, source = 'top-level') => {
+  const segments = [];
+  if (!Array.isArray(entities)) return segments;
+
+  entities.forEach((ent, entityIndex) => {
+    const layer = ent?.layer || ent?.type || source;
+    if (ent?.type === 'LINE') {
+      const lineStart = ent?.start || ent?.vertices?.[0];
+      const lineEnd = ent?.end || ent?.vertices?.[1];
+      if (Number.isFinite(Number(lineStart?.x)) && Number.isFinite(Number(lineStart?.y)) && Number.isFinite(Number(lineEnd?.x)) && Number.isFinite(Number(lineEnd?.y))) {
+        segments.push({
+          id: `${source}:${layer}:${entityIndex}:line`,
+          layer,
+          type: 'LINE',
+          start: { x: Number(lineStart.x), y: Number(lineStart.y), z: Number(lineStart.z ?? 0) },
+          end: { x: Number(lineEnd.x), y: Number(lineEnd.y), z: Number(lineEnd.z ?? 0) },
+        });
+      }
+      return;
+    }
+
+    if (ent?.type === 'LWPOLYLINE' || ent?.type === 'POLYLINE') {
+      const vertices = Array.isArray(ent?.vertices) ? ent.vertices : [];
+      for (let i = 0; i < vertices.length - 1; i += 1) {
+        const start = vertices[i];
+        const end = vertices[i + 1];
+        if (!Number.isFinite(Number(start?.x)) || !Number.isFinite(Number(start?.y)) || !Number.isFinite(Number(end?.x)) || !Number.isFinite(Number(end?.y))) continue;
+        segments.push({
+          id: `${source}:${layer}:${entityIndex}:seg:${i}`,
+          layer,
+          type: ent.type,
+          start: { x: Number(start.x), y: Number(start.y), z: Number(start.z ?? 0) },
+          end: { x: Number(end.x), y: Number(end.y), z: Number(end.z ?? 0) },
+        });
+      }
+    }
+  });
+
+  return segments;
+};
+
+const getLengthQuantile = (values, q) => {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.max(0, Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * q)));
+  return sorted[index];
+};
+
+const clusterCandidates = (candidates, tolerance) => {
+  const clusters = [];
+  candidates.forEach((candidate) => {
+    const hit = clusters.find((cluster) => distance2d(cluster.center, candidate.point) <= tolerance);
+    if (!hit) {
+      clusters.push({ center: { ...candidate.point }, items: [candidate] });
+      return;
+    }
+
+    hit.items.push(candidate);
+    const factor = hit.items.length;
+    hit.center = {
+      x: ((hit.center.x * (factor - 1)) + candidate.point.x) / factor,
+      y: ((hit.center.y * (factor - 1)) + candidate.point.y) / factor,
+    };
+  });
+  return clusters;
+};
+
+const getClusterDirectionStats = (center, segments, tolerance) => {
+  const octants = new Set();
+
+  const addDirection = (point) => {
+    const angle = Math.atan2(point.y - center.y, point.x - center.x);
+    const octant = ((Math.round(angle / (Math.PI / 4)) % 8) + 8) % 8;
+    octants.add(octant);
+  };
+
+  segments.forEach((segment) => {
+    const midpoint = getSegmentMidpoint(segment);
+    const nearStart = distance2d(segment.start, center) <= tolerance;
+    const nearEnd = distance2d(segment.end, center) <= tolerance;
+    const nearMid = distance2d(midpoint, center) <= tolerance;
+
+    if (nearStart) addDirection(segment.end);
+    if (nearEnd) addDirection(segment.start);
+    if (nearMid) {
+      addDirection(segment.start);
+      addDirection(segment.end);
+    }
+  });
+
+  const oppositePairs = new Set();
+  octants.forEach((octant) => {
+    const opposite = (octant + 4) % 8;
+    if (octants.has(opposite)) {
+      oppositePairs.add(`${Math.min(octant, opposite)}-${Math.max(octant, opposite)}`);
+    }
+  });
+
+  return { octants, oppositePairs };
+};
+
+const inferPointCentersFromSegments = (segments, drawingDiagonal = 0) => {
+  if (!segments.length) return [];
+
+  const lengths = segments.map(getSegmentLength).filter((len) => Number.isFinite(len) && len > 0);
+  if (!lengths.length) return [];
+
+  const q25 = getLengthQuantile(lengths, 0.25);
+  const q50 = getLengthQuantile(lengths, 0.5);
+  const floorFromDrawing = drawingDiagonal > 0 ? drawingDiagonal * 0.0002 : 0.0001;
+  const ceilingFromDrawing = drawingDiagonal > 0 ? drawingDiagonal * 0.03 : Math.max(q50 * 1.5, q25 * 2.5, 1);
+  const smallLengthThreshold = Math.max(floorFromDrawing, Math.min(Math.max(q25 * 2.5, q50 * 0.35, floorFromDrawing), ceilingFromDrawing));
+  const candidateSegments = segments.filter((segment) => getSegmentLength(segment) <= smallLengthThreshold);
+  if (!candidateSegments.length) return [];
+
+  const tolerance = Math.max(smallLengthThreshold * 0.2, drawingDiagonal * 0.0001, 0.0001);
+  const endpointClusters = clusterCandidates(
+    candidateSegments.flatMap((segment) => ([
+      { point: segment.start, segmentId: segment.id, anchorType: 'endpoint' },
+      { point: segment.end, segmentId: segment.id, anchorType: 'endpoint' },
+    ])),
+    tolerance
+  );
+  const midpointClusters = clusterCandidates(
+    candidateSegments.map((segment) => ({ point: getSegmentMidpoint(segment), segmentId: segment.id, anchorType: 'midpoint' })),
+    tolerance
+  );
+
+  const centers = [];
+
+  endpointClusters.forEach((cluster) => {
+    const supportedSegments = candidateSegments.filter((segment) => (
+      distance2d(segment.start, cluster.center) <= tolerance || distance2d(segment.end, cluster.center) <= tolerance
+    ));
+    if (supportedSegments.length < 3) return;
+
+    const orientationBuckets = new Set(supportedSegments.map(getSegmentOrientationBucket));
+    const { octants } = getClusterDirectionStats(cluster.center, supportedSegments, tolerance);
+    if (orientationBuckets.size < 2 && octants.size < 3) return;
+
+    centers.push({
+      x: cluster.center.x,
+      y: cluster.center.y,
+      z: supportedSegments[0]?.start?.z ?? 0,
+      segmentIds: supportedSegments.map((segment) => segment.id),
+      inferred: true,
+    });
+  });
+
+  midpointClusters.forEach((cluster) => {
+    const supportedSegments = candidateSegments.filter((segment) => distance2d(getSegmentMidpoint(segment), cluster.center) <= tolerance);
+    if (supportedSegments.length < 2) return;
+
+    const { octants, oppositePairs } = getClusterDirectionStats(cluster.center, supportedSegments, tolerance);
+    if (oppositePairs.size < 2 && octants.size < 4) return;
+
+    centers.push({
+      x: cluster.center.x,
+      y: cluster.center.y,
+      z: supportedSegments[0]?.start?.z ?? 0,
+      segmentIds: supportedSegments.map((segment) => segment.id),
+      inferred: true,
+    });
+  });
+
+  return centers.filter((center, index, arr) => arr.findIndex((other) => distance2d(other, center) <= tolerance) === index);
+};
+
+const isBlockPointLike = (block, drawingDiagonal = 0) => {
+  const entities = Array.isArray(block?.entities) ? block.entities : [];
+  if (!entities.length || entities.length > 12) return false;
+  if (entities.some((entity) => entity?.type === 'POINT')) return true;
+
+  const segments = getEntitySegments(entities, `block:${block?.name || 'unnamed'}`);
+  if (!segments.length) return false;
+
+  const points = segments.flatMap((segment) => [segment.start, segment.end]);
+  const bbox = getBoundingBoxFromPoints(points);
+  if (!bbox) return false;
+
+  if (drawingDiagonal > 0 && bbox.diagonal > drawingDiagonal * 0.03) return false;
+
+  return inferPointCentersFromSegments(segments, Math.max(bbox.diagonal, drawingDiagonal * 0.01)).length > 0;
+};
+
+const collectFallbackVertices = (segments, addRow) => {
+  segments.forEach((segment, index) => {
+    addRow(segment.start.x, segment.start.y, segment.start.z, `${segment.layer || segment.type}-start-${index + 1}`);
+    addRow(segment.end.x, segment.end.y, segment.end.z, `${segment.layer || segment.type}-end-${index + 1}`);
+  });
+};
+
 export const collectPointRowsFromDxf = (dxfData, options = {}) => {
   const rows = [];
   let idx = 1;
   const pointsOnly = options.pointsOnly || false;
   let detectedFromCrs = detectCrsFromDxf(dxfData);
   const seenCoords = new Map();
+  const topLevelEntities = Array.isArray(dxfData?.entities) ? dxfData.entities : [];
+  const segments = getEntitySegments(topLevelEntities);
+  const drawingPoints = [
+    ...segments.flatMap((segment) => [segment.start, segment.end]),
+    ...topLevelEntities
+      .map((ent) => ent?.position)
+      .filter((pos) => Number.isFinite(Number(pos?.x)) && Number.isFinite(Number(pos?.y)))
+      .map((pos) => ({ x: Number(pos.x), y: Number(pos.y) })),
+  ];
+  const drawingBounds = getBoundingBoxFromPoints(drawingPoints);
+  const drawingDiagonal = drawingBounds?.diagonal || 0;
 
   const addRow = (x, y, z, idHint) => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
@@ -93,42 +333,10 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
           addRow(ent.position?.x, ent.position?.y, z, layer);
           break;
         }
-        case 'LINE': {
-          if (!pointsOnly) {
-            const startZ = ent.start?.z ?? ent.startZ ?? ent.start?.[2];
-            const endZ = ent.end?.z ?? ent.endZ ?? ent.end?.[2];
-            addRow(ent.start?.x, ent.start?.y, startZ, `${layer || 'LINE'}-start`);
-            addRow(ent.end?.x, ent.end?.y, endZ, `${layer || 'LINE'}-end`);
-          }
-          break;
-        }
-        case 'LWPOLYLINE':
-        case 'POLYLINE': {
-          if (!pointsOnly) {
-            (ent.vertices || []).forEach((v, i) => {
-              const vz = v?.z ?? v?.[2];
-              addRow(v?.x, v?.y, vz, `${layer || ent.type}-${i + 1}`);
-            });
-          }
-          break;
-        }
-        case 'VERTEX': {
-          if (!pointsOnly) {
-            const vz = ent.position?.z ?? ent.z ?? ent.position?.[2];
-            addRow(ent.position?.x, ent.position?.y, vz, layer);
-          }
-          break;
-        }
-        case 'CIRCLE':
-        case 'ARC': {
-          if (!pointsOnly) {
-            const cz = ent.center?.z ?? ent.centerZ ?? ent.center?.[2];
-            addRow(ent.center?.x, ent.center?.y, cz, layer);
-          }
-          break;
-        }
         case 'INSERT': {
-          if (!pointsOnly) {
+          const block = dxfData?.blocks?.[ent.name];
+          const nameLooksPointLike = /(?:^|[_\-\s])(pt|point|station|survey|node|borne|bench|cross)(?:$|[_\-\s])/i.test(String(ent.name || layer || ''));
+          if (nameLooksPointLike || isBlockPointLike(block, drawingDiagonal)) {
             const iz = ent.position?.z ?? ent.z ?? ent.position?.[2];
             addRow(ent.position?.x, ent.position?.y, iz, ent.name || layer || 'INSERT');
           }
@@ -140,8 +348,16 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
     });
   };
 
-  visitEntities(dxfData?.entities);
-  Object.values(dxfData?.blocks || {}).forEach((block) => visitEntities(block?.entities));
+  visitEntities(topLevelEntities);
+
+  const inferredCenters = inferPointCentersFromSegments(segments, drawingDiagonal);
+  inferredCenters.forEach((center, centerIndex) => {
+    addRow(center.x, center.y, center.z, `symbol-${centerIndex + 1}`);
+  });
+
+  if (!rows.length && !pointsOnly) {
+    collectFallbackVertices(segments, addRow);
+  }
 
   const coordinates = rows.map((row) => ({ x: row.x, y: row.y, z: row.z }));
   const metadata = { projection: detectedFromCrs !== 'EPSG:4326' ? detectedFromCrs : null };
@@ -208,7 +424,7 @@ export const collectCadGeometryFromDxf = (dxfData) => {
       const layer = ent?.layer || ent?.type;
       switch (ent?.type) {
         case 'LINE':
-          addLine(ent.start, ent.end, layer, 'LINE');
+          addLine(ent.start || ent?.vertices?.[0], ent.end || ent?.vertices?.[1], layer, 'LINE');
           break;
         case 'LWPOLYLINE':
         case 'POLYLINE':
@@ -221,7 +437,6 @@ export const collectCadGeometryFromDxf = (dxfData) => {
   };
 
   visitEntities(dxfData?.entities);
-  Object.values(dxfData?.blocks || {}).forEach((block) => visitEntities(block?.entities));
 
   return geometry;
 };
