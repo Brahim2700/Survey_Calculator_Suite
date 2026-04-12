@@ -57,6 +57,29 @@ const detectCrsFromDxf = (dxfData) => {
   return 'EPSG:4326';
 };
 
+const GENERIC_POINT_NAME_PATTERN = /^(?:point|points?|pt|pts|node|nodes|station|stations|survey|symbol|insert|cross|borne|bench|cad)[_\-\s]*[a-z0-9]*$/i;
+
+const normalizeCadLabelCandidate = (value) => String(value || '').trim();
+
+const isMeaningfulCadPointName = (value) => {
+  const text = normalizeCadLabelCandidate(value);
+  if (!text) return false;
+  if (GENERIC_POINT_NAME_PATTERN.test(text)) return false;
+  if (/^symbol-\d+$/i.test(text)) return false;
+  if (/^[a-z_\-]+$/i.test(text) && text.toUpperCase() === text) return false;
+  return true;
+};
+
+const extractInsertPointName = (ent) => {
+  const attrCandidates = [
+    ...(Array.isArray(ent?.attribs) ? ent.attribs.map((attr) => attr?.text || attr?.value || attr?.tag) : []),
+    ent?.text,
+    ent?.name,
+  ];
+
+  return attrCandidates.find(isMeaningfulCadPointName) || null;
+};
+
 const distance2d = (a, b) => Math.hypot((Number(a?.x) || 0) - (Number(b?.x) || 0), (Number(a?.y) || 0) - (Number(b?.y) || 0));
 
 const getSegmentMidpoint = (segment) => ({
@@ -304,7 +327,7 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
   const drawingBounds = getBoundingBoxFromPoints(drawingPoints);
   const drawingDiagonal = drawingBounds?.diagonal || 0;
 
-  const addRow = (x, y, z, idHint) => {
+  const addRow = (x, y, z, idHint, hasExplicitName = false) => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     const coordKey = `${x.toFixed(3)},${y.toFixed(3)}`;
 
@@ -316,8 +339,15 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
       return;
     }
 
-    const id = idHint || idx;
-    const row = { id, x, y, z: Number.isFinite(z) ? z : null, detectedFromCrs };
+    const id = hasExplicitName && isMeaningfulCadPointName(idHint) ? String(idHint).trim() : String(idx);
+    const row = {
+      id,
+      x,
+      y,
+      z: Number.isFinite(z) ? z : null,
+      detectedFromCrs,
+      hasExplicitName: hasExplicitName && isMeaningfulCadPointName(idHint),
+    };
     rows.push(row);
     seenCoords.set(coordKey, row);
     idx += 1;
@@ -330,7 +360,7 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
       switch (ent?.type) {
         case 'POINT': {
           const z = ent.position?.z ?? ent.z ?? ent.position?.[2] ?? ent.vertices?.[0]?.z;
-          addRow(ent.position?.x, ent.position?.y, z, layer);
+          addRow(ent.position?.x, ent.position?.y, z, null, false);
           break;
         }
         case 'INSERT': {
@@ -338,7 +368,8 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
           const nameLooksPointLike = /(?:^|[_\-\s])(pt|point|station|survey|node|borne|bench|cross)(?:$|[_\-\s])/i.test(String(ent.name || layer || ''));
           if (nameLooksPointLike || isBlockPointLike(block, drawingDiagonal)) {
             const iz = ent.position?.z ?? ent.z ?? ent.position?.[2];
-            addRow(ent.position?.x, ent.position?.y, iz, ent.name || layer || 'INSERT');
+            const pointName = extractInsertPointName(ent);
+            addRow(ent.position?.x, ent.position?.y, iz, pointName, Boolean(pointName));
           }
           break;
         }
@@ -351,8 +382,8 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
   visitEntities(topLevelEntities);
 
   const inferredCenters = inferPointCentersFromSegments(segments, drawingDiagonal);
-  inferredCenters.forEach((center, centerIndex) => {
-    addRow(center.x, center.y, center.z, `symbol-${centerIndex + 1}`);
+  inferredCenters.forEach((center) => {
+    addRow(center.x, center.y, center.z, null, false);
   });
 
   if (!rows.length && !pointsOnly) {

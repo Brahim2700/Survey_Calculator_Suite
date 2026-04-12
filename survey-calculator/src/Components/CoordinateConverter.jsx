@@ -1527,14 +1527,19 @@ const CoordinateConverter = () => {
         const xVal = Number(row?.x);
         const yVal = Number(row?.y);
         if (!Number.isFinite(xVal) || !Number.isFinite(yVal)) return null;
+        const pointName = row?.hasExplicitName && String(row?.id || '').trim()
+          ? String(row.id).trim()
+          : String(index + 1);
+        const pointId = String(row?.id || pointName || `cad_${index + 1}`);
 
         if (sourceIsGeo) {
           return {
-            id: String(row?.id ?? `cad_${index + 1}`),
+            id: pointId,
             lat: yVal,
             lng: xVal,
-            label: String(row?.id ?? `CAD ${index + 1}`),
+            label: pointName,
             height: Number.isFinite(Number(row?.z)) ? Number(row.z) : 0,
+            sourceType: 'cad-point',
           };
         }
 
@@ -1542,11 +1547,12 @@ const CoordinateConverter = () => {
           const [lon, lat] = proj4(source, 'EPSG:4326', [xVal, yVal]);
           if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
           return {
-            id: String(row?.id ?? `cad_${index + 1}`),
+            id: pointId,
             lat,
             lng: lon,
-            label: String(row?.id ?? `CAD ${index + 1}`),
+            label: pointName,
             height: Number.isFinite(Number(row?.z)) ? Number(row.z) : 0,
+            sourceType: 'cad-point',
           };
         } catch {
           return null;
