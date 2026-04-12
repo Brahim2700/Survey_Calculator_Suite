@@ -6,6 +6,24 @@ import { emit } from '../utils/eventBus';
 const BASEMAP_STORAGE_KEY = 'survey_calc_basemap';
 const LABEL_AUTO_HIDE_THRESHOLD = 300;
 
+const getRoundedScaleDenominator = (rawDenominator) => {
+  if (!Number.isFinite(rawDenominator) || rawDenominator <= 0) return null;
+  if (rawDenominator < 1000) return Math.round(rawDenominator / 10) * 10;
+  if (rawDenominator < 5000) return Math.round(rawDenominator / 50) * 50;
+  if (rawDenominator < 10000) return Math.round(rawDenominator / 100) * 100;
+  if (rawDenominator < 50000) return Math.round(rawDenominator / 500) * 500;
+  if (rawDenominator < 100000) return Math.round(rawDenominator / 1000) * 1000;
+  return Math.round(rawDenominator / 5000) * 5000;
+};
+
+const getMapScaleDenominator = (zoom, latitudeDeg) => {
+  const latRad = (Math.max(-85, Math.min(85, latitudeDeg)) * Math.PI) / 180;
+  const metersPerPixel = (40075016.686 * Math.cos(latRad)) / (2 ** (zoom + 8));
+  const screenDpi = 96;
+  const denominator = (metersPerPixel * screenDpi) / 0.0254;
+  return getRoundedScaleDenominator(denominator);
+};
+
 const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, isVisible, onPointSelect, measureMode = false, measurePoints = [], onMapContainerReady = null }) => {
   const mapContainer = useRef(null);
   const mapRootContainer = useRef(null);
@@ -18,6 +36,8 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
   const basemapLayers = useRef(null);
   const layerControl = useRef(null);
   const scaleControl = useRef(null);
+  const smartScaleControl = useRef(null);
+  const smartScaleLabel = useRef(null);
   const [selectedPoint, setSelectedPoint] = useState(null);
   const [viewTick, setViewTick] = useState(0);
   const [showPointLayer, setShowPointLayer] = useState(true);
@@ -121,6 +141,20 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
       }
       .point-cluster-label.leaflet-tooltip-top:before {
         border-top-color: rgba(30, 41, 59, 0.92);
+      }
+      .leaflet-control.smart-scale-control {
+        clear: none;
+        margin-left: 6px;
+        margin-bottom: 10px;
+        background: rgba(15, 23, 42, 0.9);
+        color: #e2e8f0;
+        border: 1px solid rgba(148, 163, 184, 0.5);
+        border-radius: 6px;
+        box-shadow: 0 1px 5px rgba(0, 0, 0, 0.5);
+        padding: 3px 8px;
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1.2;
       }
     `;
     document.head.appendChild(style);
@@ -332,7 +366,25 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
       basemapLayers.current[initialBasemap].addTo(map.current);
       layerControl.current = L.control.layers(basemapLayers.current, null, { position: 'topleft' }).addTo(map.current);
       scaleControl.current = L.control.scale({ position: 'bottomleft', metric: true, imperial: false }).addTo(map.current);
+
+      smartScaleControl.current = L.control({ position: 'bottomleft' });
+      smartScaleControl.current.onAdd = () => {
+        const div = L.DomUtil.create('div', 'leaflet-control smart-scale-control');
+        div.innerHTML = 'Scale 1:--';
+        smartScaleLabel.current = div;
+        return div;
+      };
+      smartScaleControl.current.addTo(map.current);
     }
+
+    const updateSmartScale = () => {
+      if (!map.current || !smartScaleLabel.current) return;
+      const center = map.current.getCenter();
+      const zoom = map.current.getZoom();
+      const denominator = getMapScaleDenominator(zoom, center.lat);
+      const formatted = Number.isFinite(denominator) ? denominator.toLocaleString() : '--';
+      smartScaleLabel.current.innerHTML = `Scale 1:${formatted}`;
+    };
 
     // Attach a single click handler to publish raw map clicks
     const handleMapClick = (e) => {
@@ -348,12 +400,16 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
       }
     };
 
-    const handleViewChange = () => setViewTick((prev) => prev + 1);
+    const handleViewChange = () => {
+      setViewTick((prev) => prev + 1);
+      updateSmartScale();
+    };
 
     map.current.on('click', handleMapClick);
     map.current.on('baselayerchange', handleBasemapChange);
     map.current.on('zoomend', handleViewChange);
     map.current.on('moveend', handleViewChange);
+    updateSmartScale();
 
     // Clear existing markers and geometry overlays
     markers.current.forEach((marker) => map.current.removeLayer(marker));
