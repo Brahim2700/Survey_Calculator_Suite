@@ -42,15 +42,21 @@ const captureMapCanvas = async (mapRootElement) => {
     throw new Error('Map is not ready for export yet.');
   }
 
-  await waitForTiles(mapRootElement);
+  mapRootElement.classList.add('map-export-mode');
+  try {
+    await waitForTiles(mapRootElement);
 
-  return html2canvas(mapRootElement, {
-    useCORS: true,
-    allowTaint: false,
-    backgroundColor: '#f8fafc',
-    scale: Math.min(window.devicePixelRatio || 1.5, 2.2),
-    logging: false,
-  });
+    return html2canvas(mapRootElement, {
+      useCORS: true,
+      allowTaint: false,
+      backgroundColor: '#f8fafc',
+      scale: Math.min(Math.max(window.devicePixelRatio || 2, 2), 3),
+      imageTimeout: 2500,
+      logging: false,
+    });
+  } finally {
+    mapRootElement.classList.remove('map-export-mode');
+  }
 };
 
 const composeExportCanvas = (mapCanvas, exportInfo = {}) => {
@@ -198,16 +204,17 @@ export const exportMapAsPdf = async (mapRootElement, exportInfo = {}, fileName =
   const pageW = pdf.internal.pageSize.getWidth();
   const pageH = pdf.internal.pageSize.getHeight();
   const margin = 8;
-  const drawW = pageW - margin * 2;
-  const drawH = (composedCanvas.height / composedCanvas.width) * drawW;
+  const drawableW = pageW - margin * 2;
+  const drawableH = pageH - margin * 2;
+  const ratioW = drawableW / composedCanvas.width;
+  const ratioH = drawableH / composedCanvas.height;
+  const scale = Math.min(ratioW, ratioH);
+  const fittedW = composedCanvas.width * scale;
+  const fittedH = composedCanvas.height * scale;
+  const offsetX = margin + ((drawableW - fittedW) / 2);
+  const offsetY = margin + ((drawableH - fittedH) / 2);
 
-  if (drawH <= pageH - margin * 2) {
-    pdf.addImage(imageData, 'PNG', margin, margin, drawW, drawH, undefined, 'FAST');
-  } else {
-    const fittedH = pageH - margin * 2;
-    const fittedW = (composedCanvas.width / composedCanvas.height) * fittedH;
-    pdf.addImage(imageData, 'PNG', margin, margin, fittedW, fittedH, undefined, 'FAST');
-  }
+  pdf.addImage(imageData, 'PNG', offsetX, offsetY, fittedW, fittedH, undefined, 'FAST');
 
   pdf.save(fileName);
 };

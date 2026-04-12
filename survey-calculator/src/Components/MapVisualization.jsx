@@ -44,6 +44,7 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
   const [showLineLayer, setShowLineLayer] = useState(true);
   const [showPolylineLayer, setShowPolylineLayer] = useState(true);
   const [showLabels, setShowLabels] = useState(true);
+  const [legendCollapsed, setLegendCollapsed] = useState(false);
   const labelsTouchedRef = useRef(false);
 
   useEffect(() => {
@@ -141,6 +142,24 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
       }
       .point-cluster-label.leaflet-tooltip-top:before {
         border-top-color: rgba(30, 41, 59, 0.92);
+      }
+      .map-export-mode .map-legend-overlay {
+        display: none !important;
+      }
+      .map-export-mode .point-name-label .leaflet-tooltip-content {
+        font-size: 12px;
+        padding: 4px 10px 5px;
+        background: rgba(9, 17, 30, 0.92);
+        border-width: 1.2px;
+      }
+      .map-export-mode .point-name-label.dense .leaflet-tooltip-content {
+        font-size: 11px;
+        padding: 3px 8px 4px;
+      }
+      .map-export-mode .detection-label .leaflet-tooltip-content,
+      .map-export-mode .detection-cluster-label .leaflet-tooltip-content,
+      .map-export-mode .point-cluster-label .leaflet-tooltip-content {
+        font-size: 11px;
       }
       .leaflet-control.smart-scale-control {
         clear: none;
@@ -563,16 +582,11 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
       const groupIndex = group ? group.points.indexOf(point) : -1;
       const isSelectableConverted = measureMode && point.sourceType === 'converted';
 
-      let displayLat = point.lat;
-      let displayLng = point.lng;
+      const displayLat = point.lat;
+      const displayLng = point.lng;
       let tooltipOffset = [0, -15];
-
-      // Slightly spread markers so identical points remain visible/clickable.
       if (group && groupSize > 1 && groupIndex >= 0) {
         const angle = (2 * Math.PI * groupIndex) / groupSize;
-        const spreadDeg = 0.00008; // ~9m lat offset; visual aid only
-        displayLat = point.lat + Math.sin(angle) * spreadDeg;
-        displayLng = point.lng + Math.cos(angle) * spreadDeg;
         tooltipOffset = [Math.round(Math.cos(angle) * 28), Math.round(Math.sin(angle) * 20) - 20];
       }
 
@@ -599,7 +613,7 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
             Lng: ${point.lng.toFixed(4)}°<br/>
             Height: ${(point.height || 0).toFixed(2)} m<br/>
             ${isSelectableConverted ? `<span style="color:#ea580c"><b>Measure:</b> Click to select this converted point</span><br/>` : ''}
-            ${groupSize > 1 ? `<span style="color:#1e3a8a"><b>Note:</b> Marker position is slightly offset for overlap clarity (${groupIndex + 1}/${groupSize}).</span><br/>` : ''}
+            ${groupSize > 1 ? `<span style="color:#1e3a8a"><b>Note:</b> ${groupSize} points overlap at this location (${groupIndex + 1}/${groupSize}).</span><br/>` : ''}
             ${point.validationMessage ? `<span style="color:#b45309"><b>Validation:</b> ${point.validationMessage}</span><br/>` : ''}
             <b style="color: ${color}">Geoid: ${undulationLabel}</b>
           </div>`
@@ -762,23 +776,43 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
     >
       {/* Legend */}
       <div
+        className="map-legend-overlay"
         style={{
           position: 'absolute',
           top: '10px',
           right: '10px',
           backgroundColor: 'rgba(15,32,64,0.92)',
           backdropFilter: 'blur(6px)',
-          padding: '10px 13px',
+          padding: '8px 10px',
           borderRadius: '10px',
           boxShadow: '0 4px 16px rgba(0,0,0,0.28)',
           zIndex: 999,
-          fontSize: '11px',
-          lineHeight: '1.55',
+          fontSize: '10px',
+          lineHeight: '1.35',
           border: '1px solid rgba(255,255,255,0.10)',
           color: '#cbd5e1',
+          maxWidth: '230px',
         }}
       >
-        <div style={{ fontWeight: 700, marginBottom: '6px', color: '#e0eaff', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Geoid Undulation</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: legendCollapsed ? 0 : '6px' }}>
+          <div style={{ fontWeight: 700, color: '#e0eaff', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Map Legend</div>
+          <button
+            onClick={() => setLegendCollapsed((v) => !v)}
+            style={{
+              border: '1px solid rgba(148,163,184,0.55)',
+              background: 'rgba(15,23,42,0.65)',
+              color: '#e2e8f0',
+              borderRadius: '999px',
+              fontSize: '10px',
+              padding: '1px 8px',
+              cursor: 'pointer'
+            }}
+          >
+            {legendCollapsed ? 'Show' : 'Hide'}
+          </button>
+        </div>
+        {!legendCollapsed && (
+          <>
         <div style={{ marginBottom: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
           <button
             onClick={() => setShowPointLayer((v) => !v)}
@@ -846,11 +880,11 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
         </div>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '3px' }}>
           <div style={{ width: '10px', height: '10px', backgroundColor: '#f59e0b', marginRight: '6px', borderRadius: '2px', flexShrink: 0 }} />
-          Zone warning
+          Zone warn
         </div>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '3px' }}>
           <div style={{ width: '10px', height: '10px', backgroundColor: '#dc2626', marginRight: '6px', borderRadius: '2px', flexShrink: 0 }} />
-          Outlier warning
+          Outlier warn
         </div>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '3px' }}>
           <div style={{ width: '10px', height: '10px', backgroundColor: '#00FFFF', marginRight: '6px', borderRadius: '2px', flexShrink: 0 }} />
@@ -868,6 +902,8 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
           <div style={{ width: '10px', height: '10px', backgroundColor: '#FF0000', marginRight: '6px', borderRadius: '2px', flexShrink: 0 }} />
           &gt; +10 m
         </div>
+          </>
+        )}
       </div>
 
       {/* Map container */}
