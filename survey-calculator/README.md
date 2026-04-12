@@ -48,11 +48,14 @@ Accepted file types in the UI: `.csv,.txt,.geojson,.json,.gpx,.kml,.zip,.xlsx,.x
 
 The DWG backend is included under `server/` and exposes `/api/cad/health` and `/api/cad/parse`.
 
-On Windows, the backend now auto-detects a standard ODA File Converter install such as `C:\Program Files\ODA\ODAFileConverter 27.1.0\ODAFileConverter.exe`.
+Hosted production uses LibreDWG (`dwg2dxf`) by default through `Dockerfile.cad-api`, which is the intended Railway deployment path. End users of the hosted app do not need ODA or any local CAD software installed.
 
-For native DWG support, configure one of these on the machine running `npm run dev:server`:
+For local Windows development only, the backend can still auto-detect a standard ODA File Converter install such as `C:\Program Files\ODA\ODAFileConverter 27.1.0\ODAFileConverter.exe`.
 
-- `ODA_FILE_CONVERTER_PATH`: path to ODA File Converter executable. This is the easiest supported setup in the current backend.
+For native DWG support outside the Railway Docker image, configure one of these on the machine running `npm run dev:server`:
+
+- `DWG2DXF_PATH`: optional path override for LibreDWG `dwg2dxf`.
+- `ODA_FILE_CONVERTER_PATH`: optional path to ODA File Converter executable for local fallback use.
 - `DWG_CONVERTER_COMMAND`: custom command template for another converter. Supported placeholders: `{inputPath}`, `{inputDir}`, `{inputFileName}`, `{outputDir}`, `{outputDxfPath}`, `{outputBaseName}`.
 
 Quick Windows install:
@@ -82,7 +85,8 @@ Important:
 
 - Do not rely on a local machine path like `C:\Program Files\...` for production.
 - Vercel should call a hosted CAD API using `VITE_CAD_API_BASE_URL`, for example `https://cad-api.yourdomain.com/api/cad`.
-- The hosted CAD backend is where ODA File Converter or another DWG converter must be installed/configured.
+- The hosted CAD backend on Railway should use the included Docker image, which already installs LibreDWG (`dwg2dxf`).
+- ODA is optional and only relevant for local Windows development or a custom non-Docker server environment.
 
 Files added for this flow:
 

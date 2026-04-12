@@ -80,7 +80,7 @@ const extractInsertPointName = (ent) => {
   return attrCandidates.find(isCadPointNameProvided) || null;
 };
 
-const collectTextLabels = (dxfData) => {
+const collectTextLabels = (entities) => {
   const labels = [];
 
   const normalizeTextContent = (raw) => {
@@ -116,8 +116,7 @@ const collectTextLabels = (dxfData) => {
     });
   };
 
-  addFromEntities(dxfData?.entities);
-  Object.values(dxfData?.blocks || {}).forEach((block) => addFromEntities(block?.entities));
+  addFromEntities(entities);
   return labels;
 };
 
@@ -198,6 +197,234 @@ const getBoundingBoxFromPoints = (points) => {
     diagonal: Math.hypot(maxX - minX, maxY - minY),
     center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 },
   };
+};
+
+const identityCadTransform = () => ({
+  a: 1,
+  b: 0,
+  c: 0,
+  d: 1,
+  tx: 0,
+  ty: 0,
+  sz: 1,
+  tz: 0,
+});
+
+const asFiniteNumber = (value, fallback = 0) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+};
+
+const toCadPoint = (value, fallbackZ = 0) => {
+  if (Array.isArray(value)) {
+    return {
+      x: asFiniteNumber(value[0], 0),
+      y: asFiniteNumber(value[1], 0),
+      z: asFiniteNumber(value[2], fallbackZ),
+    };
+  }
+
+  return {
+    x: asFiniteNumber(value?.x, 0),
+    y: asFiniteNumber(value?.y, 0),
+    z: asFiniteNumber(value?.z, fallbackZ),
+  };
+};
+
+const applyCadTransform = (point, transform) => {
+  const local = toCadPoint(point);
+  return {
+    x: transform.a * local.x + transform.c * local.y + transform.tx,
+    y: transform.b * local.x + transform.d * local.y + transform.ty,
+    z: (transform.sz * local.z) + transform.tz,
+  };
+};
+
+const composeCadTransforms = (parent, local) => ({
+  a: parent.a * local.a + parent.c * local.b,
+  b: parent.b * local.a + parent.d * local.b,
+  c: parent.a * local.c + parent.c * local.d,
+  d: parent.b * local.c + parent.d * local.d,
+  tx: parent.a * local.tx + parent.c * local.ty + parent.tx,
+  ty: parent.b * local.tx + parent.d * local.ty + parent.ty,
+  sz: parent.sz * local.sz,
+  tz: parent.sz * local.tz + parent.tz,
+});
+
+const createInsertTransform = (entity) => {
+  const position = entity?.position || entity?.insertionPoint || {};
+  const rotationDeg = asFiniteNumber(entity?.rotation ?? entity?.angle, 0);
+  const rotationRad = (rotationDeg * Math.PI) / 180;
+  const cos = Math.cos(rotationRad);
+  const sin = Math.sin(rotationRad);
+  const scaleX = asFiniteNumber(entity?.xScale ?? entity?.scaleX ?? entity?.scale?.x, 1);
+  const scaleY = asFiniteNumber(entity?.yScale ?? entity?.scaleY ?? entity?.scale?.y, 1);
+  const scaleZ = asFiniteNumber(entity?.zScale ?? entity?.scaleZ ?? entity?.scale?.z, 1);
+
+  return {
+    a: scaleX * cos,
+    b: scaleX * sin,
+    c: -scaleY * sin,
+    d: scaleY * cos,
+    tx: asFiniteNumber(position?.x, 0),
+    ty: asFiniteNumber(position?.y, 0),
+    sz: scaleZ,
+    tz: asFiniteNumber(position?.z ?? entity?.z, 0),
+  };
+};
+
+const isLikelyXrefReference = (name, block = null) => {
+  const normalized = String(name || '').trim();
+  if (!normalized) return false;
+  if (/[|\\/]/.test(normalized)) return true;
+  if (/\.dwg$/i.test(normalized)) return true;
+  if (/^xref[_\-\s]?/i.test(normalized)) return true;
+  if (block?.xrefPath || block?.path || block?.externalReference || block?.isXRef) return true;
+  return false;
+};
+
+const pushUniqueReference = (target, item, key) => {
+  if (target.some((existing) => existing.key === key)) return;
+  target.push({ key, ...item });
+};
+
+const transformCadEntity = (entity, transform, metadata = {}) => {
+  const type = String(entity?.type || '').toUpperCase();
+  const transformed = {
+    ...entity,
+    layer: entity?.layer || metadata.layer || entity?.type,
+    __depth: metadata.depth || 0,
+    __sourceBlock: metadata.sourceBlock || null,
+  };
+
+  switch (type) {
+    case 'POINT':
+      transformed.position = applyCadTransform(entity?.position || entity, transform);
+      transformed.z = transformed.position.z;
+      return transformed;
+    case 'LINE':
+      transformed.start = applyCadTransform(entity?.start || entity?.vertices?.[0], transform);
+      transformed.end = applyCadTransform(entity?.end || entity?.vertices?.[1], transform);
+      return transformed;
+    case 'LWPOLYLINE':
+    case 'POLYLINE':
+      transformed.vertices = (Array.isArray(entity?.vertices) ? entity.vertices : []).map((vertex) => applyCadTransform(vertex, transform));
+      return transformed;
+    case 'TEXT':
+    case 'MTEXT':
+    case 'ATTRIB': {
+      const position = entity?.position || entity?.startPoint || entity?.insertionPoint;
+      transformed.position = applyCadTransform(position, transform);
+      transformed.startPoint = transformed.position;
+      transformed.insertionPoint = transformed.position;
+      return transformed;
+    }
+    default:
+      return null;
+  }
+};
+
+const expandCadEntities = (dxfData, options = {}) => {
+  const blocks = dxfData?.blocks || {};
+  const maxDepth = Number.isFinite(Number(options.maxDepth)) ? Number(options.maxDepth) : 10;
+  const flattened = [];
+  const diagnostics = {
+    references: {
+      unresolvedBlockRefs: [],
+      unresolvedXrefs: [],
+      cyclicBlockRefs: [],
+    },
+    resolution: {
+      expandedInsertCount: 0,
+      nestedInsertDepthMax: 0,
+      expandedEntityCount: 0,
+      skippedEntitiesByType: {},
+      transformWarnings: [],
+    },
+  };
+
+  const markSkipped = (type) => {
+    const normalizedType = String(type || 'UNKNOWN').toUpperCase();
+    diagnostics.resolution.skippedEntitiesByType[normalizedType] = (diagnostics.resolution.skippedEntitiesByType[normalizedType] || 0) + 1;
+  };
+
+  const visitEntities = (entities, transform, depth, ancestry = [], sourceBlock = null) => {
+    if (!Array.isArray(entities)) return;
+    diagnostics.resolution.nestedInsertDepthMax = Math.max(diagnostics.resolution.nestedInsertDepthMax, depth);
+
+    entities.forEach((entity) => {
+      const type = String(entity?.type || 'UNKNOWN').toUpperCase();
+
+      if (type === 'INSERT') {
+        const insertName = String(entity?.name || '').trim();
+        const block = insertName ? blocks[insertName] : null;
+        const insertTransform = composeCadTransforms(transform, createInsertTransform(entity));
+        const insertEntity = {
+          ...entity,
+          position: applyCadTransform(entity?.position || entity?.insertionPoint || {}, transform),
+          layer: entity?.layer || entity?.type,
+          __depth: depth,
+          __sourceBlock: sourceBlock,
+          __blockResolved: Boolean(block),
+          __blockPointLike: Boolean(block) && isBlockPointLike(block),
+          __pointName: extractInsertPointName(entity),
+        };
+        flattened.push(insertEntity);
+        diagnostics.resolution.expandedInsertCount += 1;
+
+        if (!block) {
+          pushUniqueReference(diagnostics.references.unresolvedBlockRefs, {
+            name: insertName || '(unnamed)',
+            depth,
+            layer: insertEntity.layer || null,
+          }, `${insertName || '(unnamed)'}:${insertEntity.layer || ''}:${depth}`);
+          if (isLikelyXrefReference(insertName)) {
+            pushUniqueReference(diagnostics.references.unresolvedXrefs, {
+              name: insertName || '(unnamed)',
+              depth,
+              layer: insertEntity.layer || null,
+            }, `${insertName || '(unnamed)'}:${insertEntity.layer || ''}:${depth}`);
+          }
+          return;
+        }
+
+        if ((!Array.isArray(block?.entities) || block.entities.length === 0) && isLikelyXrefReference(insertName, block)) {
+          pushUniqueReference(diagnostics.references.unresolvedXrefs, {
+            name: insertName || '(unnamed)',
+            depth,
+            layer: insertEntity.layer || null,
+          }, `${insertName || '(unnamed)'}:${insertEntity.layer || ''}:empty:${depth}`);
+        }
+
+        if (ancestry.includes(insertName)) {
+          pushUniqueReference(diagnostics.references.cyclicBlockRefs, {
+            name: insertName,
+            chain: [...ancestry, insertName],
+          }, [...ancestry, insertName].join('>'));
+          return;
+        }
+
+        if (depth >= maxDepth) {
+          diagnostics.resolution.transformWarnings.push(`Maximum CAD block nesting depth (${maxDepth}) reached at ${insertName}.`);
+          return;
+        }
+
+        visitEntities(block?.entities, insertTransform, depth + 1, [...ancestry, insertName], insertName);
+        return;
+      }
+
+      const transformed = transformCadEntity(entity, transform, { depth, sourceBlock });
+      if (!transformed) {
+        markSkipped(type);
+        return;
+      }
+      flattened.push(transformed);
+    });
+  };
+
+  visitEntities(dxfData?.entities, identityCadTransform(), 0, [], null);
+  diagnostics.resolution.expandedEntityCount = flattened.length;
+  return { entities: flattened, diagnostics };
 };
 
 const getEntitySegments = (entities, source = 'top-level') => {
@@ -413,18 +640,19 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
   const pointsOnly = options.pointsOnly || false;
   let detectedFromCrs = detectCrsFromDxf(dxfData);
   const seenCoords = new Map();
-  const topLevelEntities = Array.isArray(dxfData?.entities) ? dxfData.entities : [];
-  const segments = getEntitySegments(topLevelEntities);
+  const expandedCad = expandCadEntities(dxfData, options);
+  const expandedEntities = expandedCad.entities;
+  const segments = getEntitySegments(expandedEntities);
   const drawingPoints = [
     ...segments.flatMap((segment) => [segment.start, segment.end]),
-    ...topLevelEntities
-      .map((ent) => ent?.position)
+    ...expandedEntities
+      .map((ent) => ent?.position || ent?.startPoint || ent?.insertionPoint)
       .filter((pos) => Number.isFinite(Number(pos?.x)) && Number.isFinite(Number(pos?.y)))
       .map((pos) => ({ x: Number(pos.x), y: Number(pos.y) })),
   ];
   const drawingBounds = getBoundingBoxFromPoints(drawingPoints);
   const drawingDiagonal = drawingBounds?.diagonal || 0;
-  const textLabels = collectTextLabels(dxfData);
+  const textLabels = collectTextLabels(expandedEntities);
   const diagnostics = {
     entityTypeCounts: countEntityTypes(dxfData),
     extraction: {
@@ -435,6 +663,8 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
       dedupMerged: 0,
       textLabelAssigned: 0,
     },
+    references: expandedCad.diagnostics.references,
+    resolution: expandedCad.diagnostics.resolution,
   };
 
   const addRow = (x, y, z, idHint, hasExplicitName = false, source = 'unknown') => {
@@ -486,11 +716,10 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
           break;
         }
         case 'INSERT': {
-          const block = dxfData?.blocks?.[ent.name];
           const nameLooksPointLike = /(?:^|[_\-\s])(pt|point|station|survey|node|borne|bench|cross)(?:$|[_\-\s])/i.test(String(ent.name || layer || ''));
-          if (nameLooksPointLike || isBlockPointLike(block, drawingDiagonal)) {
+          if ((nameLooksPointLike || ent.__blockPointLike) && ent.__blockResolved) {
             const iz = ent.position?.z ?? ent.z ?? ent.position?.[2];
-            const pointName = extractInsertPointName(ent);
+            const pointName = ent.__pointName || extractInsertPointName(ent);
             addRow(ent.position?.x, ent.position?.y, iz, pointName, Boolean(pointName), 'insert-symbol');
           }
           break;
@@ -501,7 +730,7 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
     });
   };
 
-  visitEntities(topLevelEntities);
+  visitEntities(expandedEntities);
 
   const inferredCenters = inferPointCentersFromSegments(segments, drawingDiagonal);
   inferredCenters.forEach((center) => {
@@ -548,6 +777,7 @@ export const collectCadGeometryFromDxf = (dxfData) => {
     lines: [],
     polylines: [],
   };
+  const expandedEntities = expandCadEntities(dxfData).entities;
 
   const addLine = (start, end, layer, sourceType) => {
     if (!start || !end) return;
@@ -604,7 +834,7 @@ export const collectCadGeometryFromDxf = (dxfData) => {
     });
   };
 
-  visitEntities(dxfData?.entities);
+  visitEntities(expandedEntities);
 
   return geometry;
 };

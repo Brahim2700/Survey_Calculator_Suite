@@ -13,7 +13,7 @@ Native DWG conversion depends on a server-side converter process. That does not 
 
 1. Deploy the current frontend to Vercel.
 2. Deploy the CAD backend from this repo using `Dockerfile.cad-api`.
-3. Install or mount ODA File Converter, or provide a custom converter command, on that backend host.
+3. Use the Docker image as-is on Railway or another container host; it already installs LibreDWG (`dwg2dxf`) for DWG to DXF conversion.
 4. Set `VITE_CAD_API_BASE_URL` in Vercel to your hosted backend URL.
 
 ## Backend Hosting Options
@@ -29,7 +29,12 @@ Use `.env.cad-api.example` as the baseline.
 Required in production:
 
 - `CAD_ALLOWED_ORIGINS`
-- `ODA_FILE_CONVERTER_PATH` or `DWG_CONVERTER_COMMAND`
+
+Optional overrides:
+
+- `DWG2DXF_PATH`
+- `ODA_FILE_CONVERTER_PATH`
+- `DWG_CONVERTER_COMMAND`
 
 ## Vercel Environment
 
@@ -53,7 +58,7 @@ Run:
 docker run --rm -p 4000:4000 --env-file .env.cad-api survey-cad-api
 ```
 
-If the converter binary is not baked into the image, mount it or expose it through the host runtime and set `ODA_FILE_CONVERTER_PATH` accordingly.
+The current Docker image already bakes LibreDWG into the runtime for Railway-style deployment. Only set `DWG2DXF_PATH`, `ODA_FILE_CONVERTER_PATH`, or `DWG_CONVERTER_COMMAND` if you are overriding the default converter strategy.
 
 ## Next Product Step
 

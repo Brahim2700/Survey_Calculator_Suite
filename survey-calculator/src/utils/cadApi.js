@@ -1,7 +1,11 @@
 const CAD_API_BASE_URL = import.meta.env.VITE_CAD_API_BASE_URL || '/api/cad';
 
+export function getCadApiBaseUrl() {
+  return CAD_API_BASE_URL;
+}
+
 function buildBackendUnavailableMessage() {
-  return 'Native DWG import requires the CAD backend service. Start it with "npm run dev:server" and configure a DWG converter command.';
+  return `Native DWG import requires the CAD backend service. Current CAD API target: ${CAD_API_BASE_URL}. Use the hosted CAD API or start "npm run dev:server" for local development.`;
 }
 
 async function parseJsonSafely(response) {
@@ -44,6 +48,6 @@ export async function parseCadFileViaBackend(file, options = {}) {
 
 export async function getCadBackendStatus() {
   const response = await fetch(`${CAD_API_BASE_URL}/health`);
-  if (!response.ok) throw new Error('CAD backend health check failed.');
+  if (!response.ok) throw new Error(`CAD backend health check failed for ${CAD_API_BASE_URL}.`);
   return response.json();
 }

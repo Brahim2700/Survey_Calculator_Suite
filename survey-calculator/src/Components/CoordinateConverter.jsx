@@ -45,6 +45,26 @@ const getCrsConfidenceClass = (assessment) => {
   return { label: "Low Confidence", color: "#b91c1c" };
 };
 
+const buildCadReferenceWarnings = (diagnostics) => {
+  const warnings = [];
+  const unresolvedBlocks = Array.isArray(diagnostics?.references?.unresolvedBlockRefs) ? diagnostics.references.unresolvedBlockRefs : [];
+  const unresolvedXrefs = Array.isArray(diagnostics?.references?.unresolvedXrefs) ? diagnostics.references.unresolvedXrefs : [];
+  const cyclicBlockRefs = Array.isArray(diagnostics?.references?.cyclicBlockRefs) ? diagnostics.references.cyclicBlockRefs : [];
+  const transformWarnings = Array.isArray(diagnostics?.resolution?.transformWarnings) ? diagnostics.resolution.transformWarnings : [];
+
+  if (unresolvedBlocks.length > 0) {
+    warnings.push(`Skipped ${unresolvedBlocks.length} missing block reference${unresolvedBlocks.length === 1 ? "" : "s"}.`);
+  }
+  if (unresolvedXrefs.length > 0) {
+    warnings.push(`Detected ${unresolvedXrefs.length} unresolved XREF reference${unresolvedXrefs.length === 1 ? "" : "s"}.`);
+  }
+  if (cyclicBlockRefs.length > 0) {
+    warnings.push(`Detected ${cyclicBlockRefs.length} cyclic block reference${cyclicBlockRefs.length === 1 ? "" : "s"}.`);
+  }
+
+  return [...warnings, ...transformWarnings];
+};
+
 const buildCadInspectionSummary = (file, rows, status, payload = null) => {
   const xs = rows.map((row) => Number(row.x)).filter(Number.isFinite);
   const ys = rows.map((row) => Number(row.y)).filter(Number.isFinite);
@@ -54,6 +74,8 @@ const buildCadInspectionSummary = (file, rows, status, payload = null) => {
   const referenceAssessment = rows.find((row) => row?.crsAssessment)?.crsAssessment || null;
   const localCrsLikely = Boolean(referenceAssessment?.isLocal) || detectedFromCrs === "LOCAL:ENGINEERING";
   const diagnostics = payload?.diagnostics || payload?.inspection?.diagnostics || null;
+  const derivedWarnings = buildCadReferenceWarnings(diagnostics);
+  const warningSet = new Set([...(payload?.warnings || []), ...derivedWarnings]);
   const confidenceClass = getCrsConfidenceClass(referenceAssessment);
   const route = payload?.inspection?.processingRoute
     || (extension === ".dwg" ? (status?.dwgEnabled ? "dwg-converted" : "dwg-backend-unavailable") : "local-dxf");
@@ -68,7 +90,7 @@ const buildCadInspectionSummary = (file, rows, status, payload = null) => {
     referenceAssessment,
     confidenceClass,
     diagnostics,
-    warnings: payload?.warnings || [],
+    warnings: [...warningSet],
     nativeDwg: payload?.inspection?.nativeDwg || false,
     usedConverter: payload?.inspection?.usedConverter || false,
     processingRoute: route,
@@ -4136,11 +4158,28 @@ const CoordinateConverter = () => {
                   <div>Z range: {cadInspection.bounds.minZ.toFixed(3)} to {cadInspection.bounds.maxZ.toFixed(3)}</div>
                 )}
                 {cadInspection.warnings?.length > 0 && (
-                  <div style={{ color: "#92400e" }}>{cadInspection.warnings.join(" ")}</div>
+                  <div style={{ color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "6px", padding: "0.45rem 0.55rem" }}>
+                    <strong>Warnings:</strong>
+                    <ul style={{ margin: "0.35rem 0 0 1rem" }}>
+                      {cadInspection.warnings.map((warning, index) => (
+                        <li key={`${warning}-${index}`}>{warning}</li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
                 {cadInspection.diagnostics?.entityTypeCounts && (
                   <div>
                     <strong>Entities:</strong> {Object.entries(cadInspection.diagnostics.entityTypeCounts).map(([k, v]) => `${k}=${v}`).join(" | ")}
+                  </div>
+                )}
+                {cadInspection.diagnostics?.references && (
+                  <div>
+                    <strong>References:</strong> missing blocks={cadInspection.diagnostics.references.unresolvedBlockRefs?.length ?? 0}, unresolved xrefs={cadInspection.diagnostics.references.unresolvedXrefs?.length ?? 0}, cyclic blocks={cadInspection.diagnostics.references.cyclicBlockRefs?.length ?? 0}
+                  </div>
+                )}
+                {cadInspection.diagnostics?.resolution && (
+                  <div>
+                    <strong>Expansion:</strong> inserts={cadInspection.diagnostics.resolution.expandedInsertCount ?? 0}, max depth={cadInspection.diagnostics.resolution.nestedInsertDepthMax ?? 0}, flattened entities={cadInspection.diagnostics.resolution.expandedEntityCount ?? 0}
                   </div>
                 )}
                 {cadInspection.diagnostics?.extraction && (

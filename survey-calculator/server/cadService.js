@@ -81,6 +81,35 @@ function summarizeCadRows(rows) {
   };
 }
 
+function buildCadReferenceWarnings(diagnostics) {
+  const warnings = [];
+  const unresolvedBlockRefs = Array.isArray(diagnostics?.references?.unresolvedBlockRefs)
+    ? diagnostics.references.unresolvedBlockRefs
+    : [];
+  const unresolvedXrefs = Array.isArray(diagnostics?.references?.unresolvedXrefs)
+    ? diagnostics.references.unresolvedXrefs
+    : [];
+  const cyclicBlockRefs = Array.isArray(diagnostics?.references?.cyclicBlockRefs)
+    ? diagnostics.references.cyclicBlockRefs
+    : [];
+  const transformWarnings = Array.isArray(diagnostics?.resolution?.transformWarnings)
+    ? diagnostics.resolution.transformWarnings
+    : [];
+
+  if (unresolvedBlockRefs.length > 0) {
+    warnings.push(`Skipped ${unresolvedBlockRefs.length} CAD block reference${unresolvedBlockRefs.length === 1 ? '' : 's'} because the referenced block definition was missing.`);
+  }
+  if (unresolvedXrefs.length > 0) {
+    warnings.push(`Detected ${unresolvedXrefs.length} unresolved XREF reference${unresolvedXrefs.length === 1 ? '' : 's'} after conversion. Bind or package XREFs before export for complete DWG/DXF import.`);
+  }
+  if (cyclicBlockRefs.length > 0) {
+    warnings.push(`Detected ${cyclicBlockRefs.length} cyclic block reference${cyclicBlockRefs.length === 1 ? '' : 's'} and skipped recursive expansion to avoid infinite loops.`);
+  }
+  transformWarnings.forEach((warning) => warnings.push(warning));
+
+  return warnings;
+}
+
 function replaceTemplateTokens(template, vars) {
   return template.replace(/\{(inputPath|inputDir|inputFileName|outputDir|outputDxfPath|outputBaseName)\}/g, (_, key) => vars[key] || '');
 }
@@ -333,6 +362,8 @@ export async function parseCadUpload({ buffer, originalName, fileSizeBytes = 0, 
     processingRoute = 'dwg-converted';
   }
 
+  warnings = [...warnings, ...buildCadReferenceWarnings(diagnostics)];
+
   return {
     sourceFormat: ext.slice(1),
     rows,
@@ -347,6 +378,9 @@ export async function parseCadUpload({ buffer, originalName, fileSizeBytes = 0, 
       usedConverter,
       processingRoute,
       diagnostics,
+      unresolvedXrefs: diagnostics?.references?.unresolvedXrefs || [],
+      missingBlockRefs: diagnostics?.references?.unresolvedBlockRefs || [],
+      cyclicBlockRefs: diagnostics?.references?.cyclicBlockRefs || [],
       ...summarizeCadRows(rows),
     },
   };

@@ -1,5 +1,5 @@
 // src/App.jsx
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import CoordinateConverter from "./Components/CoordinateConverter";
 import MapVisualization from "./Components/MapVisualization";
@@ -7,6 +7,7 @@ import proj4 from "proj4";
 import { calculateAllDistances, calculateGeodesicDistance, getUTMZone } from "./utils/calculations";
 import { on } from "./utils/eventBus";
 import { exportMapAsPdf, exportMapAsPng } from "./utils/mapExport";
+import { getCadApiBaseUrl, getCadBackendStatus } from "./utils/cadApi";
 import "./App.css";
 
 function App() {
@@ -20,6 +21,9 @@ function App() {
   const [mapExportRoot, setMapExportRoot] = useState(null);
   const [isExportingMap, setIsExportingMap] = useState(false);
   const [showExportPanel, setShowExportPanel] = useState(false);
+  const [cadApiHealth, setCadApiHealth] = useState(null);
+  const [cadApiHealthError, setCadApiHealthError] = useState("");
+  const [cadApiHealthLoading, setCadApiHealthLoading] = useState(false);
   const [exportSettings, setExportSettings] = useState({
     projectName: "Survey Plan",
     surveyor: "",
@@ -71,6 +75,24 @@ function App() {
     });
     return () => off && off();
   }, []);
+
+  const refreshCadApiHealth = useCallback(async () => {
+    setCadApiHealthLoading(true);
+    try {
+      const status = await getCadBackendStatus();
+      setCadApiHealth(status);
+      setCadApiHealthError("");
+    } catch (err) {
+      setCadApiHealth(null);
+      setCadApiHealthError(err.message || "CAD API unreachable");
+    } finally {
+      setCadApiHealthLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshCadApiHealth();
+  }, [refreshCadApiHealth]);
 
   // Simple UX: while measure mode is ON, click converted markers to choose P1 and P2.
   const handleMapPointSelect = (point) => {
@@ -237,6 +259,21 @@ function App() {
           Survey<span className="app-title-accent">Calc</span> Geomatics Suite
         </h1>
         <p className="app-subtitle">Coordinate Conversion, Benchmarking, and Survey Computation Workspace</p>
+        <div className="app-admin-strip">
+          <div className={`app-admin-badge${cadApiHealth?.dwgEnabled ? " is-ready" : ""}${cadApiHealthError ? " is-error" : ""}`}>
+            <span className="app-admin-label">CAD API</span>
+            <span className="app-admin-value">
+              {cadApiHealthLoading ? "Checking..." : (cadApiHealth?.converterMode || (cadApiHealthError ? "offline" : "unknown"))}
+            </span>
+            <span className="app-admin-meta">
+              {cadApiHealth?.dwgEnabled ? "DWG online" : (cadApiHealthError || "DWG unavailable")}
+            </span>
+          </div>
+          <button type="button" className="app-admin-refresh" onClick={refreshCadApiHealth} disabled={cadApiHealthLoading}>
+            {cadApiHealthLoading ? "Checking..." : "Refresh CAD API"}
+          </button>
+        </div>
+        <div className="app-admin-target">Target: {getCadApiBaseUrl()}</div>
       </header>
 
       {/* ── Two-column layout ── */}
