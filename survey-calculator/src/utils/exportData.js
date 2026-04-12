@@ -670,6 +670,7 @@ const getContentType = (format) => {
     csv: 'text/csv;charset=utf-8;',
     txt: 'text/plain;charset=utf-8;',
     json: 'application/json;charset=utf-8;',
+    html: 'text/html;charset=utf-8;',
     geojson: 'application/geo+json;charset=utf-8;',
     kml: 'application/vnd.google-earth.kml+xml;charset=utf-8;',
     gpx: 'application/gpx+xml;charset=utf-8;',

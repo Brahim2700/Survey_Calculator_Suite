@@ -45,6 +45,131 @@ const getCrsConfidenceClass = (assessment) => {
   return { label: "Low Confidence", color: "#b91c1c" };
 };
 
+const escapeHtml = (value) => String(value ?? "")
+  .replace(/&/g, "&amp;")
+  .replace(/</g, "&lt;")
+  .replace(/>/g, "&gt;")
+  .replace(/\"/g, "&quot;")
+  .replace(/'/g, "&#39;");
+
+const buildCadDiagnosticReportPayload = (cadInspection, importCrsNotice) => ({
+  generatedAt: new Date().toISOString(),
+  handlingMode: "permissive-expert-auto",
+  importNotice: importCrsNotice || null,
+  inspection: cadInspection,
+});
+
+const buildCadSummaryHtml = (report) => {
+  const inspection = report?.inspection || {};
+  const diagnostics = inspection?.diagnostics || {};
+  const warnings = Array.isArray(inspection?.warnings) ? inspection.warnings : [];
+  const unresolvedBlocks = Array.isArray(diagnostics?.references?.unresolvedBlockRefs) ? diagnostics.references.unresolvedBlockRefs : [];
+  const unresolvedXrefs = Array.isArray(diagnostics?.references?.unresolvedXrefs) ? diagnostics.references.unresolvedXrefs : [];
+  const cyclicBlocks = Array.isArray(diagnostics?.references?.cyclicBlockRefs) ? diagnostics.references.cyclicBlockRefs : [];
+  const recommendations = [
+    unresolvedXrefs.length > 0 ? "Package or bind XREF files before export so the converter receives all referenced geometry." : null,
+    unresolvedBlocks.length > 0 ? "Check missing block definitions and export a cleaned DWG/DXF with block content included." : null,
+    inspection?.localCrsLikely ? "Assign or confirm the source CRS before using the converted coordinates operationally." : null,
+    warnings.length === 0 ? "No major CAD import warnings were detected in this run." : null,
+  ].filter(Boolean);
+
+  const metricRows = [
+    ["Generated", report?.generatedAt],
+    ["File", inspection?.fileName],
+    ["Type", inspection?.extension],
+    ["Processing Route", inspection?.processingRoute],
+    ["Rows Extracted", inspection?.rowCount],
+    ["Detected CRS", inspection?.detectedFromCrs],
+    ["CRS Confidence", inspection?.confidenceClass?.label],
+    ["Backend Mode", inspection?.backendMode],
+    ["Used Converter", inspection?.usedConverter ? "Yes" : "No"],
+    ["Import Notice", report?.importNotice || "None"],
+  ].filter(([, value]) => value !== undefined && value !== null && value !== "");
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CAD Summary Report</title>
+    <style>
+      body { font-family: Georgia, "Times New Roman", serif; margin: 0; background: #f7f4ef; color: #1f2937; }
+      .page { max-width: 980px; margin: 0 auto; padding: 32px 24px 48px; }
+      .hero { background: linear-gradient(135deg, #0f172a, #1d4ed8); color: #eff6ff; border-radius: 18px; padding: 24px; }
+      h1 { margin: 0 0 8px; font-size: 30px; }
+      h2 { margin: 28px 0 12px; font-size: 18px; color: #0f172a; }
+      p { line-height: 1.55; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 18px; }
+      .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 14px; padding: 16px; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05); }
+      .label { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #64748b; margin-bottom: 6px; }
+      .value { font-size: 15px; font-weight: 700; color: #111827; }
+      ul { margin: 8px 0 0 18px; }
+      li { margin: 6px 0; }
+      .warn { background: #fffbeb; border-color: #fcd34d; }
+      .ok { background: #f0fdf4; border-color: #86efac; }
+      table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05); }
+      td { padding: 12px 14px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+      td:first-child { width: 240px; color: #475569; font-weight: 700; }
+      .small { font-size: 13px; color: #64748b; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <section class="hero">
+        <h1>CAD Summary Report</h1>
+        <p>User-readable import diagnostics for DWG/DXF review.</p>
+      </section>
+
+      <h2>Overview</h2>
+      <table>
+        <tbody>
+          ${metricRows.map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`).join("")}
+        </tbody>
+      </table>
+
+      <h2>Status</h2>
+      <div class="grid">
+        <div class="card ${warnings.length > 0 ? "warn" : "ok"}">
+          <div class="label">Warnings</div>
+          <div class="value">${warnings.length}</div>
+        </div>
+        <div class="card ${unresolvedXrefs.length > 0 ? "warn" : "ok"}">
+          <div class="label">Unresolved XREFs</div>
+          <div class="value">${unresolvedXrefs.length}</div>
+        </div>
+        <div class="card ${unresolvedBlocks.length > 0 ? "warn" : "ok"}">
+          <div class="label">Missing Blocks</div>
+          <div class="value">${unresolvedBlocks.length}</div>
+        </div>
+        <div class="card ${cyclicBlocks.length > 0 ? "warn" : "ok"}">
+          <div class="label">Cyclic Blocks</div>
+          <div class="value">${cyclicBlocks.length}</div>
+        </div>
+      </div>
+
+      <h2>Warnings</h2>
+      <div class="card ${warnings.length > 0 ? "warn" : "ok"}">
+        ${warnings.length > 0 ? `<ul>${warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul>` : "<p>No warnings were generated for this CAD import.</p>"}
+      </div>
+
+      <h2>Recommendations</h2>
+      <div class="card">
+        <ul>${recommendations.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+      </div>
+
+      <h2>Technical Detail</h2>
+      <div class="card">
+        <p><strong>Reference confidence:</strong> ${escapeHtml(inspection?.confidenceClass?.label || "Unknown")}</p>
+        <p><strong>Expanded inserts:</strong> ${escapeHtml(diagnostics?.resolution?.expandedInsertCount ?? 0)}</p>
+        <p><strong>Flattened entities:</strong> ${escapeHtml(diagnostics?.resolution?.expandedEntityCount ?? 0)}</p>
+        <p><strong>Nested block depth:</strong> ${escapeHtml(diagnostics?.resolution?.nestedInsertDepthMax ?? 0)}</p>
+        <p class="small">For engineering support, use the separate raw JSON debug export.</p>
+      </div>
+    </div>
+  </body>
+</html>`;
+};
+
 const buildCadReferenceWarnings = (diagnostics) => {
   const warnings = [];
   const unresolvedBlocks = Array.isArray(diagnostics?.references?.unresolvedBlockRefs) ? diagnostics.references.unresolvedBlockRefs : [];
@@ -950,22 +1075,19 @@ const CoordinateConverter = () => {
     setFromCrs(code);
   };
 
+  const downloadCadSummaryReport = useCallback(() => {
+    if (!cadInspection) return;
+    const stamp = new Date().toISOString().replace(/[:]/g, "-");
+    const report = buildCadDiagnosticReportPayload(cadInspection, importCrsNotice);
+    const html = buildCadSummaryHtml(report);
+    downloadFile(html, `cad-summary-${stamp}.html`, "html");
+  }, [cadInspection, importCrsNotice]);
+
   const downloadCadDiagnosticReport = useCallback(() => {
     if (!cadInspection) return;
     const stamp = new Date().toISOString().replace(/[:]/g, "-");
-    const report = {
-      generatedAt: new Date().toISOString(),
-      handlingMode: "permissive-expert-auto",
-      importNotice: importCrsNotice || null,
-      inspection: cadInspection,
-    };
-    const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `cad-diagnostic-${stamp}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const report = buildCadDiagnosticReportPayload(cadInspection, importCrsNotice);
+    downloadFile(JSON.stringify(report, null, 2), `cad-diagnostic-${stamp}.json`, "json");
   }, [cadInspection, importCrsNotice]);
 
   const detectLocalReferenceFromRows = useCallback((rows) => {
@@ -4100,12 +4222,20 @@ const CoordinateConverter = () => {
             Reset Bulk
           </button>
           <button
-            onClick={downloadCadDiagnosticReport}
+            onClick={downloadCadSummaryReport}
             disabled={!cadInspection}
             style={{ padding: "0.5rem 0.9rem", background: "#fff", color: "#0f172a", border: "1px solid #cbd5e1", borderRadius: "6px", cursor: cadInspection ? "pointer" : "not-allowed", opacity: cadInspection ? 1 : 0.55, fontWeight: 600 }}
-            title="Download current CAD diagnostics report"
+            title="Download a readable CAD summary report"
           >
-            Download CAD Report
+            Download CAD Summary
+          </button>
+          <button
+            onClick={downloadCadDiagnosticReport}
+            disabled={!cadInspection}
+            style={{ padding: "0.5rem 0.9rem", background: "#f8fafc", color: "#334155", border: "1px solid #cbd5e1", borderRadius: "6px", cursor: cadInspection ? "pointer" : "not-allowed", opacity: cadInspection ? 1 : 0.55, fontWeight: 600 }}
+            title="Download raw CAD diagnostics JSON for technical support"
+          >
+            Download Raw CAD Debug
           </button>
           {bulkUploadFile && <span style={{ fontSize: "0.85rem", color: "#059669", fontWeight: 500 }}>✓ {bulkUploadFile.name}</span>}
         </div>
