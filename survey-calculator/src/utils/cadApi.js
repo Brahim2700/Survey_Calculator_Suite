@@ -1,9 +1,5 @@
 const CAD_API_BASE_URL = import.meta.env.VITE_CAD_API_BASE_URL || '/api/cad';
 
-export function getCadApiBaseUrl() {
-  return CAD_API_BASE_URL;
-}
-
 function buildBackendUnavailableMessage() {
   return `Native DWG import requires the CAD backend service. Current CAD API target: ${CAD_API_BASE_URL}. Use the hosted CAD API or start "npm run dev:server" for local development.`;
 }
