@@ -44,6 +44,102 @@ export const detectCRS = (coordinates, metadata = {}) => {
   return uniqueSuggestions.sort((a, b) => b.confidence - a.confidence).slice(0, 8);
 };
 
+const hasReferenceMetadata = (metadata = {}) => {
+  const crsName = metadata?.crs?.properties?.name;
+  return Boolean(
+    (typeof crsName === 'string' && crsName.trim())
+    || metadata?.projection
+    || metadata?.proj4
+    || metadata?.epsg
+    || metadata?.srid
+  );
+};
+
+/**
+ * Assess whether coordinates are likely georeferenced or local engineering coordinates.
+ * @param {Array} coordinates - Array of {x, y, z}
+ * @param {Object} metadata - Optional file metadata
+ * @param {Array|null} suggestionsInput - Optional CRS suggestions from detectCRS
+ * @returns {Object}
+ */
+export const assessReferenceSystem = (coordinates, metadata = {}, suggestionsInput = null) => {
+  if (!coordinates || coordinates.length === 0) {
+    return {
+      status: 'unknown',
+      isLocal: false,
+      isAmbiguous: false,
+      recommendedCrs: null,
+      confidence: 0,
+      reason: 'No coordinates available for CRS assessment',
+    };
+  }
+
+  const suggestions = Array.isArray(suggestionsInput) ? suggestionsInput : detectCRS(coordinates, metadata);
+  const top = suggestions[0] || null;
+  const second = suggestions[1] || null;
+  const topConfidence = top?.confidence || 0;
+  const confidenceGap = top ? (topConfidence - (second?.confidence || 0)) : 0;
+  const metadataDriven = hasReferenceMetadata(metadata);
+
+  const bounds = calculateBounds(coordinates);
+  const projectedLike = isProjected(bounds);
+  const geographicLike = isGeographic(bounds);
+  const smallNearOriginPlan = projectedLike
+    && Math.abs(bounds.avgX) <= 200000
+    && Math.abs(bounds.avgY) <= 200000
+    && bounds.rangeX <= 50000
+    && bounds.rangeY <= 50000;
+
+  const weakTop = topConfidence < 0.68;
+  const ambiguousTop = topConfidence < 0.9 && confidenceGap < 0.05;
+  const localLikely = !metadataDriven && projectedLike && !geographicLike && (smallNearOriginPlan || suggestions.length === 0 || weakTop || ambiguousTop);
+
+  if (localLikely) {
+    const localReason = smallNearOriginPlan
+      ? 'Projected coordinates are compact and near origin with no CRS metadata, which is typical of local engineering grids.'
+      : 'No reliable CRS metadata and low-confidence projection match. Coordinates likely belong to a local engineering system.';
+    return {
+      status: 'local-unreferenced',
+      isLocal: true,
+      isAmbiguous: true,
+      recommendedCrs: null,
+      confidence: Math.max(0.65, 1 - topConfidence),
+      reason: localReason,
+    };
+  }
+
+  if (!top) {
+    return {
+      status: 'ambiguous',
+      isLocal: false,
+      isAmbiguous: true,
+      recommendedCrs: null,
+      confidence: 0,
+      reason: 'No CRS candidates found from coordinate heuristics.',
+    };
+  }
+
+  if (ambiguousTop) {
+    return {
+      status: 'ambiguous',
+      isLocal: false,
+      isAmbiguous: true,
+      recommendedCrs: top.code,
+      confidence: topConfidence,
+      reason: `Top CRS candidates are close (${top.code} vs ${second?.code || 'n/a'}). Manual confirmation is recommended.`,
+    };
+  }
+
+  return {
+    status: 'referenced',
+    isLocal: false,
+    isAmbiguous: false,
+    recommendedCrs: top.code,
+    confidence: topConfidence,
+    reason: top.reason || 'CRS heuristics indicate a referenced coordinate system.',
+  };
+};
+
 /**
  * Extract CRS from file metadata
  */

@@ -1,5 +1,5 @@
 import DxfParser from 'dxf-parser';
-import { detectCRS } from './crsDetection.js';
+import { detectCRS, assessReferenceSystem } from './crsDetection.js';
 
 const CAD_TEXT_DECODER = new TextDecoder('utf-8', { fatal: false });
 
@@ -54,7 +54,7 @@ const detectCrsFromDxf = (dxfData) => {
     if (epsgMatch) return `EPSG:${epsgMatch[1]}`;
   }
 
-  return 'EPSG:4326';
+  return null;
 };
 
 const normalizeCadLabelCandidate = (value) => String(value || '').trim();
@@ -387,16 +387,26 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
   }
 
   const coordinates = rows.map((row) => ({ x: row.x, y: row.y, z: row.z }));
-  const metadata = { projection: detectedFromCrs !== 'EPSG:4326' ? detectedFromCrs : null };
+  const metadata = { projection: detectedFromCrs || null };
   const crsSuggestions = detectCRS(coordinates, metadata);
+  const referenceAssessment = assessReferenceSystem(coordinates, metadata, crsSuggestions);
 
-  if (detectedFromCrs === 'EPSG:4326' && crsSuggestions.length > 0 && crsSuggestions[0].confidence > 0.7) {
+  if (!detectedFromCrs && crsSuggestions.length > 0 && crsSuggestions[0].confidence > 0.7) {
     detectedFromCrs = crsSuggestions[0].code;
+  }
+
+  if (referenceAssessment.isLocal) {
+    detectedFromCrs = 'LOCAL:ENGINEERING';
+  }
+
+  if (!detectedFromCrs) {
+    detectedFromCrs = 'EPSG:4326';
   }
 
   rows.forEach((row) => {
     row.detectedFromCrs = detectedFromCrs;
     row.crsSuggestions = crsSuggestions;
+    row.crsAssessment = referenceAssessment;
   });
 
   return rows;

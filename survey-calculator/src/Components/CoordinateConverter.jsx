@@ -3,7 +3,7 @@
 // Supports single-point and bulk conversion plus optional geoid height handling.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { detectCRSFromSinglePoint, detectCRS } from "../utils/crsDetection";
+import { detectCRSFromSinglePoint, detectCRS, assessReferenceSystem } from "../utils/crsDetection";
 import proj4 from "proj4";
 import CRS_LIST from "../crsList";
 import CrsSearchSelector from "./CrsSearchSelector";
@@ -42,6 +42,8 @@ const buildCadInspectionSummary = (file, rows, status, payload = null) => {
   const zs = rows.map((row) => Number(row.z)).filter(Number.isFinite);
   const detectedFromCrs = rows.find((row) => row.detectedFromCrs)?.detectedFromCrs || payload?.inspection?.detectedFromCrs || null;
   const extension = `.${(file?.name.split('.')?.pop() || '').toLowerCase()}`;
+  const referenceAssessment = rows.find((row) => row?.crsAssessment)?.crsAssessment || null;
+  const localCrsLikely = Boolean(referenceAssessment?.isLocal) || detectedFromCrs === "LOCAL:ENGINEERING";
   const route = payload?.inspection?.processingRoute
     || (extension === ".dwg" ? (status?.dwgEnabled ? "dwg-converted" : "dwg-backend-unavailable") : "local-dxf");
 
@@ -51,6 +53,8 @@ const buildCadInspectionSummary = (file, rows, status, payload = null) => {
     fileSizeBytes: file?.size || 0,
     rowCount: rows.length,
     detectedFromCrs,
+    localCrsLikely,
+    referenceAssessment,
     warnings: payload?.warnings || [],
     nativeDwg: payload?.inspection?.nativeDwg || false,
     usedConverter: payload?.inspection?.usedConverter || false,
@@ -713,6 +717,7 @@ const CoordinateConverter = () => {
   const [cadBackendStatus, setCadBackendStatus] = useState(null);
   const [cadBackendStatusError, setCadBackendStatusError] = useState("");
   const [cadInspection, setCadInspection] = useState(null);
+  const [importCrsNotice, setImportCrsNotice] = useState("");
   
   // CRS Detection State
   const [crsSuggestions, setCrsSuggestions] = useState([]);
@@ -906,8 +911,26 @@ const CoordinateConverter = () => {
   const setFromCrsAutomatically = (code) => {
     if (!code) return;
     if (fromCrsManualRef.current) return;
+    if (!CRS_LIST.some((crs) => crs.code === code)) return;
     setFromCrs(code);
   };
+
+  const detectLocalReferenceFromRows = useCallback((rows) => {
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+    const assessment = rows.find((row) => row?.crsAssessment)?.crsAssessment;
+    if (assessment?.isLocal) return assessment;
+
+    const coordinates = rows
+      .map((row) => ({ x: Number(row?.x), y: Number(row?.y), z: Number(row?.z) }))
+      .filter((coord) => Number.isFinite(coord.x) && Number.isFinite(coord.y));
+
+    if (coordinates.length === 0) return null;
+
+    const suggestions = rows.find((row) => Array.isArray(row?.crsSuggestions))?.crsSuggestions || [];
+    return assessReferenceSystem(coordinates, {}, suggestions);
+  }, []);
+
+  const localReferenceNotice = "Detected local/unreferenced plan coordinates. The drawing is not tied to a known CRS (engineering/local grid). Assign control points or set CRS manually before georeferenced conversion.";
 
   const handleSwapCrs = () => {
     if (!fromCrs || !toCrs) return;
@@ -2230,7 +2253,7 @@ const CoordinateConverter = () => {
   };
 
   const hasDataToClear = () => Boolean(
-      x || y || z || bulkText || result || error || bulkUploadFile || bulkUploadError ||
+      x || y || z || bulkText || result || error || bulkUploadFile || bulkUploadError || importCrsNotice ||
       bulkResults.length > 0 || points3DData.length > 0 || bulkProgress ||
       crsSuggestions.length > 0 || showCrsSuggestions || detectSuggestions.length > 0 || showDetectSuggestions ||
       benchmarkFile || benchmarkSummary || benchmarkRows.length > 0 || selectedBulkRows.length > 0 ||
@@ -2248,6 +2271,7 @@ const CoordinateConverter = () => {
     setZ("");
     setResult(null);
     setError(null);
+    setImportCrsNotice("");
 
     // Clear bulk text conversion
     setBulkText("");
@@ -2312,6 +2336,7 @@ const CoordinateConverter = () => {
   const applyBulkFileSelection = useCallback((file) => {
     setBulkUploadFile(file || null);
     setBulkUploadError("");
+    setImportCrsNotice("");
     setCadInspection(file ? {
       fileName: file.name,
       extension: `.${(file.name.split('.')?.pop() || '').toLowerCase()}`,
@@ -2384,18 +2409,31 @@ const CoordinateConverter = () => {
       const detectedFromRows = rows.find((r) => r.detectedFromCrs)?.detectedFromCrs;
       const detectedFromPayload = cadPayload?.inspection?.detectedFromCrs;
       const sourceCrs = detectedFromRows || detectedFromPayload || fromCrs;
+      const referenceStatus = detectLocalReferenceFromRows(rows);
+      const isLocalUnreferenced = sourceCrs === "LOCAL:ENGINEERING" || Boolean(referenceStatus?.isLocal);
 
-      if (detectedFromRows || detectedFromPayload) {
+      if (!isLocalUnreferenced && (detectedFromRows || detectedFromPayload)) {
         setFromCrsAutomatically(sourceCrs);
+      }
+
+      if (isLocalUnreferenced) {
+        setImportCrsNotice(referenceStatus?.reason || localReferenceNotice);
+      } else {
+        setImportCrsNotice("");
       }
 
       setCadInspection(buildCadInspectionSummary(file, rows, latestCadStatus, cadPayload));
 
-      const previewPoints = projectCadRowsToWgs84(rows, sourceCrs);
-      emit("converter:pointsForMap", { points: previewPoints });
+      if (isLocalUnreferenced) {
+        emit("converter:pointsForMap", { points: [] });
+        emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [] } });
+      } else {
+        const previewPoints = projectCadRowsToWgs84(rows, sourceCrs);
+        emit("converter:pointsForMap", { points: previewPoints });
 
-      const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrs);
-      emit("converter:cadGeometryForMap", { geometry: projectedGeometry });
+        const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrs);
+        emit("converter:cadGeometryForMap", { geometry: projectedGeometry });
+      }
 
       setBulkProgress(null);
     } catch (err) {
@@ -2404,7 +2442,7 @@ const CoordinateConverter = () => {
     } finally {
       setCadPreviewLoading(false);
     }
-  }, [bulkUploadFile, fromCrs, projectCadGeometryToWgs84, projectCadRowsToWgs84, refreshCadStatus]);
+  }, [bulkUploadFile, detectLocalReferenceFromRows, fromCrs, localReferenceNotice, projectCadGeometryToWgs84, projectCadRowsToWgs84, refreshCadStatus]);
 
   // Detect CRS immediately when file is selected
   const detectFileFormatsAndCRS = async (file) => {
@@ -2435,10 +2473,17 @@ const CoordinateConverter = () => {
       if (rows && rows.length > 0) {
         // Extract CRS info
         const anyCrs = rows.find((r) => r.detectedFromCrs);
+        const referenceStatus = detectLocalReferenceFromRows(rows);
         console.log('[FileSelect] Detected CRS:', anyCrs?.detectedFromCrs);
         console.log('[FileSelect] CRS Suggestions:', anyCrs?.crsSuggestions);
         
-        if (anyCrs?.detectedFromCrs) {
+        if (referenceStatus?.isLocal || anyCrs?.detectedFromCrs === "LOCAL:ENGINEERING") {
+          setImportCrsNotice(referenceStatus?.reason || localReferenceNotice);
+        } else {
+          setImportCrsNotice("");
+        }
+
+        if (anyCrs?.detectedFromCrs && anyCrs.detectedFromCrs !== "LOCAL:ENGINEERING") {
           setFromCrsAutomatically(anyCrs.detectedFromCrs);
         }
         
@@ -2505,7 +2550,15 @@ const CoordinateConverter = () => {
         
         // CRS detection already happened on file select, just use detected CRS
         const anyCrs = rows.find((r) => r.detectedFromCrs);
-        if (anyCrs?.detectedFromCrs) setFromCrsAutomatically(anyCrs.detectedFromCrs);
+        const referenceStatus = detectLocalReferenceFromRows(rows);
+        const isLocalUnreferenced = anyCrs?.detectedFromCrs === "LOCAL:ENGINEERING" || Boolean(referenceStatus?.isLocal);
+
+        if (isLocalUnreferenced) {
+          setImportCrsNotice(referenceStatus?.reason || localReferenceNotice);
+        } else {
+          setImportCrsNotice("");
+          if (anyCrs?.detectedFromCrs) setFromCrsAutomatically(anyCrs.detectedFromCrs);
+        }
         
         // For structured formats, use rows directly without converting to text
         // This preserves Z values and avoids re-parsing issues
@@ -2524,6 +2577,15 @@ const CoordinateConverter = () => {
           setCadInspection(buildCadInspectionSummary(file, rows, latestCadStatus, cadPayload));
 
           const sourceCrsForGeometry = rows.find((r) => r.detectedFromCrs)?.detectedFromCrs || fromCrs;
+          if (isLocalUnreferenced) {
+            emit("converter:pointsForMap", { points: [] });
+            emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [] } });
+            setBulkProgress(null);
+            setBulkIsConverting(false);
+            setBulkUploadError("Local/unreferenced plan detected. Automatic georeferenced conversion is disabled. Use control points/georeferencing or set a known CRS manually if available.");
+            return;
+          }
+
           const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrsForGeometry);
           emit("converter:cadGeometryForMap", { geometry: projectedGeometry });
         } else {
@@ -2651,9 +2713,13 @@ const CoordinateConverter = () => {
         if (!fromCrsManualRef.current && !mapping.hasLonLatHeader) {
           const coordinates = parsed.map(p => ({ x: p.x, y: p.y, z: p.z }));
           const crsSuggestions = detectCRS(coordinates, {});
+          const referenceStatus = assessReferenceSystem(coordinates, {}, crsSuggestions);
           const detectedCrs = crsSuggestions.length > 0 ? crsSuggestions[0].code : null;
-          
-          if (detectedCrs) {
+
+          if (referenceStatus.isLocal) {
+            setImportCrsNotice(referenceStatus.reason || localReferenceNotice);
+          } else if (detectedCrs) {
+            setImportCrsNotice("");
             setFromCrsAutomatically(detectedCrs);
           }
         }
@@ -3988,6 +4054,11 @@ const CoordinateConverter = () => {
           {bulkUploadFile && <span style={{ fontSize: "0.85rem", color: "#059669", fontWeight: 500 }}>✓ {bulkUploadFile.name}</span>}
         </div>
         {bulkUploadError && <div role="alert" style={{ color: "#b91c1c" }}>{bulkUploadError}</div>}
+        {importCrsNotice && (
+          <div role="status" style={{ color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "6px", padding: "0.55rem 0.7rem", fontSize: "0.84rem" }}>
+            <strong>CRS Notice:</strong> {importCrsNotice}
+          </div>
+        )}
         <div style={{ display: "grid", gap: "0.55rem", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
           <div style={{ border: "1px solid #dbeafe", borderRadius: "8px", background: "#f8fbff", padding: "0.75rem" }}>
             <div style={{ fontWeight: 700, color: "#1d4ed8", fontSize: "0.76rem", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.35rem" }}>CAD Backend</div>
@@ -4013,6 +4084,9 @@ const CoordinateConverter = () => {
                 <div>Route: {cadInspection.processingRoute || "pending"}</div>
                 <div>Rows: {cadInspection.rowCount ?? "pending"}</div>
                 <div>Detected CRS: {cadInspection.detectedFromCrs || "pending"}</div>
+                {cadInspection.localCrsLikely && (
+                  <div style={{ color: "#92400e", fontWeight: 600 }}>Reference: local/unreferenced engineering coordinates</div>
+                )}
                 {cadInspection.bounds && cadInspection.bounds.minX !== null && (
                   <div>
                     Bounds: X {cadInspection.bounds.minX.toFixed(3)} to {cadInspection.bounds.maxX.toFixed(3)} | Y {cadInspection.bounds.minY.toFixed(3)} to {cadInspection.bounds.maxY.toFixed(3)}
