@@ -190,20 +190,33 @@ const buildCadReferenceWarnings = (diagnostics) => {
   return [...warnings, ...transformWarnings];
 };
 
+const buildCadValidationWarnings = (validation) => {
+  const notifications = Array.isArray(validation?.notifications) ? validation.notifications : [];
+  return notifications
+    .filter((item) => item?.severity === "warning" || item?.severity === "error")
+    .map((item) => item.message)
+    .filter(Boolean);
+};
+
 const buildCadInspectionSummary = (file, rows, status, payload = null) => {
   const xs = rows.map((row) => Number(row.x)).filter(Number.isFinite);
   const ys = rows.map((row) => Number(row.y)).filter(Number.isFinite);
   const zs = rows.map((row) => Number(row.z)).filter(Number.isFinite);
-  const detectedFromCrs = rows.find((row) => row.detectedFromCrs)?.detectedFromCrs || payload?.inspection?.detectedFromCrs || null;
+  const validation = payload?.inspection?.validation || payload?.geometry?.validation || payload?.diagnostics?.validation || null;
+  const layerSummary = payload?.inspection?.layerSummary || payload?.geometry?.layerSummary || payload?.diagnostics?.layerSummary || null;
+  const repairs = payload?.inspection?.repairs || payload?.geometry?.repairs || payload?.diagnostics?.repairs || null;
+  const detectedFromCrs = rows.find((row) => row.detectedFromCrs)?.detectedFromCrs || payload?.inspection?.detectedFromCrs || payload?.diagnostics?.detectedFromCrs || null;
   const extension = `.${(file?.name.split('.')?.pop() || '').toLowerCase()}`;
   const referenceAssessment = rows.find((row) => row?.crsAssessment)?.crsAssessment || null;
   const localCrsLikely = Boolean(referenceAssessment?.isLocal) || detectedFromCrs === "LOCAL:ENGINEERING";
   const diagnostics = payload?.diagnostics || payload?.inspection?.diagnostics || null;
   const derivedWarnings = buildCadReferenceWarnings(diagnostics);
-  const warningSet = new Set([...(payload?.warnings || []), ...derivedWarnings]);
+  const validationWarnings = buildCadValidationWarnings(validation);
+  const warningSet = new Set([...(payload?.warnings || []), ...derivedWarnings, ...validationWarnings]);
   const confidenceClass = getCrsConfidenceClass(referenceAssessment);
   const route = payload?.inspection?.processingRoute
     || (extension === ".dwg" ? (status?.dwgEnabled ? "dwg-converted" : "dwg-backend-unavailable") : "local-dxf");
+  const fallbackBounds = validation?.bounds || null;
 
   return {
     fileName: file?.name || null,
@@ -215,18 +228,23 @@ const buildCadInspectionSummary = (file, rows, status, payload = null) => {
     referenceAssessment,
     confidenceClass,
     diagnostics,
+    validation,
+    layerSummary,
+    repairs,
     warnings: [...warningSet],
     nativeDwg: payload?.inspection?.nativeDwg || false,
     usedConverter: payload?.inspection?.usedConverter || false,
     processingRoute: route,
     bounds: {
-      minX: xs.length ? Math.min(...xs) : null,
-      maxX: xs.length ? Math.max(...xs) : null,
-      minY: ys.length ? Math.min(...ys) : null,
-      maxY: ys.length ? Math.max(...ys) : null,
+      minX: xs.length ? Math.min(...xs) : fallbackBounds?.minX ?? null,
+      maxX: xs.length ? Math.max(...xs) : fallbackBounds?.maxX ?? null,
+      minY: ys.length ? Math.min(...ys) : fallbackBounds?.minY ?? null,
+      maxY: ys.length ? Math.max(...ys) : fallbackBounds?.maxY ?? null,
       minZ: zs.length ? Math.min(...zs) : null,
       maxZ: zs.length ? Math.max(...zs) : null,
     },
+    cadTextCount: Array.isArray(payload?.geometry?.texts) ? payload.geometry.texts.length : 0,
+    notificationCount: Array.isArray(validation?.notifications) ? validation.notifications.length : 0,
     backendMode: status?.converterMode || "none",
     backendPath: status?.converterPath || null,
   };
@@ -1668,18 +1686,83 @@ const CoordinateConverter = () => {
     const safeGeometry = {
       lines: Array.isArray(geometry?.lines) ? geometry.lines : [],
       polylines: Array.isArray(geometry?.polylines) ? geometry.polylines : [],
+      texts: Array.isArray(geometry?.texts) ? geometry.texts : [],
+      layerSummary: geometry?.layerSummary || null,
+      validation: geometry?.validation || null,
+      notifications: Array.isArray(geometry?.notifications) ? geometry.notifications : [],
+      repairs: geometry?.repairs || null,
     };
 
-    if (!safeGeometry.lines.length && !safeGeometry.polylines.length) {
-      return { lines: [], polylines: [] };
+    if (!safeGeometry.lines.length && !safeGeometry.polylines.length && !safeGeometry.texts.length) {
+      return { lines: [], polylines: [], texts: [], layerSummary: null, validation: null, notifications: [], repairs: null };
     }
+
+    const collectRawCadPoints = (rowsForPreview = [], geometryForPreview = null) => {
+      const points = [];
+      (Array.isArray(rowsForPreview) ? rowsForPreview : []).forEach((row) => {
+        const x = Number(row?.x);
+        const y = Number(row?.y);
+        const z = Number(row?.z ?? 0);
+        if (Number.isFinite(x) && Number.isFinite(y)) points.push({ x, y, z: Number.isFinite(z) ? z : 0 });
+      });
+      (Array.isArray(geometryForPreview?.lines) ? geometryForPreview.lines : []).forEach((line) => {
+        const start = Array.isArray(line?.start) ? line.start : [];
+        const end = Array.isArray(line?.end) ? line.end : [];
+        if (Number.isFinite(Number(start[0])) && Number.isFinite(Number(start[1]))) points.push({ x: Number(start[0]), y: Number(start[1]), z: Number(start[2] ?? 0) });
+        if (Number.isFinite(Number(end[0])) && Number.isFinite(Number(end[1]))) points.push({ x: Number(end[0]), y: Number(end[1]), z: Number(end[2] ?? 0) });
+      });
+      (Array.isArray(geometryForPreview?.polylines) ? geometryForPreview.polylines : []).forEach((poly) => {
+        (Array.isArray(poly?.points) ? poly.points : []).forEach((point) => {
+          if (Number.isFinite(Number(point?.[0])) && Number.isFinite(Number(point?.[1]))) {
+            points.push({ x: Number(point[0]), y: Number(point[1]), z: Number(point[2] ?? 0) });
+          }
+        });
+      });
+      (Array.isArray(geometryForPreview?.texts) ? geometryForPreview.texts : []).forEach((textEntity) => {
+        const position = Array.isArray(textEntity?.position) ? textEntity.position : [];
+        if (Number.isFinite(Number(position[0])) && Number.isFinite(Number(position[1]))) {
+          points.push({ x: Number(position[0]), y: Number(position[1]), z: Number(position[2] ?? 0) });
+        }
+      });
+      return points;
+    };
+
+    const createLocalPreviewTransform = (rowsForPreview = [], geometryForPreview = null) => {
+      const points = collectRawCadPoints(rowsForPreview, geometryForPreview);
+      if (!points.length) return null;
+      const xs = points.map((point) => point.x);
+      const ys = points.map((point) => point.y);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      const span = Math.max(maxX - minX, maxY - minY, 1);
+      const scale = 0.22 / span;
+      return {
+        centerX: (minX + maxX) / 2,
+        centerY: (minY + maxY) / 2,
+        anchorLat: 20,
+        anchorLng: 0,
+        scale,
+      };
+    };
 
     const source = sourceCrs || 'EPSG:4326';
     const sourceDef = CRS_LIST.find((c) => c.code === source);
     const sourceIsGeo = sourceDef?.type === 'geographic' || source === 'EPSG:4326';
+    const useLocalPreview = source === 'LOCAL:ENGINEERING' || !sourceDef;
+    const localPreviewTransform = useLocalPreview ? createLocalPreviewTransform([], safeGeometry) : null;
 
     const toLatLng = (x, y, z = 0) => {
       if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      if (useLocalPreview) {
+        if (!localPreviewTransform) return null;
+        return [
+          localPreviewTransform.anchorLat + ((y - localPreviewTransform.centerY) * localPreviewTransform.scale),
+          localPreviewTransform.anchorLng + ((x - localPreviewTransform.centerX) * localPreviewTransform.scale),
+          Number.isFinite(z) ? z : 0,
+        ];
+      }
       if (sourceIsGeo) {
         return [y, x, Number.isFinite(z) ? z : 0];
       }
@@ -1713,13 +1796,77 @@ const CoordinateConverter = () => {
       })
       .filter(Boolean);
 
-    return { lines, polylines };
+    const texts = safeGeometry.texts
+      .map((textEntity) => {
+        const pos = Array.isArray(textEntity?.position) ? textEntity.position : [];
+        const position = toLatLng(Number(pos[0]), Number(pos[1]), Number(pos[2] ?? 0));
+        if (!position) return null;
+        return { ...textEntity, position };
+      })
+      .filter(Boolean);
+
+    return {
+      lines,
+      polylines,
+      texts,
+      layerSummary: safeGeometry.layerSummary,
+      validation: safeGeometry.validation,
+      notifications: safeGeometry.notifications,
+      repairs: safeGeometry.repairs,
+      localPreview: useLocalPreview,
+    };
   }, []);
 
-  const projectCadRowsToWgs84 = useCallback((rows, sourceCrs) => {
+  const projectCadRowsToWgs84 = useCallback((rows, sourceCrs, geometry = null) => {
+    const collectRawCadPoints = (rowsForPreview = [], geometryForPreview = null) => {
+      const points = [];
+      (Array.isArray(rowsForPreview) ? rowsForPreview : []).forEach((row) => {
+        const x = Number(row?.x);
+        const y = Number(row?.y);
+        const z = Number(row?.z ?? 0);
+        if (Number.isFinite(x) && Number.isFinite(y)) points.push({ x, y, z: Number.isFinite(z) ? z : 0 });
+      });
+      (Array.isArray(geometryForPreview?.lines) ? geometryForPreview.lines : []).forEach((line) => {
+        const start = Array.isArray(line?.start) ? line.start : [];
+        const end = Array.isArray(line?.end) ? line.end : [];
+        if (Number.isFinite(Number(start[0])) && Number.isFinite(Number(start[1]))) points.push({ x: Number(start[0]), y: Number(start[1]), z: Number(start[2] ?? 0) });
+        if (Number.isFinite(Number(end[0])) && Number.isFinite(Number(end[1]))) points.push({ x: Number(end[0]), y: Number(end[1]), z: Number(end[2] ?? 0) });
+      });
+      (Array.isArray(geometryForPreview?.polylines) ? geometryForPreview.polylines : []).forEach((poly) => {
+        (Array.isArray(poly?.points) ? poly.points : []).forEach((point) => {
+          if (Number.isFinite(Number(point?.[0])) && Number.isFinite(Number(point?.[1]))) {
+            points.push({ x: Number(point[0]), y: Number(point[1]), z: Number(point[2] ?? 0) });
+          }
+        });
+      });
+      return points;
+    };
+
+    const createLocalPreviewTransform = (rowsForPreview = [], geometryForPreview = null) => {
+      const points = collectRawCadPoints(rowsForPreview, geometryForPreview);
+      if (!points.length) return null;
+      const xs = points.map((point) => point.x);
+      const ys = points.map((point) => point.y);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      const span = Math.max(maxX - minX, maxY - minY, 1);
+      const scale = 0.22 / span;
+      return {
+        centerX: (minX + maxX) / 2,
+        centerY: (minY + maxY) / 2,
+        anchorLat: 20,
+        anchorLng: 0,
+        scale,
+      };
+    };
+
     const source = sourceCrs || 'EPSG:4326';
     const sourceDef = CRS_LIST.find((c) => c.code === source);
     const sourceIsGeo = sourceDef?.type === 'geographic' || source === 'EPSG:4326';
+    const useLocalPreview = source === 'LOCAL:ENGINEERING' || !sourceDef;
+    const localPreviewTransform = useLocalPreview ? createLocalPreviewTransform(rows, geometry) : null;
 
     return (Array.isArray(rows) ? rows : [])
       .map((row, index) => {
@@ -1731,6 +1878,21 @@ const CoordinateConverter = () => {
           : String(index + 1);
         const pointId = String(row?.id || pointName || `cad_${index + 1}`);
 
+        if (useLocalPreview) {
+          if (!localPreviewTransform) return null;
+          return {
+            id: pointId,
+            lat: localPreviewTransform.anchorLat + ((yVal - localPreviewTransform.centerY) * localPreviewTransform.scale),
+            lng: localPreviewTransform.anchorLng + ((xVal - localPreviewTransform.centerX) * localPreviewTransform.scale),
+            label: pointName,
+            height: Number.isFinite(Number(row?.z)) ? Number(row.z) : 0,
+            sourceType: 'cad-point',
+            markerSeverity: 'medium',
+            markerColor: '#b45309',
+            validationMessage: 'Local engineering preview only. Assign a real source CRS for georeferenced placement.',
+          };
+        }
+
         if (sourceIsGeo) {
           return {
             id: pointId,
@@ -1739,6 +1901,7 @@ const CoordinateConverter = () => {
             label: pointName,
             height: Number.isFinite(Number(row?.z)) ? Number(row.z) : 0,
             sourceType: 'cad-point',
+            validationMessage: row?.outlierWarning || row?.utmWarning || row?.ccWarning || row?.otherZoneWarning || '',
           };
         }
 
@@ -1752,6 +1915,7 @@ const CoordinateConverter = () => {
             label: pointName,
             height: Number.isFinite(Number(row?.z)) ? Number(row.z) : 0,
             sourceType: 'cad-point',
+            validationMessage: row?.outlierWarning || row?.utmWarning || row?.ccWarning || row?.otherZoneWarning || '',
           };
         } catch {
           return null;
@@ -2578,12 +2742,17 @@ const CoordinateConverter = () => {
         : await parseDWGFile(file, { returnPayload: true });
 
       const rows = Array.isArray(cadPayload?.rows) ? cadPayload.rows : [];
-      if (!rows.length) {
-        throw new Error("No point features found in this CAD file.");
+      const hasRenderableGeometry = Boolean(
+        cadPayload?.geometry?.lines?.length
+        || cadPayload?.geometry?.polylines?.length
+        || cadPayload?.geometry?.texts?.length
+      );
+      if (!rows.length && !hasRenderableGeometry) {
+        throw new Error("No CAD entities could be rendered from this file.");
       }
 
       const detectedFromRows = rows.find((r) => r.detectedFromCrs)?.detectedFromCrs;
-      const detectedFromPayload = cadPayload?.inspection?.detectedFromCrs;
+      const detectedFromPayload = cadPayload?.inspection?.detectedFromCrs || cadPayload?.diagnostics?.detectedFromCrs;
       const sourceCrs = detectedFromRows || detectedFromPayload || fromCrs;
       const referenceStatus = detectLocalReferenceFromRows(rows);
       const isLocalUnreferenced = sourceCrs === "LOCAL:ENGINEERING" || Boolean(referenceStatus?.isLocal);
@@ -2603,10 +2772,10 @@ const CoordinateConverter = () => {
 
       setCadInspection(buildCadInspectionSummary(file, rows, latestCadStatus, cadPayload));
 
-      const previewPoints = projectCadRowsToWgs84(rows, sourceCrs);
+  const previewPoints = projectCadRowsToWgs84(rows, sourceCrs, cadPayload?.geometry);
       emit("converter:pointsForMap", { points: previewPoints });
 
-      const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrs);
+  const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrs, rows);
       emit("converter:cadGeometryForMap", { geometry: projectedGeometry });
 
       setBulkProgress(null);
@@ -2755,8 +2924,8 @@ const CoordinateConverter = () => {
         if (["dxf", "dwg"].includes(ext)) {
           setCadInspection(buildCadInspectionSummary(file, rows, latestCadStatus, cadPayload));
 
-          const sourceCrsForGeometry = rows.find((r) => r.detectedFromCrs)?.detectedFromCrs || fromCrs;
-          const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrsForGeometry);
+          const sourceCrsForGeometry = rows.find((r) => r.detectedFromCrs)?.detectedFromCrs || cadPayload?.inspection?.detectedFromCrs || fromCrs;
+          const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrsForGeometry, rows);
           emit("converter:cadGeometryForMap", { geometry: projectedGeometry });
         } else {
           emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [] } });
@@ -4270,6 +4439,9 @@ const CoordinateConverter = () => {
                 <div>Route: {cadInspection.processingRoute || "pending"}</div>
                 <div>Rows: {cadInspection.rowCount ?? "pending"}</div>
                 <div>Detected CRS: {cadInspection.detectedFromCrs || "pending"}</div>
+                {Number.isFinite(Number(cadInspection.cadTextCount)) && cadInspection.cadTextCount > 0 && (
+                  <div>CAD text: {cadInspection.cadTextCount}</div>
+                )}
                 {cadInspection.localCrsLikely && (
                   <div style={{ color: "#92400e", fontWeight: 600 }}>Reference: local/unreferenced engineering coordinates</div>
                 )}
@@ -4287,12 +4459,28 @@ const CoordinateConverter = () => {
                 {cadInspection.bounds && cadInspection.bounds.minZ !== null && (
                   <div>Z range: {cadInspection.bounds.minZ.toFixed(3)} to {cadInspection.bounds.maxZ.toFixed(3)}</div>
                 )}
+                {cadInspection.validation?.units && (
+                  <div>
+                    Units: <strong>{cadInspection.validation.units.label}</strong>
+                    {cadInspection.validation.units.code !== null ? ` (INSUNITS ${cadInspection.validation.units.code})` : ""}
+                  </div>
+                )}
                 {cadInspection.warnings?.length > 0 && (
                   <div style={{ color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "6px", padding: "0.45rem 0.55rem" }}>
                     <strong>Warnings:</strong>
                     <ul style={{ margin: "0.35rem 0 0 1rem" }}>
                       {cadInspection.warnings.map((warning, index) => (
                         <li key={`${warning}-${index}`}>{warning}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {cadInspection.validation?.notifications?.length > 0 && (
+                  <div style={{ color: "#1e293b", background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: "6px", padding: "0.45rem 0.55rem" }}>
+                    <strong>Import notices:</strong>
+                    <ul style={{ margin: "0.35rem 0 0 1rem" }}>
+                      {cadInspection.validation.notifications.map((notice, index) => (
+                        <li key={`${notice.code || notice.title || "cad-notice"}-${index}`}>{notice.message || notice.title}</li>
                       ))}
                     </ul>
                   </div>
@@ -4315,6 +4503,19 @@ const CoordinateConverter = () => {
                 {cadInspection.diagnostics?.extraction && (
                   <div>
                     <strong>Extraction:</strong> explicit={cadInspection.diagnostics.extraction.explicitPointEntities ?? 0}, insert={cadInspection.diagnostics.extraction.insertPointSymbols ?? 0}, inferred={cadInspection.diagnostics.extraction.inferredSymbolCenters ?? 0}, fallback={cadInspection.diagnostics.extraction.fallbackVertices ?? 0}, merged={cadInspection.diagnostics.extraction.dedupMerged ?? 0}
+                  </div>
+                )}
+                {cadInspection.repairs && (
+                  <div>
+                    <strong>Auto-repair:</strong> {Object.entries(cadInspection.repairs)
+                      .filter(([, value]) => Number(value) > 0)
+                      .map(([key, value]) => `${key}=${value}`)
+                      .join(" | ") || "No repairs applied"}
+                  </div>
+                )}
+                {cadInspection.layerSummary?.layers?.length > 0 && (
+                  <div>
+                    <strong>Layers:</strong> standardized={cadInspection.layerSummary.totalStandardizedLayers ?? cadInspection.layerSummary.layers.length}, renamed={cadInspection.layerSummary.renamedLayers ?? 0}, top={cadInspection.layerSummary.layers.slice(0, 4).map((layer) => `${layer.displayName} (${layer.entityCount})`).join(" | ")}
                   </div>
                 )}
               </div>

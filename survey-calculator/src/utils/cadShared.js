@@ -2,6 +2,363 @@ import DxfParser from 'dxf-parser';
 import { detectCRS, assessReferenceSystem } from './crsDetection.js';
 
 const CAD_TEXT_DECODER = new TextDecoder('utf-8', { fatal: false });
+const DEFAULT_TEXT_HEIGHT = 2.5;
+const FALLBACK_TEXT_FONT = 'Segoe UI';
+const CAD_UNIT_LABELS = {
+  0: 'Unitless',
+  1: 'Inches',
+  2: 'Feet',
+  3: 'Miles',
+  4: 'Millimeters',
+  5: 'Centimeters',
+  6: 'Meters',
+  7: 'Kilometers',
+  8: 'Microinches',
+  9: 'Mils',
+  10: 'Yards',
+  11: 'Angstroms',
+  12: 'Nanometers',
+  13: 'Microns',
+  14: 'Decimeters',
+  15: 'Decameters',
+  16: 'Hectometers',
+  17: 'Gigameters',
+  18: 'Astronomical units',
+  19: 'Light years',
+  20: 'Parsecs',
+};
+const LAYER_STANDARDIZATION_RULES = [
+  { category: 'ANNOTATION', standardName: 'ANNOTATION', pattern: /(ANNOT|TEXT|MTEXT|LABEL|NOTE|LEGEND|TITLE|TAG)/i },
+  { category: 'CONTROL', standardName: 'CONTROL_POINTS', pattern: /(POINT|PTS|TOPO|SURVEY|STATION|BENCH|BORNE|NODE)/i },
+  { category: 'BOUNDARY', standardName: 'BOUNDARY', pattern: /(BOUND|LIMIT|PARCEL|LOT|CADAST|ZONE)/i },
+  { category: 'BUILDING', standardName: 'BUILDING', pattern: /(BATI|BUILD|HOUSE|WALL|STRUCT)/i },
+  { category: 'TRANSPORT', standardName: 'TRANSPORT', pattern: /(ROAD|ROUTE|RUE|STREET|PATH|TROTTOIR|SIDEWALK|PARKING)/i },
+  { category: 'UTILITY', standardName: 'UTILITY_NETWORK', pattern: /(RESEAU|NETWORK|SEWER|WATER|ELEC|POWER|GAS|FIBER|UTIL)/i },
+  { category: 'TOPOGRAPHY', standardName: 'TOPOGRAPHY', pattern: /(TOPO|TERRAIN|CONTOUR|ALT|SPOT|LEVEL)/i },
+  { category: 'REFERENCE', standardName: 'REFERENCE', pattern: /(XREF|EXTERNAL|REF|BACKGROUND|RASTER)/i },
+];
+
+const basenameFromPath = (value) => String(value || '').split(/[\\/]/).pop() || '';
+
+const normalizeLayerToken = (value) => {
+  const text = String(value || '0').trim();
+  if (!text) return 'LAYER_0';
+  const normalized = text
+    .replace(/[|\\/]+/g, '_')
+    .replace(/[^A-Za-z0-9]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toUpperCase();
+  return normalized || 'LAYER_0';
+};
+
+const humanizeLayerName = (value) => String(value || '')
+  .replace(/_/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+const getLayerDescriptor = (layerName, layerRecord = null) => {
+  const originalName = String(layerName || layerRecord?.name || '0').trim() || '0';
+  const normalizedName = normalizeLayerToken(originalName);
+  const rule = LAYER_STANDARDIZATION_RULES.find((candidate) => candidate.pattern.test(originalName) || candidate.pattern.test(normalizedName));
+  const standardizedName = rule?.standardName || normalizedName;
+  const category = rule?.category || 'OTHER';
+  return {
+    originalName,
+    normalizedName,
+    standardizedName,
+    displayName: humanizeLayerName(standardizedName),
+    category,
+    renamed: standardizedName !== originalName && normalizedName !== originalName,
+    visible: layerRecord?.visible !== false,
+    frozen: Boolean(layerRecord?.frozen),
+    colorIndex: Number.isFinite(Number(layerRecord?.colorIndex)) ? Number(layerRecord.colorIndex) : null,
+    color: Number.isFinite(Number(layerRecord?.color)) ? Number(layerRecord.color) : null,
+  };
+};
+
+const cadColorToHex = (value, fallback = '#94a3b8') => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return fallback;
+  const hex = numeric.toString(16).padStart(6, '0').slice(-6);
+  return `#${hex}`;
+};
+
+const getCadUnitInfo = (header = {}) => {
+  const unitCode = Number(header?.$INSUNITS);
+  if (!Number.isFinite(unitCode)) {
+    return { code: null, label: 'Unspecified' };
+  }
+  return {
+    code: unitCode,
+    label: CAD_UNIT_LABELS[unitCode] || `Code ${unitCode}`,
+  };
+};
+
+const normalizeCadTextContent = (raw, repairStats = null) => {
+  const original = String(raw ?? '');
+  let text = original
+    .replace(/\\P/g, ' ')
+    .replace(/%%d/gi, ' deg')
+    .replace(/%%p/gi, ' +/- ')
+    .replace(/%%c/gi, ' dia ')
+    .replace(/\\[A-Za-z][-0-9.,;]*/g, ' ')
+    .replace(/\{\\[^}]*;/g, ' ')
+    .replace(/[{}]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (text !== original.trim() && repairStats) {
+    repairStats.textSanitized = (repairStats.textSanitized || 0) + 1;
+  }
+
+  return text;
+};
+
+const getCadTextPosition = (entity, repairStats = null) => {
+  const direct = entity?.position || entity?.startPoint || entity?.insertionPoint || entity?.alignPoint;
+  const x = Number(direct?.x);
+  const y = Number(direct?.y);
+  const z = Number(direct?.z ?? entity?.z ?? 0);
+  if (Number.isFinite(x) && Number.isFinite(y)) {
+    return { x, y, z: Number.isFinite(z) ? z : 0 };
+  }
+
+  if (Array.isArray(entity?.vertices) && entity.vertices.length > 0) {
+    const vertex = entity.vertices[0];
+    if (repairStats) repairStats.textAnchorFallbacks = (repairStats.textAnchorFallbacks || 0) + 1;
+    return toCadPoint(vertex);
+  }
+
+  return null;
+};
+
+const getStyleTable = (dxfData) => dxfData?.tables?.style?.styles || {};
+
+const getCadTextStyle = (entity, styleTable = {}, repairStats = null) => {
+  const styleName = String(
+    entity?.styleName || entity?.style || entity?.textStyle || entity?.textStyleName || entity?.shapeName || 'STANDARD'
+  ).trim() || 'STANDARD';
+  const styleRecord = styleTable[styleName] || styleTable[styleName.toUpperCase()] || null;
+  const fontFile = styleRecord?.fontFile || styleRecord?.bigFontFile || entity?.fontFile || null;
+  const derivedFont = basenameFromPath(fontFile).replace(/\.[A-Za-z0-9]+$/, '') || null;
+  const fontFamily = derivedFont || styleName || FALLBACK_TEXT_FONT;
+  if (!styleRecord && repairStats) {
+    repairStats.defaultTextStyle = (repairStats.defaultTextStyle || 0) + 1;
+  }
+  return {
+    styleName,
+    fontFile,
+    fontFamily,
+    widthFactor: Number.isFinite(Number(entity?.widthFactor ?? styleRecord?.widthFactor))
+      ? Number(entity?.widthFactor ?? styleRecord?.widthFactor)
+      : 1,
+    obliqueAngle: Number.isFinite(Number(entity?.obliqueAngle ?? styleRecord?.obliqueAngle))
+      ? Number(entity?.obliqueAngle ?? styleRecord?.obliqueAngle)
+      : 0,
+  };
+};
+
+const buildLayerSummary = (dxfData, entities, texts = []) => {
+  const layerTable = dxfData?.tables?.layer?.layers || {};
+  const summaryByStandard = new Map();
+
+  const ensureLayer = (layerName, entityType = 'UNSPECIFIED') => {
+    const layerRecord = layerTable[layerName] || layerTable[String(layerName || '').toUpperCase()] || null;
+    const descriptor = getLayerDescriptor(layerName, layerRecord);
+    const existing = summaryByStandard.get(descriptor.standardizedName) || {
+      ...descriptor,
+      originalNames: new Set(),
+      entityTypes: {},
+      entityCount: 0,
+      textCount: 0,
+      lineCount: 0,
+      polylineCount: 0,
+    };
+    existing.originalNames.add(descriptor.originalName);
+    existing.entityTypes[entityType] = (existing.entityTypes[entityType] || 0) + 1;
+    existing.entityCount += 1;
+    if (entityType === 'TEXT') existing.textCount += 1;
+    if (entityType === 'LINE') existing.lineCount += 1;
+    if (entityType === 'POLYLINE') existing.polylineCount += 1;
+    summaryByStandard.set(descriptor.standardizedName, existing);
+    return existing;
+  };
+
+  Object.keys(layerTable).forEach((layerName) => ensureLayer(layerName, 'DECLARED'));
+
+  (Array.isArray(entities) ? entities : []).forEach((entity) => {
+    const type = String(entity?.type || 'UNKNOWN').toUpperCase();
+    const mappedType = type === 'LWPOLYLINE' || type === 'POLYLINE'
+      ? 'POLYLINE'
+      : (type === 'TEXT' || type === 'MTEXT' || type === 'ATTRIB' ? 'TEXT' : type);
+    ensureLayer(entity?.layer || type, mappedType);
+  });
+
+  (Array.isArray(texts) ? texts : []).forEach((textEntity) => {
+    ensureLayer(textEntity?.layerOriginal || textEntity?.layer || 'TEXT', 'TEXT');
+  });
+
+  const layers = [...summaryByStandard.values()]
+    .map((entry) => ({
+      ...entry,
+      originalNames: [...entry.originalNames].sort(),
+      displayName: humanizeLayerName(entry.standardizedName),
+      colorHex: cadColorToHex(entry.color),
+    }))
+    .sort((a, b) => b.entityCount - a.entityCount || a.displayName.localeCompare(b.displayName));
+
+  return {
+    totalDeclaredLayers: Object.keys(layerTable).length,
+    totalStandardizedLayers: layers.length,
+    renamedLayers: layers.filter((layer) => layer.renamed).length,
+    layers,
+  };
+};
+
+const collectCadRawPoints = (rows, geometry) => {
+  const points = [];
+
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    const x = Number(row?.x);
+    const y = Number(row?.y);
+    const z = Number(row?.z ?? 0);
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      points.push({ x, y, z: Number.isFinite(z) ? z : 0 });
+    }
+  });
+
+  (Array.isArray(geometry?.lines) ? geometry.lines : []).forEach((line) => {
+    const start = Array.isArray(line?.start) ? line.start : [];
+    const end = Array.isArray(line?.end) ? line.end : [];
+    if (Number.isFinite(Number(start[0])) && Number.isFinite(Number(start[1]))) {
+      points.push({ x: Number(start[0]), y: Number(start[1]), z: Number(start[2] ?? 0) });
+    }
+    if (Number.isFinite(Number(end[0])) && Number.isFinite(Number(end[1]))) {
+      points.push({ x: Number(end[0]), y: Number(end[1]), z: Number(end[2] ?? 0) });
+    }
+  });
+
+  (Array.isArray(geometry?.polylines) ? geometry.polylines : []).forEach((poly) => {
+    (Array.isArray(poly?.points) ? poly.points : []).forEach((point) => {
+      if (Number.isFinite(Number(point?.[0])) && Number.isFinite(Number(point?.[1]))) {
+        points.push({ x: Number(point[0]), y: Number(point[1]), z: Number(point[2] ?? 0) });
+      }
+    });
+  });
+
+  (Array.isArray(geometry?.texts) ? geometry.texts : []).forEach((textEntity) => {
+    const position = Array.isArray(textEntity?.position) ? textEntity.position : [];
+    if (Number.isFinite(Number(position[0])) && Number.isFinite(Number(position[1]))) {
+      points.push({ x: Number(position[0]), y: Number(position[1]), z: Number(position[2] ?? 0) });
+    }
+  });
+
+  return points;
+};
+
+const buildCadValidationSummary = ({ rows, geometry, diagnostics, dxfData }) => {
+  const unitInfo = getCadUnitInfo(dxfData?.header || {});
+  const rawPoints = collectCadRawPoints(rows, geometry);
+  const bounds = getBoundingBoxFromPoints(rawPoints);
+  const referenceAssessment = diagnostics?.referenceAssessment || null;
+  const detectedFromCrs = diagnostics?.detectedFromCrs || null;
+  const notifications = [];
+  const extremeCoordinateCount = rawPoints.filter((point) => Math.abs(point.x) > 1e8 || Math.abs(point.y) > 1e8).length;
+  const originClusterCount = rawPoints.filter((point) => Math.abs(point.x) <= 1e-6 && Math.abs(point.y) <= 1e-6).length;
+  const textCount = Array.isArray(geometry?.texts) ? geometry.texts.length : 0;
+
+  if (!unitInfo.code || unitInfo.code === 0) {
+    notifications.push({
+      severity: 'warning',
+      code: 'cad-units-missing',
+      title: 'Units not declared',
+      message: 'The drawing does not declare INSUNITS. Distance and extent checks use a best-effort fallback only.',
+    });
+  }
+
+  if (referenceAssessment?.isLocal || detectedFromCrs === 'LOCAL:ENGINEERING') {
+    notifications.push({
+      severity: 'warning',
+      code: 'cad-local-preview',
+      title: 'Local preview only',
+      message: 'This CAD file appears to use local engineering coordinates. The map preview is schematic until you assign a real CRS.',
+      visualize: true,
+    });
+  } else if (referenceAssessment?.status === 'ambiguous') {
+    notifications.push({
+      severity: 'warning',
+      code: 'cad-ambiguous-crs',
+      title: 'CRS needs review',
+      message: referenceAssessment?.reason || 'The imported coordinates are plausible, but the source CRS remains ambiguous.',
+    });
+  }
+
+  if (extremeCoordinateCount > 0) {
+    notifications.push({
+      severity: 'error',
+      code: 'cad-coordinate-anomaly',
+      title: 'Coordinate anomaly detected',
+      message: `${extremeCoordinateCount} CAD coordinate${extremeCoordinateCount === 1 ? '' : 's'} exceed the expected engineering/geospatial numeric range.`,
+    });
+  }
+
+  if (originClusterCount > 0 && originClusterCount === rawPoints.length && rawPoints.length > 0) {
+    notifications.push({
+      severity: 'warning',
+      code: 'cad-origin-cluster',
+      title: 'All features are near origin',
+      message: 'Most CAD entities are clustered around 0,0. Check whether the file lost its intended insertion base or georeferencing.',
+    });
+  }
+
+  if (bounds && bounds.diagonal <= 0) {
+    notifications.push({
+      severity: 'warning',
+      code: 'cad-flat-extent',
+      title: 'Flat extent',
+      message: 'The CAD extent collapsed to a single position. The file may contain only labels or damaged coordinates.',
+    });
+  }
+
+  const unresolvedXrefs = diagnostics?.references?.unresolvedXrefs?.length || 0;
+  if (unresolvedXrefs > 0) {
+    notifications.push({
+      severity: 'warning',
+      code: 'cad-unresolved-xref',
+      title: 'Unresolved external references',
+      message: `${unresolvedXrefs} unresolved XREF reference${unresolvedXrefs === 1 ? '' : 's'} detected. The preview may be incomplete.`,
+    });
+  }
+
+  const repairStats = diagnostics?.repairs || {};
+  const repairCount = Object.values(repairStats).reduce((sum, value) => sum + (Number.isFinite(Number(value)) ? Number(value) : 0), 0);
+  if (repairCount > 0) {
+    notifications.push({
+      severity: 'info',
+      code: 'cad-auto-repair',
+      title: 'Auto-repair applied',
+      message: `The CAD import repaired ${repairCount} issue${repairCount === 1 ? '' : 's'} automatically, including text/style/layer normalization where needed.`,
+    });
+  }
+
+  if (textCount > 0) {
+    notifications.push({
+      severity: 'info',
+      code: 'cad-text-imported',
+      title: 'CAD text imported',
+      message: `${textCount} CAD text annotation${textCount === 1 ? '' : 's'} prepared for map display with style fallback support.`,
+    });
+  }
+
+  return {
+    units: unitInfo,
+    bounds,
+    extremeCoordinateCount,
+    originClusterCount,
+    notifications,
+  };
+};
 
 export function decodeCadHeader(data, byteLength = 64) {
   const view = data instanceof Uint8Array ? data.subarray(0, byteLength) : new Uint8Array(data).subarray(0, byteLength);
@@ -83,15 +440,6 @@ const extractInsertPointName = (ent) => {
 const collectTextLabels = (entities) => {
   const labels = [];
 
-  const normalizeTextContent = (raw) => {
-    const text = normalizeCadLabelCandidate(raw)
-      .replace(/\\P/g, ' ')
-      .replace(/\{\\[^}]*;/g, '')
-      .replace(/[{}]/g, '')
-      .trim();
-    return text;
-  };
-
   const addFromEntities = (entities) => {
     if (!Array.isArray(entities)) return;
     entities.forEach((ent) => {
@@ -99,7 +447,7 @@ const collectTextLabels = (entities) => {
       if (type !== 'TEXT' && type !== 'MTEXT' && type !== 'ATTRIB') return;
 
       const rawText = ent?.text ?? ent?.value ?? ent?.tag ?? '';
-      const text = normalizeTextContent(rawText);
+      const text = normalizeCadTextContent(rawText);
       if (!isCadPointNameProvided(text)) return;
 
       const pos = ent?.position || ent?.startPoint || ent?.insertionPoint;
@@ -653,6 +1001,13 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
   const drawingBounds = getBoundingBoxFromPoints(drawingPoints);
   const drawingDiagonal = drawingBounds?.diagonal || 0;
   const textLabels = collectTextLabels(expandedEntities);
+  const repairs = {
+    textSanitized: 0,
+    textAnchorFallbacks: 0,
+    defaultTextStyle: 0,
+    defaultTextHeight: 0,
+    normalizedLayerName: 0,
+  };
   const diagnostics = {
     entityTypeCounts: countEntityTypes(dxfData),
     extraction: {
@@ -665,6 +1020,7 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
     },
     references: expandedCad.diagnostics.references,
     resolution: expandedCad.diagnostics.resolution,
+    repairs,
   };
 
   const addRow = (x, y, z, idHint, hasExplicitName = false, source = 'unknown') => {
@@ -776,8 +1132,18 @@ export const collectCadGeometryFromDxf = (dxfData) => {
   const geometry = {
     lines: [],
     polylines: [],
+    texts: [],
   };
   const expandedEntities = expandCadEntities(dxfData).entities;
+  const layerTable = dxfData?.tables?.layer?.layers || {};
+  const styleTable = getStyleTable(dxfData);
+  const repairStats = {
+    textSanitized: 0,
+    textAnchorFallbacks: 0,
+    defaultTextStyle: 0,
+    defaultTextHeight: 0,
+    normalizedLayerName: 0,
+  };
 
   const addLine = (start, end, layer, sourceType) => {
     if (!start || !end) return;
@@ -788,8 +1154,14 @@ export const collectCadGeometryFromDxf = (dxfData) => {
     const y2 = Number(end.y);
     const z2 = Number(end.z ?? 0);
     if (!Number.isFinite(x1) || !Number.isFinite(y1) || !Number.isFinite(x2) || !Number.isFinite(y2)) return;
+    const descriptor = getLayerDescriptor(layer || 'LINE', layerTable[layer || 'LINE']);
+    if (descriptor.renamed) repairStats.normalizedLayerName += 1;
     geometry.lines.push({
-      layer: layer || 'LINE',
+      layer: descriptor.displayName,
+      layerOriginal: descriptor.originalName,
+      layerNormalized: descriptor.normalizedName,
+      layerStandardized: descriptor.standardizedName,
+      layerCategory: descriptor.category,
       sourceType: sourceType || 'LINE',
       start: [x1, y1, Number.isFinite(z1) ? z1 : 0],
       end: [x2, y2, Number.isFinite(z2) ? z2 : 0],
@@ -809,10 +1181,56 @@ export const collectCadGeometryFromDxf = (dxfData) => {
       .filter(Boolean);
 
     if (coords.length < 2) return;
+    const descriptor = getLayerDescriptor(layer || sourceType || 'POLYLINE', layerTable[layer || sourceType || 'POLYLINE']);
+    if (descriptor.renamed) repairStats.normalizedLayerName += 1;
     geometry.polylines.push({
-      layer: layer || sourceType || 'POLYLINE',
+      layer: descriptor.displayName,
+      layerOriginal: descriptor.originalName,
+      layerNormalized: descriptor.normalizedName,
+      layerStandardized: descriptor.standardizedName,
+      layerCategory: descriptor.category,
       sourceType: sourceType || 'POLYLINE',
       points: coords,
+    });
+  };
+
+  const addText = (entity) => {
+    const type = String(entity?.type || '').toUpperCase();
+    if (!['TEXT', 'MTEXT', 'ATTRIB'].includes(type)) return;
+
+    const position = getCadTextPosition(entity, repairStats);
+    if (!position) return;
+
+    const descriptor = getLayerDescriptor(entity?.layer || 'TEXT', layerTable[entity?.layer || 'TEXT']);
+    if (descriptor.renamed) repairStats.normalizedLayerName += 1;
+    const style = getCadTextStyle(entity, styleTable, repairStats);
+    const content = normalizeCadTextContent(entity?.text ?? entity?.value ?? entity?.tag ?? '', repairStats);
+    if (!content) return;
+
+    let textHeight = Number(entity?.textHeight ?? entity?.height ?? entity?.nominalTextHeight ?? 0);
+    if (!Number.isFinite(textHeight) || textHeight <= 0) {
+      textHeight = DEFAULT_TEXT_HEIGHT;
+      repairStats.defaultTextHeight += 1;
+    }
+
+    geometry.texts.push({
+      layer: descriptor.displayName,
+      layerOriginal: descriptor.originalName,
+      layerNormalized: descriptor.normalizedName,
+      layerStandardized: descriptor.standardizedName,
+      layerCategory: descriptor.category,
+      sourceType: type,
+      position: [position.x, position.y, position.z],
+      text: content,
+      rawText: String(entity?.text ?? entity?.value ?? entity?.tag ?? ''),
+      textHeight,
+      rotation: Number.isFinite(Number(entity?.rotation ?? entity?.angle)) ? Number(entity?.rotation ?? entity?.angle) : 0,
+      styleName: style.styleName,
+      fontFamily: style.fontFamily || FALLBACK_TEXT_FONT,
+      fontFile: style.fontFile || null,
+      widthFactor: style.widthFactor,
+      obliqueAngle: style.obliqueAngle,
+      colorHex: cadColorToHex(entity?.color, cadColorToHex(descriptor.color)),
     });
   };
 
@@ -828,6 +1246,11 @@ export const collectCadGeometryFromDxf = (dxfData) => {
         case 'POLYLINE':
           addPolyline(ent.vertices || [], layer, ent.type);
           break;
+        case 'TEXT':
+        case 'MTEXT':
+        case 'ATTRIB':
+          addText(ent);
+          break;
         default:
           break;
       }
@@ -835,6 +1258,9 @@ export const collectCadGeometryFromDxf = (dxfData) => {
   };
 
   visitEntities(expandedEntities);
+
+  geometry.layerSummary = buildLayerSummary(dxfData, expandedEntities, geometry.texts);
+  geometry.repairs = repairStats;
 
   return geometry;
 };
@@ -851,7 +1277,31 @@ export function parseDxfTextContent(text, options = {}) {
   const pointResult = collectPointRowsFromDxf(dxf, options);
   const rows = pointResult.rows;
   const geometry = collectCadGeometryFromDxf(dxf);
-  if (!rows.length) {
+  const validation = buildCadValidationSummary({
+    rows,
+    geometry,
+    diagnostics: pointResult.diagnostics,
+    dxfData: dxf,
+  });
+  const diagnostics = {
+    ...pointResult.diagnostics,
+    repairs: {
+      ...(pointResult.diagnostics?.repairs || {}),
+      ...(geometry.repairs || {}),
+    },
+    layerSummary: geometry.layerSummary || null,
+    validation,
+  };
+
+  geometry.validation = validation;
+  geometry.notifications = validation.notifications;
+
+  const hasRenderableCad = rows.length > 0
+    || geometry.lines.length > 0
+    || geometry.polylines.length > 0
+    || geometry.texts.length > 0;
+
+  if (!hasRenderableCad) {
     const hint = options.pointsOnly
       ? 'No POINT entities found in DXF. Try unchecking "Points only" to extract vertices from lines/polylines.'
       : 'No point-like entities found in DXF';
@@ -859,7 +1309,7 @@ export function parseDxfTextContent(text, options = {}) {
   }
 
   if (options.returnPayload) {
-    return { rows, geometry, diagnostics: pointResult.diagnostics || null };
+    return { rows, geometry, diagnostics: diagnostics || null };
   }
 
   return rows;

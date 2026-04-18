@@ -5,6 +5,24 @@ import { emit } from '../utils/eventBus';
 
 const BASEMAP_STORAGE_KEY = 'survey_calc_basemap';
 const LABEL_AUTO_HIDE_THRESHOLD = 300;
+const EMPTY_CAD_GEOMETRY = {
+  lines: [],
+  polylines: [],
+  texts: [],
+  layerSummary: null,
+  validation: null,
+  notifications: [],
+  repairs: null,
+  localPreview: false,
+};
+
+const escapeHtml = (value) => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+const clampNumber = (value, min, max) => Math.min(max, Math.max(min, value));
 
 const getRoundedScaleDenominator = (rawDenominator) => {
   if (!Number.isFinite(rawDenominator) || rawDenominator <= 0) return null;
@@ -24,7 +42,7 @@ const getMapScaleDenominator = (zoom, latitudeDeg) => {
   return getRoundedScaleDenominator(denominator);
 };
 
-const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, isVisible, onPointSelect, measureMode = false, measurePoints = [], onMapContainerReady = null, onMapMetricsChange = null }) => {
+const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible, onPointSelect, measureMode = false, measurePoints = [], onMapContainerReady = null, onMapMetricsChange = null }) => {
   const mapContainer = useRef(null);
   const mapRootContainer = useRef(null);
   const map = useRef(null);
@@ -43,9 +61,11 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
   const [showPointLayer, setShowPointLayer] = useState(true);
   const [showLineLayer, setShowLineLayer] = useState(true);
   const [showPolylineLayer, setShowPolylineLayer] = useState(true);
+  const [showTextLayer, setShowTextLayer] = useState(true);
   const [showLabels, setShowLabels] = useState(true);
   const [legendCollapsed, setLegendCollapsed] = useState(false);
   const [labelsTouched, setLabelsTouched] = useState(false);
+  const [hiddenCadLayers, setHiddenCadLayers] = useState({});
 
   const effectiveShowLabels =
     Array.isArray(points) && points.length === 0
@@ -53,6 +73,10 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
       : (!labelsTouched && Array.isArray(points) && points.length > LABEL_AUTO_HIDE_THRESHOLD)
         ? false
         : showLabels;
+  const cadNotifications = Array.isArray(cadGeometry?.notifications)
+    ? cadGeometry.notifications
+    : (Array.isArray(cadGeometry?.validation?.notifications) ? cadGeometry.validation.notifications : []);
+  const cadLayers = Array.isArray(cadGeometry?.layerSummary?.layers) ? cadGeometry.layerSummary.layers : [];
 
   useEffect(() => {
     if (typeof onMapContainerReady !== 'function') return;
@@ -168,6 +192,23 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
         font-weight: 700;
         line-height: 1.2;
       }
+      .cad-text-icon {
+        background: transparent;
+        border: none;
+      }
+      .cad-text-label {
+        display: inline-block;
+        white-space: nowrap;
+        padding: 1px 4px;
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.78);
+        border: 1px solid rgba(15, 23, 42, 0.12);
+        color: #0f172a;
+        font-weight: 600;
+        line-height: 1.15;
+        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.16);
+        transform-origin: left center;
+      }
     `;
     document.head.appendChild(style);
     return () => style.remove();
@@ -262,6 +303,9 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
     const match = String(point.label || '').match(/\((\d+)%\)/);
     return match ? Number(match[1]) / 100 : 0;
   };
+
+  const getCadLayerKey = useCallback((feature) => String(feature?.layerStandardized || feature?.layerNormalized || feature?.layer || 'UNASSIGNED'), []);
+  const isCadLayerVisible = useCallback((feature) => !hiddenCadLayers[getCadLayerKey(feature)], [getCadLayerKey, hiddenCadLayers]);
 
   // ── Cursor: crosshair when measure mode is active ──
   useEffect(() => {
@@ -700,8 +744,9 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
     // Render CAD geometry overlays (already projected to WGS84 by converter).
     const cadLines = Array.isArray(cadGeometry?.lines) ? cadGeometry.lines : [];
     const cadPolylines = Array.isArray(cadGeometry?.polylines) ? cadGeometry.polylines : [];
+    const cadTexts = Array.isArray(cadGeometry?.texts) ? cadGeometry.texts : [];
 
-    if (showLineLayer) cadLines.forEach((line) => {
+    if (showLineLayer) cadLines.filter(isCadLayerVisible).forEach((line) => {
       const start = line?.start;
       const end = line?.end;
       if (!Array.isArray(start) || !Array.isArray(end)) return;
@@ -716,12 +761,14 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
           weight: 2.5,
           opacity: 0.85,
         }
-      ).addTo(map.current);
+      )
+        .bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(line.layer || 'CAD line')}</b><br/>Type: ${escapeHtml(line.sourceType || 'LINE')}</div>`)
+        .addTo(map.current);
       geometryLayersRef.current.push(layer);
       markers.current.push(layer);
     });
 
-    if (showPolylineLayer) cadPolylines.forEach((poly) => {
+    if (showPolylineLayer) cadPolylines.filter(isCadLayerVisible).forEach((poly) => {
       const pts = Array.isArray(poly?.points) ? poly.points : [];
       const latlngs = pts
         .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
@@ -731,9 +778,31 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
         color: '#2563eb',
         weight: 2,
         opacity: 0.8,
-      }).addTo(map.current);
+      })
+        .bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(poly.layer || 'CAD polyline')}</b><br/>Type: ${escapeHtml(poly.sourceType || 'POLYLINE')}</div>`)
+        .addTo(map.current);
       geometryLayersRef.current.push(layer);
       markers.current.push(layer);
+    });
+
+    if (showTextLayer) cadTexts.filter(isCadLayerVisible).forEach((textEntity) => {
+      const position = Array.isArray(textEntity?.position) ? textEntity.position : [];
+      if (!Number.isFinite(Number(position[0])) || !Number.isFinite(Number(position[1]))) return;
+      const fontSize = Math.round(clampNumber((Number(textEntity?.textHeight) || 2.5) * 2.6, 10, 28));
+      const rotation = Number.isFinite(Number(textEntity?.rotation)) ? Number(textEntity.rotation) : 0;
+      const color = textEntity?.colorHex || '#0f172a';
+      const fontFamily = escapeHtml(textEntity?.fontFamily || 'Segoe UI');
+      const html = `<div class="cad-text-label" style="font-family:${fontFamily};font-size:${fontSize}px;color:${color};transform:rotate(${rotation}deg);">${escapeHtml(textEntity?.text || '')}</div>`;
+      const marker = L.marker([position[0], position[1]], {
+        icon: L.divIcon({ html, className: 'cad-text-icon', iconAnchor: [0, 0] }),
+        keyboard: false,
+      })
+        .bindPopup(
+          `<div style="font-size:12px;min-width:180px;"><b>${escapeHtml(textEntity?.text || 'CAD text')}</b><br/>Layer: ${escapeHtml(textEntity?.layer || 'Annotation')}<br/>Style: ${escapeHtml(textEntity?.styleName || 'STANDARD')}<br/>Font: ${escapeHtml(textEntity?.fontFamily || 'Default')}</div>`
+        )
+        .addTo(map.current);
+      geometryLayersRef.current.push(marker);
+      markers.current.push(marker);
     });
 
     // Fit map only when point data changes; do not fight user zoom/pan interactions.
@@ -741,6 +810,7 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
     const geometrySignature = [
       cadLines.map((l) => `${l?.start?.[0] ?? ''},${l?.start?.[1] ?? ''}->${l?.end?.[0] ?? ''},${l?.end?.[1] ?? ''}`).join('|'),
       cadPolylines.map((pl) => (pl?.points || []).map((p) => `${p?.[0] ?? ''},${p?.[1] ?? ''}`).join(';')).join('|'),
+      cadTexts.map((textEntity) => `${textEntity?.position?.[0] ?? ''},${textEntity?.position?.[1] ?? ''}:${textEntity?.text ?? ''}`).join('|'),
     ].join('||');
     const fitSignature = `${pointsSignature}__${geometrySignature}`;
 
@@ -766,7 +836,7 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
         map.current.off('moveend', handleViewChange);
       }
     };
-  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, getMarkerColor, measureMode, measurePoints, selectedPoint, viewTick, showPointLayer, showLineLayer, showPolylineLayer, showLabels, effectiveShowLabels]);
+  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, getMarkerColor, isCadLayerVisible, measureMode, measurePoints, selectedPoint, viewTick, showPointLayer, showLineLayer, showPolylineLayer, showTextLayer, showLabels, effectiveShowLabels, hiddenCadLayers]);
 
   return (
     <div
@@ -783,6 +853,47 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
         lineHeight: 0
       }}
     >
+      {cadNotifications.length > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '10px',
+            left: '10px',
+            zIndex: 999,
+            display: 'grid',
+            gap: '6px',
+            maxWidth: '360px',
+          }}
+        >
+          {cadNotifications.slice(0, 4).map((notice, index) => {
+            const severity = notice?.severity || 'info';
+            const palette = severity === 'error'
+              ? { background: 'rgba(127, 29, 29, 0.94)', border: 'rgba(252, 165, 165, 0.55)', color: '#fee2e2' }
+              : severity === 'warning'
+                ? { background: 'rgba(120, 53, 15, 0.94)', border: 'rgba(253, 230, 138, 0.45)', color: '#fef3c7' }
+                : { background: 'rgba(15, 23, 42, 0.92)', border: 'rgba(147, 197, 253, 0.35)', color: '#dbeafe' };
+            return (
+              <div
+                key={`${notice?.code || notice?.title || 'cad-notice'}-${index}`}
+                style={{
+                  background: palette.background,
+                  border: `1px solid ${palette.border}`,
+                  borderRadius: '10px',
+                  padding: '8px 10px',
+                  color: palette.color,
+                  boxShadow: '0 10px 24px rgba(15, 23, 42, 0.28)',
+                  lineHeight: 1.35,
+                  fontSize: '11px',
+                }}
+              >
+                <div style={{ fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px' }}>{notice?.title || 'CAD notice'}</div>
+                <div>{notice?.message || ''}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Legend */}
       <div
         className="map-legend-overlay"
@@ -882,7 +993,57 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
           >
             Labels {effectiveShowLabels ? 'On' : 'Off'}
           </button>
+          <button
+            onClick={() => setShowTextLayer((v) => !v)}
+            style={{
+              border: '1px solid rgba(148,163,184,0.55)',
+              background: showTextLayer ? 'rgba(16,185,129,0.72)' : 'rgba(15,23,42,0.65)',
+              color: '#e2e8f0',
+              borderRadius: '999px',
+              fontSize: '10px',
+              padding: '2px 8px',
+              cursor: 'pointer'
+            }}
+          >
+            Text {showTextLayer ? 'On' : 'Off'}
+          </button>
         </div>
+        {cadLayers.length > 0 && (
+          <div style={{ marginBottom: '8px' }}>
+            <div style={{ fontWeight: 700, color: '#e0eaff', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '5px' }}>
+              CAD Layers
+            </div>
+            <div style={{ display: 'grid', gap: '4px', maxHeight: '120px', overflowY: 'auto', paddingRight: '2px' }}>
+              {cadLayers.slice(0, 10).map((layer) => {
+                const layerKey = String(layer.standardizedName || layer.normalizedName || layer.displayName || '');
+                const visible = !hiddenCadLayers[layerKey];
+                return (
+                  <button
+                    key={layerKey}
+                    title={layer.originalNames?.join(', ') || layer.displayName}
+                    onClick={() => setHiddenCadLayers((prev) => ({ ...prev, [layerKey]: visible }))}
+                    style={{
+                      border: '1px solid rgba(148,163,184,0.45)',
+                      background: visible ? 'rgba(30,41,59,0.82)' : 'rgba(15,23,42,0.35)',
+                      color: visible ? '#f8fafc' : '#94a3b8',
+                      borderRadius: '8px',
+                      fontSize: '10px',
+                      padding: '4px 6px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '6px',
+                    }}
+                  >
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{layer.displayName}</span>
+                    <span style={{ color: '#cbd5e1', flexShrink: 0 }}>{layer.entityCount}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '3px' }}>
           <div style={{ width: '10px', height: '10px', backgroundColor: '#0000FF', marginRight: '6px', borderRadius: '2px', flexShrink: 0 }} />
           &lt; −10 m

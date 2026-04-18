@@ -318,7 +318,7 @@ export function getCadBackendStatus() {
     dwgEnabled: converterMode !== 'none',
     converterPath,
     uploadLimitMb: Number(process.env.CAD_MAX_UPLOAD_MB || 100),
-    setupHint: buildConverterSetupHint(),
+    setupHint: converterMode === 'none' ? buildConverterSetupHint() : null,
   };
 }
 
@@ -378,6 +378,10 @@ export async function parseCadUpload({ buffer, originalName, fileSizeBytes = 0, 
       usedConverter,
       processingRoute,
       diagnostics,
+      detectedFromCrs: diagnostics?.detectedFromCrs || rows.find((row) => row?.detectedFromCrs)?.detectedFromCrs || null,
+      validation: geometry?.validation || diagnostics?.validation || null,
+      layerSummary: geometry?.layerSummary || diagnostics?.layerSummary || null,
+      repairs: geometry?.repairs || diagnostics?.repairs || null,
       unresolvedXrefs: diagnostics?.references?.unresolvedXrefs || [],
       missingBlockRefs: diagnostics?.references?.unresolvedBlockRefs || [],
       cyclicBlockRefs: diagnostics?.references?.cyclicBlockRefs || [],

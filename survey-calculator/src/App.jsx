@@ -20,6 +20,16 @@ const STANDARD_PRINT_SCALES = [
   100, 200, 250, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000,
   4000, 5000, 7500, 10000, 12500, 15000, 20000, 25000, 50000,
 ];
+const EMPTY_CAD_GEOMETRY = {
+  lines: [],
+  polylines: [],
+  texts: [],
+  layerSummary: null,
+  validation: null,
+  notifications: [],
+  repairs: null,
+  localPreview: false,
+};
 
 const pickNiceScale = (requiredDenominator) => {
   if (!Number.isFinite(requiredDenominator) || requiredDenominator <= 0) return null;
@@ -31,7 +41,7 @@ const pickNiceScale = (requiredDenominator) => {
 
 function App() {
   const [converterPoints, setConverterPoints] = useState([]);
-  const [cadGeometry, setCadGeometry] = useState({ lines: [], polylines: [] });
+  const [cadGeometry, setCadGeometry] = useState(EMPTY_CAD_GEOMETRY);
   const [measureMode, setMeasureMode] = useState(false);
   const [measurePoints, setMeasurePoints] = useState([]);
   const [distanceDisplayUnit, setDistanceDisplayUnit] = useState("m"); // m | km
@@ -52,7 +62,7 @@ function App() {
 
   const resetAppWorkspace = ({ remountConverter = false } = {}) => {
     setConverterPoints([]);
-    setCadGeometry({ lines: [], polylines: [] });
+    setCadGeometry(EMPTY_CAD_GEOMETRY);
     setMeasureMode(false);
     setMeasurePoints([]);
     setDistanceDisplayUnit("m");
@@ -74,14 +84,20 @@ function App() {
 
   useEffect(() => {
     const off = on("converter:cadGeometryForMap", ({ geometry }) => {
-      if (geometry && (Array.isArray(geometry.lines) || Array.isArray(geometry.polylines))) {
+      if (geometry && (Array.isArray(geometry.lines) || Array.isArray(geometry.polylines) || Array.isArray(geometry.texts))) {
         setCadGeometry({
           lines: Array.isArray(geometry.lines) ? geometry.lines : [],
           polylines: Array.isArray(geometry.polylines) ? geometry.polylines : [],
+          texts: Array.isArray(geometry.texts) ? geometry.texts : [],
+          layerSummary: geometry.layerSummary || null,
+          validation: geometry.validation || null,
+          notifications: Array.isArray(geometry.notifications) ? geometry.notifications : [],
+          repairs: geometry.repairs || null,
+          localPreview: Boolean(geometry.localPreview),
         });
         return;
       }
-      setCadGeometry({ lines: [], polylines: [] });
+      setCadGeometry(EMPTY_CAD_GEOMETRY);
     });
     return () => off && off();
   }, []);
@@ -231,6 +247,7 @@ function App() {
         { label: "Converted points", value: converterPoints.length },
         { label: "CAD lines", value: cadGeometry.lines.length },
         { label: "CAD polylines", value: cadGeometry.polylines.length },
+        { label: "CAD texts", value: cadGeometry.texts.length },
         { label: "Measure mode", value: measureMode ? "ON" : "OFF" },
         { label: "Measure points", value: measurePoints.length },
         { label: "Total ground dist", value: `${totalGroundDistance.toFixed(3)} m` },
