@@ -49,7 +49,7 @@ const escapeHtml = (value) => String(value ?? "")
   .replace(/&/g, "&amp;")
   .replace(/</g, "&lt;")
   .replace(/>/g, "&gt;")
-  .replace(/\"/g, "&quot;")
+  .replace(/"/g, "&quot;")
   .replace(/'/g, "&#39;");
 
 const buildCadDiagnosticReportPayload = (cadInspection, importCrsNotice) => ({
@@ -2509,7 +2509,7 @@ const CoordinateConverter = () => {
     performResetAll();
   };
 
-  const applyBulkFileSelection = useCallback((file) => {
+  const applyBulkFileSelection = (file) => {
     setBulkUploadFile(file || null);
     setBulkUploadError("");
     setImportCrsNotice("");
@@ -2533,9 +2533,9 @@ const CoordinateConverter = () => {
       refreshCadStatus();
     }
     detectFileFormatsAndCRS(file);
-  }, [cadBackendStatus, refreshCadStatus]);
+  };
 
-  const handleLoadSampleDwg = useCallback(async () => {
+  const handleLoadSampleDwg = async () => {
     try {
       setBulkUploadError("");
       const response = await fetch('/samples/sample_test_text.dwg', { cache: 'no-store' });
@@ -2551,7 +2551,7 @@ const CoordinateConverter = () => {
     } catch (err) {
       setBulkUploadError(err.message || 'Failed to load DWG sample file.');
     }
-  }, [applyBulkFileSelection]);
+  };
 
   const handleDetectAndVisualizeCadOnly = useCallback(async () => {
     const file = bulkUploadFile;

@@ -45,21 +45,14 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
   const [showPolylineLayer, setShowPolylineLayer] = useState(true);
   const [showLabels, setShowLabels] = useState(true);
   const [legendCollapsed, setLegendCollapsed] = useState(false);
-  const labelsTouchedRef = useRef(false);
+  const [labelsTouched, setLabelsTouched] = useState(false);
 
-  useEffect(() => {
-    if (!Array.isArray(points)) return;
-
-    if (points.length === 0) {
-      labelsTouchedRef.current = false;
-      setShowLabels(true);
-      return;
-    }
-
-    if (!labelsTouchedRef.current && points.length > LABEL_AUTO_HIDE_THRESHOLD) {
-      setShowLabels(false);
-    }
-  }, [points]);
+  const effectiveShowLabels =
+    Array.isArray(points) && points.length === 0
+      ? true
+      : (!labelsTouched && Array.isArray(points) && points.length > LABEL_AUTO_HIDE_THRESHOLD)
+        ? false
+        : showLabels;
 
   useEffect(() => {
     if (typeof onMapContainerReady !== 'function') return;
@@ -336,14 +329,6 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
     }
   }, [measurePoints, points]);
 
-  // Clear selection when map is hidden or points are removed - handled in render
-  useEffect(() => {
-    if (!isVisible || !points || points.length === 0) {
-      // We'll return early in the map setup if these conditions are true
-      // This prevents the map from initializing when not needed
-    }
-  }, [isVisible, points]);
-
   useEffect(() => {
     if (!isVisible || !mapContainer.current) return;
 
@@ -524,7 +509,7 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
     });
 
     // Add cluster labels for superposed detections (same position, multiple CRS).
-    if (showLabels) detectionGroups.forEach((group) => {
+    if (effectiveShowLabels) detectionGroups.forEach((group) => {
       if (group.points.length < 2) return;
       const ranked = [...group.points].sort((a, b) => getPointConfidence(b) - getPointConfidence(a));
       const topTwoCodes = ranked.slice(0, 2).map((p) => extractCrsCode(p)).filter(Boolean);
@@ -650,7 +635,7 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
         .addTo(map.current);
 
       // Add permanent label for detection markers
-      if (showLabels && point.detectionMarker && point.label && visibleDetectionLabelIds.has(point.id)) {
+      if (effectiveShowLabels && point.detectionMarker && point.label && visibleDetectionLabelIds.has(point.id)) {
         const markerTooltip = L.tooltip({
           permanent: true,
           direction: 'top',
@@ -673,7 +658,7 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
           ? visibleConvertedLabelIds.has(pointId)
           : false;
 
-        if (showLabels && shouldShowConvertedLabel) {
+        if (effectiveShowLabels && shouldShowConvertedLabel) {
           const nameTooltip = L.tooltip({
             permanent: true,
             direction: labelLayout.direction,
@@ -696,7 +681,7 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
       markers.current.push(circleMarker);
     });
 
-    if (showLabels) hiddenCountByCoordKey.forEach((hiddenCount, key) => {
+    if (effectiveShowLabels) hiddenCountByCoordKey.forEach((hiddenCount, key) => {
       const group = overlapGroups.get(key);
       if (!group || !viewportBounds.contains([group.lat, group.lng])) return;
       const hiddenTooltip = L.tooltip({
@@ -781,7 +766,7 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
         map.current.off('moveend', handleViewChange);
       }
     };
-  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, getMarkerColor, measureMode, measurePoints, selectedPoint, viewTick, showPointLayer, showLineLayer, showPolylineLayer, showLabels]);
+  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, getMarkerColor, measureMode, measurePoints, selectedPoint, viewTick, showPointLayer, showLineLayer, showPolylineLayer, showLabels, effectiveShowLabels]);
 
   return (
     <div
@@ -882,12 +867,12 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
           </button>
           <button
             onClick={() => {
-              labelsTouchedRef.current = true;
-              setShowLabels((v) => !v);
+              setLabelsTouched(true);
+              setShowLabels(!effectiveShowLabels);
             }}
             style={{
               border: '1px solid rgba(148,163,184,0.55)',
-              background: showLabels ? 'rgba(56,189,248,0.75)' : 'rgba(15,23,42,0.65)',
+              background: effectiveShowLabels ? 'rgba(56,189,248,0.75)' : 'rgba(15,23,42,0.65)',
               color: '#e2e8f0',
               borderRadius: '999px',
               fontSize: '10px',
@@ -895,7 +880,7 @@ const MapVisualization = ({ points, cadGeometry = { lines: [], polylines: [] }, 
               cursor: 'pointer'
             }}
           >
-            Labels {showLabels ? 'On' : 'Off'}
+            Labels {effectiveShowLabels ? 'On' : 'Off'}
           </button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '3px' }}>
