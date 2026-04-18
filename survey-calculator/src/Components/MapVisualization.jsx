@@ -301,13 +301,38 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   };
 
   const getLabelBudget = (zoom, totalPoints) => {
-    if (zoom >= 18) return Math.min(totalPoints, 520);
-    if (zoom >= 17) return Math.min(totalPoints, 340);
-    if (zoom >= 16) return Math.min(totalPoints, 220);
-    if (zoom >= 15) return Math.min(totalPoints, 140);
-    if (zoom >= 14) return Math.min(totalPoints, 90);
-    if (zoom >= 13) return Math.min(totalPoints, 60);
-    return Math.min(totalPoints, 36);
+    if (totalPoints >= 8000) {
+      if (zoom >= 18) return 110;
+      if (zoom >= 16) return 80;
+      if (zoom >= 14) return 44;
+      return 24;
+    }
+    if (totalPoints >= 3500) {
+      if (zoom >= 18) return 140;
+      if (zoom >= 16) return 100;
+      if (zoom >= 14) return 56;
+      return 30;
+    }
+    if (zoom >= 18) return Math.min(totalPoints, 240);
+    if (zoom >= 17) return Math.min(totalPoints, 180);
+    if (zoom >= 16) return Math.min(totalPoints, 130);
+    if (zoom >= 15) return Math.min(totalPoints, 88);
+    if (zoom >= 14) return Math.min(totalPoints, 60);
+    if (zoom >= 13) return Math.min(totalPoints, 42);
+    return Math.min(totalPoints, 28);
+  };
+
+  const getDetectionLabelBudget = (zoom, totalPoints) => {
+    if (totalPoints >= 1200) {
+      if (zoom >= 18) return 100;
+      if (zoom >= 16) return 72;
+      if (zoom >= 14) return 44;
+      return 24;
+    }
+    if (zoom >= 18) return Math.min(totalPoints, 160);
+    if (zoom >= 16) return Math.min(totalPoints, 120);
+    if (zoom >= 14) return Math.min(totalPoints, 76);
+    return Math.min(totalPoints, 40);
   };
 
   const getDeclutterCellSize = (zoom) => {
@@ -528,9 +553,25 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       publishMapMetrics();
     };
 
+    const handleZoomStart = () => {
+      const tooltipPane = map.current?.getPanes?.().tooltipPane;
+      if (tooltipPane) {
+        tooltipPane.style.display = 'none';
+      }
+    };
+
+    const handleZoomEnd = () => {
+      const tooltipPane = map.current?.getPanes?.().tooltipPane;
+      if (tooltipPane) {
+        tooltipPane.style.display = '';
+      }
+      handleViewChange();
+    };
+
     map.current.on('click', handleMapClick);
     map.current.on('baselayerchange', handleBasemapChange);
-    map.current.on('zoomend', handleViewChange);
+    map.current.on('zoomstart', handleZoomStart);
+    map.current.on('zoomend', handleZoomEnd);
     map.current.on('moveend', handleViewChange);
     updateSmartScale();
     publishMapMetrics();
@@ -595,13 +636,21 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
 
     // For superposed groups, keep only top two labels permanently visible.
     const visibleDetectionLabelIds = new Set();
+    const detectionLabelBudget = getDetectionLabelBudget(map.current.getZoom(), validPoints.length);
     detectionGroups.forEach((group) => {
+      if (visibleDetectionLabelIds.size >= detectionLabelBudget) return;
       if (group.points.length <= 1) {
-        group.points.forEach((p) => visibleDetectionLabelIds.add(p.id));
+        if (group.points[0]?.id !== undefined) {
+          visibleDetectionLabelIds.add(group.points[0].id);
+        }
         return;
       }
       const ranked = [...group.points].sort((a, b) => getPointConfidence(b) - getPointConfidence(a));
-      ranked.slice(0, 2).forEach((p) => visibleDetectionLabelIds.add(p.id));
+      ranked.slice(0, 2).forEach((p) => {
+        if (visibleDetectionLabelIds.size < detectionLabelBudget && p?.id !== undefined) {
+          visibleDetectionLabelIds.add(p.id);
+        }
+      });
     });
 
     // Add cluster labels for superposed detections (same position, multiple CRS).
@@ -898,9 +947,14 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     }
     return () => {
       if (map.current) {
+        const tooltipPane = map.current.getPanes?.().tooltipPane;
+        if (tooltipPane) {
+          tooltipPane.style.display = '';
+        }
         map.current.off('click', handleMapClick);
         map.current.off('baselayerchange', handleBasemapChange);
-        map.current.off('zoomend', handleViewChange);
+        map.current.off('zoomstart', handleZoomStart);
+        map.current.off('zoomend', handleZoomEnd);
         map.current.off('moveend', handleViewChange);
       }
     };
