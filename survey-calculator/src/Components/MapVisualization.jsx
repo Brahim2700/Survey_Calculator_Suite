@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { emit } from '../utils/eventBus';
+import { resolveCadWebFont } from '../utils/cadFontMap';
 
 const BASEMAP_STORAGE_KEY = 'survey_calc_basemap';
 const LABEL_AUTO_HIDE_THRESHOLD = 300;
@@ -791,14 +792,18 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       const fontSize = Math.round(clampNumber((Number(textEntity?.textHeight) || 2.5) * 2.6, 10, 28));
       const rotation = Number.isFinite(Number(textEntity?.rotation)) ? Number(textEntity.rotation) : 0;
       const color = textEntity?.colorHex || '#0f172a';
-      const fontFamily = escapeHtml(textEntity?.fontFamily || 'Segoe UI');
+      const fontResolution = resolveCadWebFont({
+        styleName: textEntity?.styleName,
+        fontFamily: textEntity?.fontFamily,
+      });
+      const fontFamily = escapeHtml(fontResolution.cssFamily);
       const html = `<div class="cad-text-label" style="font-family:${fontFamily};font-size:${fontSize}px;color:${color};transform:rotate(${rotation}deg);">${escapeHtml(textEntity?.text || '')}</div>`;
       const marker = L.marker([position[0], position[1]], {
         icon: L.divIcon({ html, className: 'cad-text-icon', iconAnchor: [0, 0] }),
         keyboard: false,
       })
         .bindPopup(
-          `<div style="font-size:12px;min-width:180px;"><b>${escapeHtml(textEntity?.text || 'CAD text')}</b><br/>Layer: ${escapeHtml(textEntity?.layer || 'Annotation')}<br/>Style: ${escapeHtml(textEntity?.styleName || 'STANDARD')}<br/>Font: ${escapeHtml(textEntity?.fontFamily || 'Default')}</div>`
+          `<div style="font-size:12px;min-width:180px;"><b>${escapeHtml(textEntity?.text || 'CAD text')}</b><br/>Layer: ${escapeHtml(textEntity?.layer || 'Annotation')}<br/>Style: ${escapeHtml(textEntity?.styleName || 'STANDARD')}<br/>CAD font: ${escapeHtml(textEntity?.fontFamily || 'Default')}<br/>Web font: ${escapeHtml(fontResolution.bundledName)}</div>`
         )
         .addTo(map.current);
       geometryLayersRef.current.push(marker);

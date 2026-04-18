@@ -17,6 +17,9 @@
     "generate:samples": "node ./scripts/generate-samples.mjs"
   },
   "dependencies": {
+    "@fontsource/inconsolata": "^5.2.8",
+    "@fontsource/merriweather": "^5.2.11",
+    "@fontsource/source-sans-3": "^5.2.9",
     "@mapbox/shp-write": "^0.4.3",
     "@vercel/analytics": "^2.0.1",
     "buffer": "^6.0.3",
