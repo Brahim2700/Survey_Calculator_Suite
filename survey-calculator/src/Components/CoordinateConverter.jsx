@@ -3,7 +3,7 @@
 // Supports single-point and bulk conversion plus optional geoid height handling.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { detectCRSFromSinglePoint, detectCRS, assessReferenceSystem, normalizeCoordinateAxesForCrs } from "../utils/crsDetection";
+import { detectCRSFromSinglePoint, detectCRS, assessReferenceSystem, normalizeCoordinateAxesForCrs, shouldSwapCoordinateAxesForCrs } from "../utils/crsDetection";
 import proj4 from "proj4";
 import CRS_LIST from "../crsList";
 import CrsSearchSelector from "./CrsSearchSelector";
@@ -70,6 +70,7 @@ const buildCadSummaryHtml = (report) => {
     unresolvedXrefs.length > 0 ? "Package or bind XREF files before export so the converter receives all referenced geometry." : null,
     unresolvedBlocks.length > 0 ? "Check missing block definitions and export a cleaned DWG/DXF with block content included." : null,
     inspection?.localCrsLikely ? "Assign or confirm the source CRS before using the converted coordinates operationally." : null,
+    inspection?.axisNormalizationApplied ? "The import auto-corrected source axes from X=northing / Y=easting to the selected CRS axis order before reprojection." : null,
     warnings.length === 0 ? "No major CAD import warnings were detected in this run." : null,
   ].filter(Boolean);
 
@@ -81,6 +82,7 @@ const buildCadSummaryHtml = (report) => {
     ["Rows Extracted", inspection?.rowCount],
     ["Detected CRS", inspection?.detectedFromCrs],
     ["CRS Confidence", inspection?.confidenceClass?.label],
+    ["Axis Normalization", inspection?.axisNormalizationApplied ? "Auto-corrected swapped source axes" : null],
     ["Backend Mode", inspection?.backendMode],
     ["Used Converter", inspection?.usedConverter ? "Yes" : "No"],
     ["Import Notice", report?.importNotice || "None"],
@@ -198,6 +200,12 @@ const buildCadValidationWarnings = (validation) => {
     .filter(Boolean);
 };
 
+const getAxisNormalizationNotice = (crsCode, x, y) => {
+  if (!crsCode || !Number.isFinite(Number(x)) || !Number.isFinite(Number(y))) return "";
+  if (!shouldSwapCoordinateAxesForCrs(crsCode, Number(x), Number(y))) return "";
+  return `Detected source coordinates stored as X=northing and Y=easting for ${crsCode}. The app auto-corrects that axis order before conversion and map display.`;
+};
+
 const buildCadInspectionSummary = (file, rows, status, payload = null) => {
   const xs = rows.map((row) => Number(row.x)).filter(Number.isFinite);
   const ys = rows.map((row) => Number(row.y)).filter(Number.isFinite);
@@ -212,7 +220,9 @@ const buildCadInspectionSummary = (file, rows, status, payload = null) => {
   const diagnostics = payload?.diagnostics || payload?.inspection?.diagnostics || null;
   const derivedWarnings = buildCadReferenceWarnings(diagnostics);
   const validationWarnings = buildCadValidationWarnings(validation);
-  const warningSet = new Set([...(payload?.warnings || []), ...derivedWarnings, ...validationWarnings]);
+  const axisSample = rows.find((row) => Number.isFinite(Number(row?.x)) && Number.isFinite(Number(row?.y))) || null;
+  const axisNormalizationNotice = axisSample ? getAxisNormalizationNotice(detectedFromCrs, axisSample.x, axisSample.y) : "";
+  const warningSet = new Set([...(payload?.warnings || []), ...derivedWarnings, ...validationWarnings, ...(axisNormalizationNotice ? [axisNormalizationNotice] : [])]);
   const confidenceClass = getCrsConfidenceClass(referenceAssessment);
   const route = payload?.inspection?.processingRoute
     || (extension === ".dwg" ? (status?.dwgEnabled ? "dwg-converted" : "dwg-backend-unavailable") : "local-dxf");
@@ -227,6 +237,8 @@ const buildCadInspectionSummary = (file, rows, status, payload = null) => {
     localCrsLikely,
     referenceAssessment,
     confidenceClass,
+    axisNormalizationApplied: Boolean(axisNormalizationNotice),
+    axisNormalizationNotice,
     diagnostics,
     validation,
     layerSummary,
@@ -1050,6 +1062,7 @@ const CoordinateConverter = () => {
   const [geoidUploadFile, setGeoidUploadFile] = useState(null);
 
   const cadValidationRows = useMemo(() => buildCadValidationIssueRows(cadInspection), [cadInspection]);
+  const singleAxisNormalizationNotice = useMemo(() => getAxisNormalizationNotice(fromCrs, x, y), [fromCrs, x, y]);
   const filteredCadValidationRows = useMemo(() => {
     const severityFilter = String(cadValidationSeverityFilter || "all").toLowerCase();
     const rows = severityFilter === "all"
@@ -3945,6 +3958,12 @@ const CoordinateConverter = () => {
         )}
       </div>
 
+      {(cadInspection?.axisNormalizationNotice || singleAxisNormalizationNotice) && (
+        <div style={{ marginTop: "0.75rem", color: "#0f3d63", background: "#eff6ff", border: "1px solid #93c5fd", borderRadius: "6px", padding: "0.6rem 0.75rem", fontSize: "0.84rem" }}>
+          <strong>Axis normalization:</strong> {cadInspection?.axisNormalizationNotice || singleAxisNormalizationNotice}
+        </div>
+      )}
+
       <div style={{ marginTop: "0.6rem", padding: "0.65rem", borderRadius: "8px", background: "#f8fafc", border: "1px solid #e2e8f0" }}>
           <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "var(--c-text, #0f172a)" }}>Vertical Datum Panel</div>
         <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.35rem" }}>
@@ -4573,6 +4592,9 @@ const CoordinateConverter = () => {
                 <div>Route: {cadInspection.processingRoute || "pending"}</div>
                 <div>Rows: {cadInspection.rowCount ?? "pending"}</div>
                 <div>Detected CRS: {cadInspection.detectedFromCrs || "pending"}</div>
+                {cadInspection.axisNormalizationApplied && cadInspection.axisNormalizationNotice && (
+                  <div style={{ color: "#0f3d63", fontWeight: 600 }}>{cadInspection.axisNormalizationNotice}</div>
+                )}
                 {Number.isFinite(Number(cadInspection.cadTextCount)) && cadInspection.cadTextCount > 0 && (
                   <div>CAD text: {cadInspection.cadTextCount}</div>
                 )}
