@@ -1,5 +1,6 @@
 import proj4 from 'proj4';
 import CRS_LIST from '../crsList';
+import { normalizeCoordinateAxesForCrs } from '../utils/crsDetection';
 
 const fmtNum = (v, digits = 4) => (Number.isFinite(v) ? Number(v).toFixed(digits) : '');
 
@@ -26,6 +27,11 @@ const registerDefs = () => {
   });
 };
 
+const projectWithNormalizedSourceAxes = (sourceCrs, targetCrs, x, y) => {
+  const [normalizedX, normalizedY] = normalizeCoordinateAxesForCrs(sourceCrs, x, y);
+  return proj4(sourceCrs, targetCrs, [normalizedX, normalizedY]);
+};
+
 self.onmessage = async (event) => {
   const { parsed, fromCrs, toCrs, outputFormat } = event.data || {};
   if (!Array.isArray(parsed)) {
@@ -43,7 +49,7 @@ self.onmessage = async (event) => {
     for (let i = 0; i < parsed.length; i += 1) {
       const p = parsed[i];
       try {
-        const [xOut, yOut] = proj4(fromCrs, toCrs, [p.x, p.y]);
+        const [xOut, yOut] = projectWithNormalizedSourceAxes(fromCrs, toCrs, p.x, p.y);
         const ddX = fmtNum(xOut, outPrec);
         const ddY = fmtNum(yOut, outPrec);
         const outX = toIsGeo

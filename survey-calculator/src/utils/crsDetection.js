@@ -356,10 +356,69 @@ const detectByExtents = (bounds, table = FR_LAMBERT_EXTENTS) => {
     const fullContained = (bounds.minX >= p.xmin && bounds.maxX <= p.xmax && bounds.minY >= p.ymin && bounds.maxY <= p.ymax);
     if (avgInside || fullContained) {
       hits.push({ code: p.code, name: p.name, confidence: 0.92, reason: 'Within projection extents' });
+      continue;
+    }
+
+    const avgInsideSwapped = (avgY >= p.xmin && avgY <= p.xmax && avgX >= p.ymin && avgX <= p.ymax);
+    const fullContainedSwapped = (bounds.minY >= p.xmin && bounds.maxY <= p.xmax && bounds.minX >= p.ymin && bounds.maxX <= p.ymax);
+    if (avgInsideSwapped || fullContainedSwapped) {
+      hits.push({
+        code: p.code,
+        name: p.name,
+        confidence: 0.97,
+        reason: 'Within projection extents after swapping X/Y axes',
+      });
     }
   }
   return hits;
 };
+
+const UTM_X_RANGE = [100000, 900000];
+const UTM_Y_RANGE = [0, 10000000];
+
+const isWithinRange = (value, min, max) => Number.isFinite(value) && value >= min && value <= max;
+
+const getAxisExtentRulesForCrs = (crsCode) => {
+  const extentMatches = FR_LAMBERT_EXTENTS.filter((entry) => entry.code === crsCode);
+  if (extentMatches.length > 0) {
+    return extentMatches.map((entry) => ({
+      xmin: entry.xmin,
+      xmax: entry.xmax,
+      ymin: entry.ymin,
+      ymax: entry.ymax,
+    }));
+  }
+
+  if (/^EPSG:(326|327)\d{2}$/.test(crsCode) || /^EPSG:258(2\d|3[0-2])$/.test(crsCode)) {
+    return [{ xmin: UTM_X_RANGE[0], xmax: UTM_X_RANGE[1], ymin: UTM_Y_RANGE[0], ymax: UTM_Y_RANGE[1] }];
+  }
+
+  return [];
+};
+
+export const shouldSwapCoordinateAxesForCrs = (crsCode, x, y) => {
+  if (!crsCode || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+
+  const extentRules = getAxisExtentRulesForCrs(crsCode);
+  if (extentRules.length === 0) return false;
+
+  let normalMatchCount = 0;
+  let swappedMatchCount = 0;
+  extentRules.forEach((rule) => {
+    if (isWithinRange(x, rule.xmin, rule.xmax) && isWithinRange(y, rule.ymin, rule.ymax)) {
+      normalMatchCount += 1;
+    }
+    if (isWithinRange(y, rule.xmin, rule.xmax) && isWithinRange(x, rule.ymin, rule.ymax)) {
+      swappedMatchCount += 1;
+    }
+  });
+
+  return swappedMatchCount > 0 && normalMatchCount === 0;
+};
+
+export const normalizeCoordinateAxesForCrs = (crsCode, x, y) => (
+  shouldSwapCoordinateAxesForCrs(crsCode, x, y) ? [y, x] : [x, y]
+);
 
 /**
  * Try to infer UTM zone by trial-transforming average/projected coordinates

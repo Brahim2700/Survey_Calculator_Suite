@@ -3,7 +3,7 @@
 // Supports single-point and bulk conversion plus optional geoid height handling.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { detectCRSFromSinglePoint, detectCRS, assessReferenceSystem } from "../utils/crsDetection";
+import { detectCRSFromSinglePoint, detectCRS, assessReferenceSystem, normalizeCoordinateAxesForCrs } from "../utils/crsDetection";
 import proj4 from "proj4";
 import CRS_LIST from "../crsList";
 import CrsSearchSelector from "./CrsSearchSelector";
@@ -365,6 +365,11 @@ const registerCRS = () => {
     }
     proj4.defs(crs.code, proj4def);
   });
+};
+
+const projectWithNormalizedSourceAxes = (sourceCrs, targetCrs, x, y) => {
+  const [normalizedX, normalizedY] = normalizeCoordinateAxesForCrs(sourceCrs, x, y);
+  return proj4(sourceCrs, targetCrs, [normalizedX, normalizedY]);
 };
 
 // ---- UTM helpers ----
@@ -1896,7 +1901,7 @@ const CoordinateConverter = () => {
         return [y, x, Number.isFinite(z) ? z : 0];
       }
       try {
-        const [lon, lat] = proj4(source, 'EPSG:4326', [y, x]);
+        const [lon, lat] = projectWithNormalizedSourceAxes(source, 'EPSG:4326', x, y);
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
         return [lat, lon, Number.isFinite(z) ? z : 0];
       } catch {
@@ -2035,7 +2040,7 @@ const CoordinateConverter = () => {
         }
 
         try {
-          const [lon, lat] = proj4(source, 'EPSG:4326', [yVal, xVal]);
+          const [lon, lat] = projectWithNormalizedSourceAxes(source, 'EPSG:4326', xVal, yVal);
           if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
           return {
             id: pointId,
@@ -2108,7 +2113,7 @@ const CoordinateConverter = () => {
       updateZoneInfoFromPoint(xNum, yNum);
     } else {
       try {
-        const [lon, lat] = proj4(from.code, "EPSG:4326", [xNum, yNum]);
+        const [lon, lat] = projectWithNormalizedSourceAxes(from.code, "EPSG:4326", xNum, yNum);
         updateZoneInfoFromPoint(lon, lat);
       } catch {
         setUtmInfo(null);
@@ -2138,7 +2143,7 @@ const CoordinateConverter = () => {
       const includeHeight = geoidMode !== "none" && !Number.isNaN(zNum);
 
       // Base horizontal transform
-      let [xOut, yOut] = proj4(fromCrs, toCrs, [xNum, yNum]);
+      let [xOut, yOut] = projectWithNormalizedSourceAxes(fromCrs, toCrs, xNum, yNum);
       let zOut = zNum;
       let Nsource = null;
 
@@ -2157,13 +2162,13 @@ const CoordinateConverter = () => {
           let selectedGridName = geoidName;
           if (geoidMode === "auto") {
             // Auto-pick based on source lon/lat in WGS84
-            const [lonSrc, latSrc] = proj4(fromCrs, "EPSG:4326", [xNum, yNum]);
+            const [lonSrc, latSrc] = projectWithNormalizedSourceAxes(fromCrs, "EPSG:4326", xNum, yNum);
             selectedGridName = await mod.selectGeoidGrid(lonSrc, latSrc);
             setGeoidName(selectedGridName);
           }
 
           const gridToUse = geoidMode === "upload" ? (geoidUploadName || "Uploaded") : selectedGridName;
-        const [lon, lat] = proj4(fromCrs, "EPSG:4326", [xNum, yNum]);
+        const [lon, lat] = projectWithNormalizedSourceAxes(fromCrs, "EPSG:4326", xNum, yNum);
         
         // Determine height types for both input and output CRS (header override not available in single)
         let { type: inputHType } = resolveInputHeightType(null, fromCrs);
@@ -2379,7 +2384,7 @@ const CoordinateConverter = () => {
     
     suggestionsToPlot.forEach((suggestion, idx) => {
       try {
-        const [lon, lat] = proj4(suggestion.code, 'EPSG:4326', [lastDetectInput.x, lastDetectInput.y]);
+        const [lon, lat] = projectWithNormalizedSourceAxes(suggestion.code, 'EPSG:4326', lastDetectInput.x, lastDetectInput.y);
         if (Number.isFinite(lon) && Number.isFinite(lat)) {
           mapPoints.push({
             id: `detect_${idx}_${suggestion.code}`,
@@ -2461,7 +2466,7 @@ const CoordinateConverter = () => {
         if (geoidMode === "auto" && parsed.length > 0) {
           // For auto mode, pick grid based on first point's location
           const firstPt = parsed[0];
-          const [lonFirst, latFirst] = proj4(fromCrs, "EPSG:4326", [firstPt.x, firstPt.y]);
+          const [lonFirst, latFirst] = projectWithNormalizedSourceAxes(fromCrs, "EPSG:4326", firstPt.x, firstPt.y);
           selectedGridName = await geoidMod.selectGeoidGrid(lonFirst, latFirst);
           setGeoidName(selectedGridName);
         }
@@ -2488,7 +2493,7 @@ const CoordinateConverter = () => {
       let Nsource = null;
 
       try {
-        [xOut, yOut] = proj4(fromCrs, toCrs, [xIn, yIn]);
+        [xOut, yOut] = projectWithNormalizedSourceAxes(fromCrs, toCrs, xIn, yIn);
 
         // Determine height types for both input and output CRS (header not available here)
         let { type: inputHType } = resolveInputHeightType(null, fromCrs);
@@ -2508,7 +2513,7 @@ const CoordinateConverter = () => {
         if (includeHeight && zIn !== null) {
           if (needsGeoidConversion && geoidMod) {
             const gridName = geoidMode === "upload" ? (geoidUploadName || "Uploaded") : selectedGridName;
-            const [lon, lat] = proj4(fromCrs, "EPSG:4326", [xIn, yIn]);
+            const [lon, lat] = projectWithNormalizedSourceAxes(fromCrs, "EPSG:4326", xIn, yIn);
             
             // Convert height based on input and output types
             try {
@@ -2554,7 +2559,7 @@ const CoordinateConverter = () => {
             convertedLon = xIn;
             convertedLat = yIn;
           } else {
-            [convertedLon, convertedLat] = proj4(fromCrs, "EPSG:4326", [xIn, yIn]);
+            [convertedLon, convertedLat] = projectWithNormalizedSourceAxes(fromCrs, "EPSG:4326", xIn, yIn);
           }
           
           if (isUtmCode(toCrs)) {
@@ -3211,7 +3216,7 @@ const CoordinateConverter = () => {
           if (geoidMode === "auto" && parsed.length > 0) {
             // For auto mode, pick grid based on first point's location
             const firstPt = parsed[0];
-            const [lonFirst, latFirst] = proj4(fromCrs, "EPSG:4326", [firstPt.x, firstPt.y]);
+            const [lonFirst, latFirst] = projectWithNormalizedSourceAxes(fromCrs, "EPSG:4326", firstPt.x, firstPt.y);
             selectedGridName = await geoidMod.selectGeoidGrid(lonFirst, latFirst);
             setGeoidName(selectedGridName);
           }
@@ -3263,7 +3268,7 @@ const CoordinateConverter = () => {
         // This allows users to override if they have non-standard data
 
         try {
-          [xOut, yOut] = proj4(fromCrs, toCrs, [xIn, yIn]);
+          [xOut, yOut] = projectWithNormalizedSourceAxes(fromCrs, toCrs, xIn, yIn);
 
             // Determine output height type
             let { type: outputHType } = resolveOutputHeightType(null, toCrs);
@@ -3275,7 +3280,7 @@ const CoordinateConverter = () => {
 
           if (includeHeight && zIn !== null && geoidMod) {
             const gridName = geoidMode === "upload" ? (geoidUploadName || "Uploaded") : selectedGridName;
-            const [lon, lat] = proj4(fromCrs, "EPSG:4326", [xIn, yIn]);
+            const [lon, lat] = projectWithNormalizedSourceAxes(fromCrs, "EPSG:4326", xIn, yIn);
             
             // Convert based on input and output height types
             try {
@@ -3317,7 +3322,7 @@ const CoordinateConverter = () => {
               convertedLon = xIn;
               convertedLat = yIn;
             } else {
-              [convertedLon, convertedLat] = proj4(fromCrs, "EPSG:4326", [xIn, yIn]);
+              [convertedLon, convertedLat] = projectWithNormalizedSourceAxes(fromCrs, "EPSG:4326", xIn, yIn);
             }
             
             if (isUtmCode(toCrs)) {
@@ -3579,7 +3584,7 @@ const CoordinateConverter = () => {
       };
     }
     try {
-      const [xOut, yOut] = proj4(fromCrs, toCrs, [xIn, yIn]);
+      const [xOut, yOut] = projectWithNormalizedSourceAxes(fromCrs, toCrs, xIn, yIn);
       const outPrec = toCrs === "EPSG:4326" ? 8 : 4;
       const toIsGeo = CRS_LIST.find((c) => c.code === toCrs)?.type === "geographic";
       const outX = toIsGeo && outputFormat === "DMS" ? ddToDMS(xOut, "lon") : fmtNum(xOut, outPrec);
