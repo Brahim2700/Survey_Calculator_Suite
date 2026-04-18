@@ -377,6 +377,93 @@ const UTM_X_RANGE = [100000, 900000];
 const UTM_Y_RANGE = [0, 10000000];
 
 const isWithinRange = (value, min, max) => Number.isFinite(value) && value >= min && value <= max;
+const parseProj4Token = (proj4def, tokenName) => {
+  if (typeof proj4def !== 'string' || !proj4def) return null;
+  const match = proj4def.match(new RegExp(`(?:^|\\s)\\+${tokenName}=([^\\s]+)`));
+  if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isFinite(value) ? value : null;
+};
+
+const getCrsProjectionHints = (crsCode) => {
+  const crs = CRS_LIST.find((entry) => entry.code === crsCode);
+  if (!crs?.proj4def) return null;
+
+  proj4.defs(crs.code, crs.proj4def);
+
+  const projNameMatch = crs.proj4def.match(/(?:^|\s)\+proj=([^\s]+)/);
+  const zoneMatch = crs.proj4def.match(/(?:^|\s)\+zone=(\d{1,2})/);
+  const x0 = parseProj4Token(crs.proj4def, 'x_0');
+  const y0 = parseProj4Token(crs.proj4def, 'y_0');
+  const lat0 = parseProj4Token(crs.proj4def, 'lat_0');
+  let lon0 = parseProj4Token(crs.proj4def, 'lon_0');
+  const zone = zoneMatch ? Number(zoneMatch[1]) : null;
+  if (!Number.isFinite(lon0) && Number.isFinite(zone)) {
+    lon0 = ((zone - 1) * 6) - 180 + 3;
+  }
+
+  return {
+    x0,
+    y0,
+    lat0,
+    lon0,
+    zone,
+    south: /(?:^|\s)\+south(?:\s|$)/.test(crs.proj4def),
+    projName: projNameMatch?.[1] || null,
+  };
+};
+
+const lonDelta = (lon, refLon) => {
+  if (!Number.isFinite(lon) || !Number.isFinite(refLon)) return null;
+  return Math.abs((((lon - refLon) + 180) % 360 + 360) % 360 - 180);
+};
+
+const scoreAxisOrientationForCrs = (crsCode, first, second) => {
+  const hints = getCrsProjectionHints(crsCode);
+  let score = 0;
+
+  if (hints?.x0 !== null && hints?.y0 !== null) {
+    const directDistance = Math.abs(first - hints.x0) + Math.abs(second - hints.y0);
+    const inverseDistance = Math.abs(first - hints.y0) + Math.abs(second - hints.x0);
+    if (Number.isFinite(directDistance) && Number.isFinite(inverseDistance)) {
+      if (directDistance + 1 < inverseDistance) score += 1.25;
+      if (inverseDistance + 1 < directDistance) score -= 1.25;
+    }
+  }
+
+  try {
+    const [lon, lat] = proj4(crsCode, 'EPSG:4326', [first, second]);
+    if (!Number.isFinite(lon) || !Number.isFinite(lat) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+      return Number.NEGATIVE_INFINITY;
+    }
+
+    score += 1;
+
+    const lonDiff = lonDelta(lon, hints?.lon0);
+    if (Number.isFinite(lonDiff)) {
+      score += Math.max(0, (18 - lonDiff) / 18);
+    }
+
+    if (Number.isFinite(hints?.lat0)) {
+      const latDiff = Math.abs(lat - hints.lat0);
+      score += Math.max(0, (18 - latDiff) / 18);
+    }
+
+    if (hints?.projName === 'utm' && Number.isFinite(hints.zone)) {
+      const zoneCenterLon = ((hints.zone - 1) * 6) - 180 + 3;
+      const zoneDiff = lonDelta(lon, zoneCenterLon);
+      if (Number.isFinite(zoneDiff)) {
+        score += Math.max(0, (6 - zoneDiff) / 6);
+      }
+      if (hints.south && lat < 0) score += 0.35;
+      if (!hints.south && lat >= 0) score += 0.35;
+    }
+  } catch {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  return score;
+};
 
 const getAxisExtentRulesForCrs = (crsCode) => {
   const extentMatches = FR_LAMBERT_EXTENTS.filter((entry) => entry.code === crsCode);
@@ -400,20 +487,28 @@ export const shouldSwapCoordinateAxesForCrs = (crsCode, x, y) => {
   if (!crsCode || !Number.isFinite(x) || !Number.isFinite(y)) return false;
 
   const extentRules = getAxisExtentRulesForCrs(crsCode);
-  if (extentRules.length === 0) return false;
+  if (extentRules.length > 0) {
+    let normalMatchCount = 0;
+    let swappedMatchCount = 0;
+    extentRules.forEach((rule) => {
+      if (isWithinRange(x, rule.xmin, rule.xmax) && isWithinRange(y, rule.ymin, rule.ymax)) {
+        normalMatchCount += 1;
+      }
+      if (isWithinRange(y, rule.xmin, rule.xmax) && isWithinRange(x, rule.ymin, rule.ymax)) {
+        swappedMatchCount += 1;
+      }
+    });
 
-  let normalMatchCount = 0;
-  let swappedMatchCount = 0;
-  extentRules.forEach((rule) => {
-    if (isWithinRange(x, rule.xmin, rule.xmax) && isWithinRange(y, rule.ymin, rule.ymax)) {
-      normalMatchCount += 1;
-    }
-    if (isWithinRange(y, rule.xmin, rule.xmax) && isWithinRange(x, rule.ymin, rule.ymax)) {
-      swappedMatchCount += 1;
-    }
-  });
+    if (swappedMatchCount > 0 && normalMatchCount === 0) return true;
+    if (normalMatchCount > 0 && swappedMatchCount === 0) return false;
+  }
 
-  return swappedMatchCount > 0 && normalMatchCount === 0;
+  const normalScore = scoreAxisOrientationForCrs(crsCode, x, y);
+  const swappedScore = scoreAxisOrientationForCrs(crsCode, y, x);
+  if (!Number.isFinite(swappedScore)) return false;
+  if (!Number.isFinite(normalScore)) return true;
+
+  return swappedScore > normalScore + 0.75;
 };
 
 export const normalizeCoordinateAxesForCrs = (crsCode, x, y) => (
