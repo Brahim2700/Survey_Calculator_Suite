@@ -6,6 +6,8 @@ import { resolveCadWebFont } from '../utils/cadFontMap';
 
 const BASEMAP_STORAGE_KEY = 'survey_calc_basemap';
 const LABEL_AUTO_HIDE_THRESHOLD = 300;
+const CAD_HEAVY_VERTEX_THRESHOLD = 90000;
+const CAD_EXTREME_VERTEX_THRESHOLD = 180000;
 const EMPTY_CAD_GEOMETRY = {
   lines: [],
   polylines: [],
@@ -24,6 +26,54 @@ const escapeHtml = (value) => String(value ?? '')
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&#39;');
 const clampNumber = (value, min, max) => Math.min(max, Math.max(min, value));
+
+const getCadPolylineDecimationStep = (zoom, totalVertices, featureVertices) => {
+  if (totalVertices >= CAD_EXTREME_VERTEX_THRESHOLD || featureVertices >= 12000) {
+    if (zoom <= 10) return 6;
+    if (zoom <= 12) return 4;
+    if (zoom <= 14) return 3;
+    if (zoom <= 16) return 2;
+    return 1;
+  }
+
+  if (totalVertices >= CAD_HEAVY_VERTEX_THRESHOLD || featureVertices >= 7000) {
+    if (zoom <= 10) return 4;
+    if (zoom <= 12) return 3;
+    if (zoom <= 14) return 2;
+    return 1;
+  }
+
+  return 1;
+};
+
+const decimateLatLngs = (latlngs, step) => {
+  if (step <= 1 || latlngs.length <= 2) return latlngs;
+
+  const simplified = [latlngs[0]];
+  for (let i = step; i < latlngs.length - 1; i += step) {
+    simplified.push(latlngs[i]);
+  }
+  simplified.push(latlngs[latlngs.length - 1]);
+  return simplified.length >= 2 ? simplified : latlngs;
+};
+
+const getCadPolylineSmoothFactor = (zoom, totalVertices, featureVertices) => {
+  if (totalVertices >= CAD_EXTREME_VERTEX_THRESHOLD || featureVertices >= 12000) {
+    if (zoom <= 10) return 2.6;
+    if (zoom <= 12) return 2.1;
+    if (zoom <= 14) return 1.7;
+    return 1.3;
+  }
+
+  if (totalVertices >= CAD_HEAVY_VERTEX_THRESHOLD || featureVertices >= 7000) {
+    if (zoom <= 10) return 2.1;
+    if (zoom <= 12) return 1.7;
+    if (zoom <= 14) return 1.4;
+    return 1.2;
+  }
+
+  return 1.0;
+};
 
 const getRoundedScaleDenominator = (rawDenominator) => {
   if (!Number.isFinite(rawDenominator) || rawDenominator <= 0) return null;
@@ -747,6 +797,11 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     const cadLines = Array.isArray(cadGeometry?.lines) ? cadGeometry.lines : [];
     const cadPolylines = Array.isArray(cadGeometry?.polylines) ? cadGeometry.polylines : [];
     const cadTexts = Array.isArray(cadGeometry?.texts) ? cadGeometry.texts : [];
+    const currentZoom = map.current.getZoom();
+    const totalCadPolylineVertices = cadPolylines.reduce((sum, poly) => {
+      const pts = Array.isArray(poly?.points) ? poly.points : [];
+      return sum + pts.length;
+    }, 0);
 
     if (showLineLayer) cadLines.filter(isCadLayerVisible).forEach((line) => {
       const start = line?.start;
@@ -777,11 +832,16 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
         .map((p) => [p[0], p[1]]);
       if (latlngs.length < 2) return;
-      const layer = L.polyline(latlngs, {
+      const decimationStep = getCadPolylineDecimationStep(currentZoom, totalCadPolylineVertices, latlngs.length);
+      const renderLatLngs = decimateLatLngs(latlngs, decimationStep);
+      if (renderLatLngs.length < 2) return;
+      const smoothFactor = getCadPolylineSmoothFactor(currentZoom, totalCadPolylineVertices, latlngs.length);
+      const layer = L.polyline(renderLatLngs, {
         renderer: canvasRendererRef.current || undefined,
         color: '#2563eb',
         weight: 2,
         opacity: 0.8,
+        smoothFactor,
       })
         .bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(poly.layer || 'CAD polyline')}</b><br/>Type: ${escapeHtml(poly.sourceType || 'POLYLINE')}</div>`)
         .addTo(map.current);
