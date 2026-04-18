@@ -50,6 +50,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   const markers = useRef([]);
   const pointLayersRef = useRef([]);
   const geometryLayersRef = useRef([]);
+  const canvasRendererRef = useRef(null);
   const fittedPointsSignatureRef = useRef('');
   const measureLayerRef = useRef({ polyline: null, markers: [] });
   const basemapLayers = useRef(null);
@@ -58,7 +59,6 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   const smartScaleControl = useRef(null);
   const smartScaleLabel = useRef(null);
   const [selectedPoint, setSelectedPoint] = useState(null);
-  const [viewTick, setViewTick] = useState(0);
   const [showPointLayer, setShowPointLayer] = useState(true);
   const [showLineLayer, setShowLineLayer] = useState(true);
   const [showPolylineLayer, setShowPolylineLayer] = useState(true);
@@ -380,11 +380,13 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     // Initialize map if not already done
     if (!map.current) {
       map.current = L.map(mapContainer.current, {
+        preferCanvas: true,
         zoomSnap: 0.25,
         zoomDelta: 0.5,
         maxZoom: 23,
         minZoom: 2,
       }).setView([20, 0], 2);
+      canvasRendererRef.current = L.canvas({ padding: 0.5 });
 
       basemapLayers.current = {
         'Street (OSM)': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -472,7 +474,6 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     };
 
     const handleViewChange = () => {
-      setViewTick((prev) => prev + 1);
       updateSmartScale();
       publishMapMetrics();
     };
@@ -653,6 +654,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
 
       // Create custom circle marker
       const circleMarker = L.circleMarker([displayLat, displayLng], {
+        renderer: canvasRendererRef.current || undefined,
         radius: markerRadius,
         fillColor: color,
         color: markerStroke,
@@ -674,7 +676,6 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         )
         .on('click', () => {
           setSelectedPoint(point);
-          setViewTick((prev) => prev + 1);
           if (onPointSelect) onPointSelect(point);
         })
         .addTo(map.current);
@@ -758,6 +759,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
           [end[0], end[1]],
         ],
         {
+          renderer: canvasRendererRef.current || undefined,
           color: '#0ea5e9',
           weight: 2.5,
           opacity: 0.85,
@@ -776,6 +778,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         .map((p) => [p[0], p[1]]);
       if (latlngs.length < 2) return;
       const layer = L.polyline(latlngs, {
+        renderer: canvasRendererRef.current || undefined,
         color: '#2563eb',
         weight: 2,
         opacity: 0.8,
@@ -841,7 +844,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         map.current.off('moveend', handleViewChange);
       }
     };
-  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, getMarkerColor, isCadLayerVisible, measureMode, measurePoints, selectedPoint, viewTick, showPointLayer, showLineLayer, showPolylineLayer, showTextLayer, showLabels, effectiveShowLabels, hiddenCadLayers]);
+  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, getMarkerColor, isCadLayerVisible, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showTextLayer, showLabels, effectiveShowLabels, hiddenCadLayers]);
 
   return (
     <div
