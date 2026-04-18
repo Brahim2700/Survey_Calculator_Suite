@@ -1896,7 +1896,7 @@ const CoordinateConverter = () => {
         return [y, x, Number.isFinite(z) ? z : 0];
       }
       try {
-        const [lat, lon] = proj4(source, 'EPSG:4326', [x, y]);
+        const [lon, lat] = proj4(source, 'EPSG:4326', [y, x]);
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
         return [lat, lon, Number.isFinite(z) ? z : 0];
       } catch {
@@ -2035,7 +2035,7 @@ const CoordinateConverter = () => {
         }
 
         try {
-          const [lat, lon] = proj4(source, 'EPSG:4326', [xVal, yVal]);
+          const [lon, lat] = proj4(source, 'EPSG:4326', [yVal, xVal]);
           if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
           return {
             id: pointId,
