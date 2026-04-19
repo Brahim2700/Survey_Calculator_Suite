@@ -676,7 +676,9 @@ const tryInferUtmFromBounds = (coordinates, bounds) => {
   }
 
   // Deduplicate by code keeping highest confidence
-  return deduplicateSuggestions(suggestions).slice(0, 6);
+  return deduplicateSuggestions(suggestions)
+    .sort((a, b) => b.confidence - a.confidence)
+    .slice(0, 3);
 };
 
 /**
