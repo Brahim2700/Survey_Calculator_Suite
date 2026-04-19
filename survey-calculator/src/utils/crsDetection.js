@@ -389,6 +389,45 @@ const extentConfidence = (entry, swapped = false) => {
   return adjusted;
 };
 
+const isFrenchProjectedCandidate = (code) => /^EPSG:(2154|394[2-9]|3950)$/.test(code);
+
+const getFrenchLatitudePenalty = (code, lat) => {
+  if (!Number.isFinite(lat)) return 0;
+  if (code === 'EPSG:2154') return 0;
+  const zone = Number(code.replace('EPSG:', ''));
+  const zoneLatitude = zone >= 3942 && zone <= 3950 ? zone - 3900 : null;
+  if (!Number.isFinite(zoneLatitude)) return 0;
+  const diff = Math.abs(lat - zoneLatitude);
+  return Math.min(0.22, diff * 0.07);
+};
+
+const adjustedExtentConfidence = (entry, bounds, swapped = false) => {
+  const base = extentConfidence(entry, swapped);
+  if (!entry?.code || !isFrenchProjectedCandidate(entry.code)) return base;
+  if (!Number.isFinite(bounds?.avgX) || !Number.isFinite(bounds?.avgY)) return base;
+  if (!ensureCrsDefinition(entry.code)) return base;
+
+  const inputX = swapped ? bounds.avgY : bounds.avgX;
+  const inputY = swapped ? bounds.avgX : bounds.avgY;
+
+  try {
+    const [lon, lat] = proj4(entry.code, 'EPSG:4326', [inputX, inputY]);
+    if (!Number.isFinite(lon) || !Number.isFinite(lat) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+      return Math.max(0.35, base - 0.2);
+    }
+
+    if (entry.code === 'EPSG:2154') {
+      const inMainlandFrance = lon >= -6.5 && lon <= 11.5 && lat >= 41 && lat <= 52.5;
+      return inMainlandFrance ? Math.min(0.95, base + 0.04) : base;
+    }
+
+    const penalty = getFrenchLatitudePenalty(entry.code, lat);
+    return Math.max(0.35, base - penalty);
+  } catch {
+    return base;
+  }
+};
+
 const detectByExtents = (bounds, table = FR_LAMBERT_EXTENTS) => {
   if (!isProjected(bounds)) return [];
 
@@ -399,7 +438,12 @@ const detectByExtents = (bounds, table = FR_LAMBERT_EXTENTS) => {
     const avgInside = (avgX >= p.xmin && avgX <= p.xmax && avgY >= p.ymin && avgY <= p.ymax);
     const fullContained = (bounds.minX >= p.xmin && bounds.maxX <= p.xmax && bounds.minY >= p.ymin && bounds.maxY <= p.ymax);
     if (avgInside || fullContained) {
-      hits.push({ code: p.code, name: p.name, confidence: extentConfidence(p, false), reason: 'Within projection extents' });
+      hits.push({
+        code: p.code,
+        name: p.name,
+        confidence: adjustedExtentConfidence(p, bounds, false),
+        reason: 'Within projection extents',
+      });
       continue;
     }
 
@@ -409,7 +453,7 @@ const detectByExtents = (bounds, table = FR_LAMBERT_EXTENTS) => {
       hits.push({
         code: p.code,
         name: p.name,
-        confidence: extentConfidence(p, true),
+        confidence: adjustedExtentConfidence(p, bounds, true),
         reason: 'Within projection extents after swapping X/Y axes',
       });
     }

@@ -1287,6 +1287,19 @@ const CoordinateConverter = () => {
     return assessReferenceSystem(coordinates, {}, suggestions);
   }, []);
 
+  const resolveCadSourceCrs = useCallback((rows, payload) => {
+    const detectedFromRows = Array.isArray(rows)
+      ? rows.find((row) => row?.detectedFromCrs)?.detectedFromCrs
+      : null;
+    const detectedFromPayload = payload?.inspection?.detectedFromCrs || payload?.diagnostics?.detectedFromCrs || null;
+
+    if (fromCrsManualRef.current && fromCrs && CRS_LIST.some((crs) => crs.code === fromCrs)) {
+      return fromCrs;
+    }
+
+    return detectedFromRows || detectedFromPayload || fromCrs || 'EPSG:4326';
+  }, [fromCrs]);
+
   const localReferenceNotice = "Detected local/unreferenced plan coordinates. The drawing is not tied to a known CRS (engineering/local grid). Assign control points or set CRS manually before georeferenced conversion.";
   const ambiguousReferenceNotice = "CRS detection is ambiguous for this plan. Please confirm the source CRS before running precise conversion.";
 
@@ -2989,7 +3002,7 @@ const CoordinateConverter = () => {
 
       const detectedFromRows = rows.find((r) => r.detectedFromCrs)?.detectedFromCrs;
       const detectedFromPayload = cadPayload?.inspection?.detectedFromCrs || cadPayload?.diagnostics?.detectedFromCrs;
-      const sourceCrs = detectedFromRows || detectedFromPayload || fromCrs;
+      const sourceCrs = resolveCadSourceCrs(rows, cadPayload);
       const referenceStatus = detectLocalReferenceFromRows(rows);
       const isLocalUnreferenced = sourceCrs === "LOCAL:ENGINEERING" || Boolean(referenceStatus?.isLocal);
       const isAmbiguous = referenceStatus?.status === "ambiguous";
@@ -3023,7 +3036,7 @@ const CoordinateConverter = () => {
     } finally {
       setCadPreviewLoading(false);
     }
-  }, [ambiguousReferenceNotice, bulkUploadFile, detectLocalReferenceFromRows, fromCrs, localReferenceNotice, projectCadGeometryToWgs84, projectCadRowsToWgs84, refreshCadStatus]);
+  }, [ambiguousReferenceNotice, bulkUploadFile, detectLocalReferenceFromRows, localReferenceNotice, projectCadGeometryToWgs84, projectCadRowsToWgs84, refreshCadStatus, resolveCadSourceCrs]);
 
   // Detect CRS immediately when file is selected
   const detectFileFormatsAndCRS = async (file) => {
@@ -3162,7 +3175,7 @@ const CoordinateConverter = () => {
         if (["dxf", "dwg"].includes(ext)) {
           setCadInspection(buildCadInspectionSummary(file, rows, latestCadStatus, cadPayload));
 
-          const sourceCrsForGeometry = rows.find((r) => r.detectedFromCrs)?.detectedFromCrs || cadPayload?.inspection?.detectedFromCrs || fromCrs;
+          const sourceCrsForGeometry = resolveCadSourceCrs(rows, cadPayload);
           setCadSourceGeometry(cadPayload?.geometry || null);
           setCadGeometrySourceCrs(sourceCrsForGeometry || null);
           const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrsForGeometry, rows);

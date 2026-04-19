@@ -123,6 +123,21 @@ const main = async () => {
     if (!outcome.ok) failures.push(outcome);
   });
 
+  const lambert93PriorityPoints = [
+    { x: 850000, y: 6600000 },
+    { x: 852000, y: 6601500 },
+    { x: 848500, y: 6599000 },
+  ];
+  const lambertPriorityOutcome = runCase(
+    'Lambert-93 priority over overlapping CC extents',
+    'EPSG:2154',
+    lambert93PriorityPoints,
+    4,
+    (_codes, suggestions) => suggestions?.[0]?.code === 'EPSG:2154'
+  );
+  results.push(lambertPriorityOutcome);
+  if (!lambertPriorityOutcome.ok) failures.push(lambertPriorityOutcome);
+
   const l93Swapped = {
     x: 6577325.343,
     y: 837221.572,
