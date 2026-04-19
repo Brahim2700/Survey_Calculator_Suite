@@ -48,6 +48,7 @@ function App() {
   const [angleDisplayUnit, setAngleDisplayUnit] = useState("deg"); // deg | gon
   const [converterSessionKey, setConverterSessionKey] = useState(0);
   const [mapExportRoot, setMapExportRoot] = useState(null);
+  const [mapInstance, setMapInstance] = useState(null);
   const [mapMetrics, setMapMetrics] = useState(null);
   const [isExportingMap, setIsExportingMap] = useState(false);
   const [showExportPanel, setShowExportPanel] = useState(false);
@@ -278,7 +279,7 @@ function App() {
       };
 
       if (format === "png") {
-        await exportMapAsPng(mapExportRoot, exportInfo, `survey-plan-${info.stamp}.png`);
+        await exportMapAsPng(mapExportRoot, exportInfo, `survey-plan-${info.stamp}.png`, mapInstance);
       } else {
         await exportMapAsPdf(
           mapExportRoot,
@@ -287,7 +288,8 @@ function App() {
           {
             format: exportSettings.pdfPageSize,
             orientation: exportSettings.pdfOrientation,
-          }
+          },
+          mapInstance
         );
       }
       setShowExportPanel(false);
@@ -485,6 +487,7 @@ function App() {
                 onPointSelect={handleMapPointSelect}
                 onMapContainerReady={setMapExportRoot}
                 onMapMetricsChange={setMapMetrics}
+                onMapInstanceReady={setMapInstance}
               />
             </div>
 

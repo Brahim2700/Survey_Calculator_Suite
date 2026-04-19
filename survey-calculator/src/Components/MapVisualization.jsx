@@ -93,7 +93,7 @@ const getMapScaleDenominator = (zoom, latitudeDeg) => {
   return getRoundedScaleDenominator(denominator);
 };
 
-const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible, onPointSelect, measureMode = false, measurePoints = [], onMapContainerReady = null, onMapMetricsChange = null }) => {
+const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible, onPointSelect, measureMode = false, measurePoints = [], onMapContainerReady = null, onMapMetricsChange = null, onMapInstanceReady = null }) => {
   const mapContainer = useRef(null);
   const mapRootContainer = useRef(null);
   const map = useRef(null);
@@ -524,6 +524,10 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         return div;
       };
       smartScaleControl.current.addTo(map.current);
+
+      if (typeof onMapInstanceReady === 'function') {
+        onMapInstanceReady(map.current);
+      }
     }
 
     const updateSmartScale = () => {

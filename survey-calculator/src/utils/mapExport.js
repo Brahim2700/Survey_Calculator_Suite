@@ -51,18 +51,82 @@ const normalizeScaleLabel = (value) => {
   return `Scale 1:${Number(digitsOnly).toLocaleString()}`;
 };
 
-const captureMapCanvas = async (mapRootElement, exportInfo = {}) => {
+/**
+ * Parse a scale denominator from a label like "1:500", "Scale 1:2,000", or "500".
+ * Returns null if parsing fails.
+ */
+const parseScaleDenominator = (label) => {
+  if (!label) return null;
+  const text = String(label).trim();
+  const ratioMatch = text.match(/1\s*:\s*([\d\s,._]+)/);
+  if (ratioMatch?.[1]) {
+    const digits = ratioMatch[1].replace(/[^\d]/g, '');
+    if (!digits) return null;
+    return Number(digits);
+  }
+  const digitsOnly = text.replace(/[^\d]/g, '');
+  if (!digitsOnly) return null;
+  return Number(digitsOnly);
+};
+
+/**
+ * Compute the Leaflet zoom level that produces a given scale denominator at a latitude.
+ * Inverse of: denominator = (40075016.686 * cos(lat) / 2^(zoom+8)) * 96 / 0.0254
+ */
+const zoomForScale = (denominator, latitudeDeg) => {
+  if (!Number.isFinite(denominator) || denominator <= 0) return null;
+  const latRad = (Math.max(-85, Math.min(85, latitudeDeg)) * Math.PI) / 180;
+  const metersPerPixelNeeded = (denominator * 0.0254) / 96;
+  const zoom = Math.log2((40075016.686 * Math.cos(latRad)) / (metersPerPixelNeeded * 256));
+  return Number.isFinite(zoom) ? zoom : null;
+};
+
+/**
+ * Wait until Leaflet has finished loading tiles after a zoom change.
+ */
+const waitForMapReady = (mapInstance) => new Promise((resolve) => {
+  if (!mapInstance) { resolve(); return; }
+  const timeout = setTimeout(resolve, 3000);
+  const onReady = () => {
+    clearTimeout(timeout);
+    setTimeout(resolve, 400); // extra settle time for tile rendering
+  };
+  if (!mapInstance._loading) {
+    // No tiles loading, but give a small delay for rendering
+    clearTimeout(timeout);
+    setTimeout(resolve, 500);
+    return;
+  }
+  mapInstance.once('load', onReady);
+});
+
+const captureMapCanvas = async (mapRootElement, exportInfo = {}, mapInstance = null) => {
   if (!mapRootElement) {
     throw new Error('Map is not ready for export yet.');
   }
 
   const overrideScaleLabel = normalizeScaleLabel(exportInfo?.mapScaleLabel);
 
+  // Zoom to desired scale if a map instance is available
+  let originalZoom = null;
+  let originalCenter = null;
+  if (mapInstance && overrideScaleLabel) {
+    const targetDenominator = parseScaleDenominator(overrideScaleLabel);
+    const center = mapInstance.getCenter();
+    const targetZoom = zoomForScale(targetDenominator, center.lat);
+    if (targetZoom !== null) {
+      originalZoom = mapInstance.getZoom();
+      originalCenter = center;
+      mapInstance.setView(center, targetZoom, { animate: false });
+      await waitForMapReady(mapInstance);
+    }
+  }
+
   mapRootElement.classList.add('map-export-mode');
   try {
     await waitForTiles(mapRootElement);
 
-    return html2canvas(mapRootElement, {
+    const canvas = await html2canvas(mapRootElement, {
       useCORS: true,
       allowTaint: false,
       backgroundColor: '#f8fafc',
@@ -77,8 +141,13 @@ const captureMapCanvas = async (mapRootElement, exportInfo = {}) => {
         });
       },
     });
+    return canvas;
   } finally {
     mapRootElement.classList.remove('map-export-mode');
+    // Restore original zoom
+    if (mapInstance && originalZoom !== null && originalCenter !== null) {
+      mapInstance.setView(originalCenter, originalZoom, { animate: false });
+    }
   }
 };
 
@@ -191,8 +260,8 @@ const downloadBlob = (blob, fileName) => {
   URL.revokeObjectURL(url);
 };
 
-export const exportMapAsPng = async (mapRootElement, exportInfo = {}, fileName = 'survey-plan.png') => {
-  const mapCanvas = await captureMapCanvas(mapRootElement, exportInfo);
+export const exportMapAsPng = async (mapRootElement, exportInfo = {}, fileName = 'survey-plan.png', mapInstance = null) => {
+  const mapCanvas = await captureMapCanvas(mapRootElement, exportInfo, mapInstance);
   const composedCanvas = composeExportCanvas(mapCanvas, exportInfo);
 
   await new Promise((resolve, reject) => {
@@ -207,8 +276,8 @@ export const exportMapAsPng = async (mapRootElement, exportInfo = {}, fileName =
   });
 };
 
-export const exportMapAsPdf = async (mapRootElement, exportInfo = {}, fileName = 'survey-plan.pdf', pdfOptions = {}) => {
-  const mapCanvas = await captureMapCanvas(mapRootElement, exportInfo);
+export const exportMapAsPdf = async (mapRootElement, exportInfo = {}, fileName = 'survey-plan.pdf', pdfOptions = {}, mapInstance = null) => {
+  const mapCanvas = await captureMapCanvas(mapRootElement, exportInfo, mapInstance);
   const composedCanvas = composeExportCanvas(mapCanvas, exportInfo);
   const imageData = composedCanvas.toDataURL('image/png');
   const targetFormat = String(pdfOptions.format || 'a4').toLowerCase();
