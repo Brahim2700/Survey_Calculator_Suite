@@ -389,16 +389,50 @@ const extentConfidence = (entry, swapped = false) => {
   return adjusted;
 };
 
-const isFrenchProjectedCandidate = (code) => /^EPSG:(2154|394[2-9]|3950)$/.test(code);
+const isFrenchProjectedCandidate = (code) => /^EPSG:(2154|2756[0-4]|394[2-9]|3950)$/.test(code);
+
+const OLD_FRENCH_LAMBERT_LATITUDE = {
+  'EPSG:27560': 46.5,
+  'EPSG:27561': 49.0,
+  'EPSG:27562': 47.2,
+  'EPSG:27563': 44.0,
+  'EPSG:27564': 42.2,
+};
+
+const OLD_FRENCH_LAMBERT_LONGITUDE = {
+  'EPSG:27560': 2.337229,
+  'EPSG:27561': 2.337229,
+  'EPSG:27562': 2.337229,
+  'EPSG:27563': 2.337229,
+  'EPSG:27564': 8.9,
+};
+
+const isWithinFranceLikeBounds = (lon, lat, code) => {
+  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return false;
+  if (code === 'EPSG:27564') {
+    return lon >= 8 && lon <= 10 && lat >= 41 && lat <= 43.5;
+  }
+  return lon >= -6.5 && lon <= 11.5 && lat >= 41 && lat <= 52.5;
+};
 
 const getFrenchLatitudePenalty = (code, lat) => {
   if (!Number.isFinite(lat)) return 0;
   if (code === 'EPSG:2154') return 0;
+  if (OLD_FRENCH_LAMBERT_LATITUDE[code]) {
+    const diff = Math.abs(lat - OLD_FRENCH_LAMBERT_LATITUDE[code]);
+    return Math.min(0.34, diff * 0.14);
+  }
   const zone = Number(code.replace('EPSG:', ''));
   const zoneLatitude = zone >= 3942 && zone <= 3950 ? zone - 3900 : null;
   if (!Number.isFinite(zoneLatitude)) return 0;
   const diff = Math.abs(lat - zoneLatitude);
   return Math.min(0.22, diff * 0.07);
+};
+
+const getFrenchLongitudePenalty = (code, lon) => {
+  if (!Number.isFinite(lon) || !OLD_FRENCH_LAMBERT_LONGITUDE[code]) return 0;
+  const diff = Math.abs(lon - OLD_FRENCH_LAMBERT_LONGITUDE[code]);
+  return Math.min(0.24, diff * 0.08);
 };
 
 const adjustedExtentConfidence = (entry, bounds, swapped = false) => {
@@ -417,8 +451,17 @@ const adjustedExtentConfidence = (entry, bounds, swapped = false) => {
     }
 
     if (entry.code === 'EPSG:2154') {
-      const inMainlandFrance = lon >= -6.5 && lon <= 11.5 && lat >= 41 && lat <= 52.5;
+      const inMainlandFrance = isWithinFranceLikeBounds(lon, lat, entry.code);
       return inMainlandFrance ? Math.min(0.95, base + 0.04) : base;
+    }
+
+    if (OLD_FRENCH_LAMBERT_LATITUDE[entry.code]) {
+      if (!isWithinFranceLikeBounds(lon, lat, entry.code)) {
+        return Math.max(0.35, base - 0.18);
+      }
+      const latPenalty = getFrenchLatitudePenalty(entry.code, lat);
+      const lonPenalty = getFrenchLongitudePenalty(entry.code, lon);
+      return Math.max(0.45, Math.min(0.97, base + 0.38 - latPenalty - lonPenalty));
     }
 
     const penalty = getFrenchLatitudePenalty(entry.code, lat);

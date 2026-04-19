@@ -62,6 +62,22 @@ const main = async () => {
     if (!outcome.ok) failures.push(outcome);
   });
 
+  const oldFrenchLambertCases = [
+    ['EPSG:27561', 2.35, 49.0],
+    ['EPSG:27562', 2.35, 47.2],
+    ['EPSG:27563', 2.35, 44.0],
+    ['EPSG:27564', 9.0, 42.2],
+  ];
+
+  oldFrenchLambertCases.forEach(([code, lon, lat]) => {
+    const crs = findCrs(code);
+    if (!crs) return;
+    const points = createProjectedCluster(code, lon, lat);
+    const outcome = runCase(`Old French Lambert ${code}`, code, points, 4, (_codes, suggestions) => suggestions?.[0]?.code === code);
+    results.push(outcome);
+    if (!outcome.ok) failures.push(outcome);
+  });
+
   const globalCases = [
     {
       sourceCode: 'EPSG:27700',
