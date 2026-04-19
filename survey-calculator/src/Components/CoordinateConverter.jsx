@@ -5261,8 +5261,8 @@ const CoordinateConverter = () => {
                 })()}
 
                 {/* Results table */}
-                <div style={{ overflowX: "auto", marginTop: "1rem" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <div style={{ overflowX: "auto", overflowY: "hidden", marginTop: "1rem", maxWidth: "100%" }}>
+                <table style={{ width: "max-content", minWidth: "100%", borderCollapse: "collapse", tableLayout: "auto", whiteSpace: "nowrap" }}>
                 <thead>
                   <tr style={{ background: "#f8fafc" }}>
                     <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>Select</th>
