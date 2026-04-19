@@ -583,7 +583,10 @@ const tryInferProjectedFromCatalog = (bounds) => {
     });
   });
 
-  return deduplicateSuggestions(suggestions).slice(0, 10);
+  return deduplicateSuggestions(suggestions)
+    .filter((entry) => entry.confidence >= 0.6)
+    .sort((a, b) => b.confidence - a.confidence)
+    .slice(0, 4);
 };
 
 const getAxisExtentRulesForCrs = (crsCode) => {
