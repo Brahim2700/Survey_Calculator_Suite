@@ -291,6 +291,12 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     }
     return point.lat === selectedPoint.lat && point.lng === selectedPoint.lng;
   });
+  const infoPanelCount = (cadNotifications.length > 0 ? 1 : 0) + (selectedPointStillVisible ? 1 : 0) + 1;
+  const infoRailColumns = infoPanelCount <= 1
+    ? 'minmax(0, 1fr)'
+    : infoPanelCount === 2
+      ? 'repeat(2, minmax(0, 1fr))'
+      : '1.15fr 0.85fr 1fr';
 
   const geoidLegendItems = [
     { color: '#0000FF', label: '< -10 m' },
@@ -1153,7 +1159,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gridTemplateColumns: infoRailColumns,
           gap: '10px',
           alignItems: 'start',
         }}
@@ -1227,7 +1233,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
           }}
         >
           <div style={{ fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px', color: '#e0eaff' }}>Geoid Bands</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: infoPanelCount === 1 ? 'center' : 'flex-start' }}>
             {geoidLegendItems.map((item) => (
               <div
                 key={item.label}
