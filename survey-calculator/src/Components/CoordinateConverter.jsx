@@ -1046,6 +1046,12 @@ const CoordinateConverter = () => {
   const [bulkFilterMode] = useState("all"); // all | failed | warned | selected
   const [selectedBulkRows, setSelectedBulkRows] = useState([]);
   const [showBulkTextInput, setShowBulkTextInput] = useState(false);
+  const [panelOpen, setPanelOpen] = useState({
+    import: true,
+    cad: true,
+    benchmark: false,
+    export: true,
+  });
   const [benchmarkRows, setBenchmarkRows] = useState([]);
   const [benchmarkSummary, setBenchmarkSummary] = useState(null);
   const [benchmarkFile, setBenchmarkFile] = useState(null);
@@ -1105,8 +1111,19 @@ const CoordinateConverter = () => {
   const bulkCancelRef = useRef(false);
   const undoStackRef = useRef([]);
   const redoStackRef = useRef([]);
+  const bulkSectionRef = useRef(null);
+  const exportSectionRef = useRef(null);
   // Auto-detect is enabled by default. Picking a From CRS manually locks it until reset.
   const fromCrsManualRef = useRef(false);
+
+  const scrollToSection = useCallback((ref) => {
+    if (!ref?.current) return;
+    ref.current.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  const togglePanel = useCallback((key) => {
+    setPanelOpen((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
 
   const refreshCadStatus = useCallback(async () => {
     try {
@@ -3880,6 +3897,30 @@ const CoordinateConverter = () => {
 
   return (
     <div style={{ width: "100%", maxWidth: "1100px", background: "var(--c-surface, #fff)", borderRadius: "var(--r-lg, 14px)", padding: "1.5rem", boxShadow: "var(--shadow-xl, 0 20px 60px rgba(0,0,0,.22))", display: "flex", flexDirection: "column", border: "1px solid rgba(255,255,255,.08)" }}>
+      <div style={{ position: "sticky", top: "0.35rem", zIndex: 25, marginBottom: "0.9rem", padding: "0.55rem", borderRadius: "10px", border: "1px solid #1e3a8a", background: "rgba(15, 23, 42, 0.94)", display: "flex", flexWrap: "wrap", gap: "0.45rem", alignItems: "center" }}>
+        <span style={{ color: "#bfdbfe", fontSize: "0.77rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginRight: "0.3rem" }}>
+          Quick Actions
+        </span>
+        <button
+          onClick={() => scrollToSection(bulkSectionRef)}
+          style={{ padding: "0.35rem 0.7rem", borderRadius: "999px", border: "1px solid #7dd3fc", background: "#0f172a", color: "#e0f2fe", cursor: "pointer", fontWeight: 700, fontSize: "0.78rem" }}
+        >
+          Go to Bulk
+        </button>
+        <button
+          onClick={() => scrollToSection(exportSectionRef)}
+          disabled={bulkResults.length === 0}
+          style={{ padding: "0.35rem 0.7rem", borderRadius: "999px", border: "1px solid #93c5fd", background: bulkResults.length > 0 ? "#1d4ed8" : "#334155", color: "#eff6ff", cursor: bulkResults.length > 0 ? "pointer" : "not-allowed", fontWeight: 700, fontSize: "0.78rem", opacity: bulkResults.length > 0 ? 1 : 0.65 }}
+        >
+          Go to Exports
+        </button>
+        <button
+          onClick={handleBulkResetAll}
+          style={{ padding: "0.35rem 0.7rem", borderRadius: "999px", border: "1px solid #fecaca", background: "#7f1d1d", color: "#fff1f2", cursor: "pointer", fontWeight: 700, fontSize: "0.78rem" }}
+        >
+          Reset Bulk
+        </button>
+      </div>
       
       {/* CRS Detection Suggestions */}
       {showCrsSuggestions && crsSuggestions.length > 0 && (
@@ -4523,9 +4564,16 @@ const CoordinateConverter = () => {
         </div>
       )}
 
-      <div style={{ marginTop: "1.2rem", marginBottom: "0.45rem", fontSize: "0.73rem", fontWeight: 700, color: "var(--c-text-secondary, #475569)", textTransform: "uppercase", letterSpacing: "0.06em", paddingBottom: "0.3rem", borderBottom: "2px solid var(--c-secondary, #0891b2)" }}>
-        Bulk Conversion
-      </div>
+      <button
+        onClick={() => togglePanel("import")}
+        style={{ marginTop: "1.2rem", marginBottom: "0.45rem", width: "100%", textAlign: "left", fontSize: "0.73rem", fontWeight: 700, color: "var(--c-text-secondary, #475569)", textTransform: "uppercase", letterSpacing: "0.06em", padding: "0 0 0.3rem 0", border: "none", borderBottom: "2px solid var(--c-secondary, #0891b2)", background: "transparent", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+      >
+        <span>Bulk Conversion / Import</span>
+        <span>{panelOpen.import ? "Hide" : "Show"}</span>
+      </button>
+
+      {panelOpen.import && (
+      <>
 
       <div style={{ marginTop: "0.6rem", border: "1px solid #dbeafe", borderRadius: "8px", background: "#f8fbff" }}>
         <button
@@ -4560,7 +4608,7 @@ const CoordinateConverter = () => {
         {bulkProgress && <div role="status" aria-live="polite" style={{ margin: "0 0.75rem 0.6rem 0.75rem", color: "#6b7280" }}>{bulkProgress}</div>}
       </div>
 
-      <div style={{ marginTop: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+      <div ref={bulkSectionRef} style={{ marginTop: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
         <label style={{ fontWeight: 700 }}>Upload bulk file (CSV/TXT/GeoJSON/GPX/KML/ZIP/XLSX)</label>
         <div style={{ fontSize: "0.85rem", color: "#475569" }}>
           Supports files with optional point names/IDs in first column. Header keywords: X/Easting/Lon/Longitude, Y/Northing/Lat/Latitude, 
@@ -4655,6 +4703,21 @@ const CoordinateConverter = () => {
             <strong>CRS Notice:</strong> {importCrsNotice}
           </div>
         )}
+
+      </div>
+      </>
+      )}
+
+      <button
+        onClick={() => togglePanel("cad")}
+        style={{ marginTop: "0.6rem", marginBottom: "0.45rem", width: "100%", textAlign: "left", fontSize: "0.73rem", fontWeight: 700, color: "#0f172a", textTransform: "uppercase", letterSpacing: "0.06em", padding: "0.2rem 0 0.3rem 0", border: "none", borderBottom: "2px solid #94a3b8", background: "transparent", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+      >
+        <span>CAD Inspection & Validation</span>
+        <span>{panelOpen.cad ? "Hide" : "Show"}</span>
+      </button>
+
+      {panelOpen.cad && (
+      <>
         <div style={{ display: "grid", gap: "0.55rem", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
           <div style={{ border: "1px solid #dbeafe", borderRadius: "8px", background: "#f8fbff", padding: "0.75rem" }}>
             <div style={{ fontWeight: 700, color: "#1d4ed8", fontSize: "0.76rem", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.35rem" }}>CAD Backend</div>
@@ -4851,9 +4914,19 @@ const CoordinateConverter = () => {
             </>
           )}
         </div>
-      </div>
+      </>
+      )}
 
-      <div style={{ marginTop: "0.6rem", padding: "0.7rem", border: "1px solid #dbeafe", borderRadius: "8px", background: "#f8fbff" }}>
+      <button
+        onClick={() => togglePanel("benchmark")}
+        style={{ marginTop: "0.6rem", marginBottom: "0.35rem", width: "100%", textAlign: "left", fontSize: "0.73rem", fontWeight: 700, color: "var(--c-primary, #1d4ed8)", textTransform: "uppercase", letterSpacing: "0.06em", padding: "0.2rem 0 0.3rem 0", border: "none", borderBottom: "2px solid #bfdbfe", background: "transparent", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+      >
+        <span>Benchmark / Reference Validation</span>
+        <span>{panelOpen.benchmark ? "Hide" : "Show"}</span>
+      </button>
+
+      {panelOpen.benchmark && (
+      <div style={{ marginTop: "0.15rem", padding: "0.7rem", border: "1px solid #dbeafe", borderRadius: "8px", background: "#f8fbff" }}>
         <div style={{ fontWeight: 700, color: "var(--c-primary, #1d4ed8)", marginBottom: "0.4rem", fontSize: "0.73rem", textTransform: "uppercase", letterSpacing: "0.06em" }}>Benchmark / Reference Validation</div>
         <div style={{ fontSize: "0.82rem", color: "#334155", marginBottom: "0.45rem" }}>
           Upload CSV with columns: id, expectedX, expectedY and optional expectedZ to compare against current bulk outputs.
@@ -4981,6 +5054,7 @@ const CoordinateConverter = () => {
           </div>
         )}
       </div>
+      )}
 
       {showBulkResetConfirm && (
         <div style={{ marginTop: "0.65rem", padding: "0.65rem 0.75rem", border: "1px solid #fecaca", background: "#fff1f2", borderRadius: "8px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
@@ -5021,10 +5095,16 @@ const CoordinateConverter = () => {
             return (
               <div>
                 {/* Export and map actions */}
-                <div style={{ marginBottom: "1rem", padding: "1rem", background: "#f0f9ff", borderRadius: "8px", border: "1px solid #bfdbfe" }}>
-                  <div style={{ fontWeight: 700, marginBottom: "0.75rem", color: "var(--c-primary, #1d4ed8)", fontSize: "0.73rem", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                    Export Conversion Results
-                  </div>
+                <div ref={exportSectionRef} style={{ marginBottom: "1rem" }}>
+                  <button
+                    onClick={() => togglePanel("export")}
+                    style={{ width: "100%", textAlign: "left", fontWeight: 700, color: "var(--c-primary, #1d4ed8)", fontSize: "0.73rem", textTransform: "uppercase", letterSpacing: "0.06em", padding: "0.2rem 0 0.35rem 0", border: "none", borderBottom: "2px solid #bfdbfe", background: "transparent", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                  >
+                    <span>Export Conversion Results</span>
+                    <span>{panelOpen.export ? "Hide" : "Show"}</span>
+                  </button>
+                  {panelOpen.export && (
+                  <div style={{ marginTop: "0.5rem", padding: "1rem", background: "#f0f9ff", borderRadius: "8px", border: "1px solid #bfdbfe" }}>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "0.5rem" }}>
                     <button
                       onClick={handleExportCSV}
@@ -5199,6 +5279,8 @@ const CoordinateConverter = () => {
                   <div style={{ marginTop: "0.35rem", fontSize: "0.78rem", color: "#0f172a" }}>
                     Note: KML/GPX are auto-converted to WGS84 (lon,lat) for Google Earth/GPX viewers. CSV/XLSX/GeoJSON/WKT stay in the selected target CRS. Heights are passed through unchanged.
                   </div>
+                </div>
+                  )}
                 </div>
 
                 {/* Transformation Accuracy/Uncertainty Panel */}

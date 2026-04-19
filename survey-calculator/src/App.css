@@ -95,8 +95,29 @@
   max-width: 1760px;
   align-items: flex-start;
 }
-.app-col-left  { flex: 0 1 820px; display: flex; flex-direction: column; gap: 1.5rem; }
-.app-col-right { flex: 1 1 520px; position: sticky; top: 1.75rem; display: flex; flex-direction: column; }
+.app-col-left  {
+  flex: 0 1 760px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  max-height: calc(100vh - 2.25rem);
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+.app-col-right { flex: 1 1 760px; position: sticky; top: 1.75rem; display: flex; flex-direction: column; }
+
+.app-columns.map-focus .app-col-left {
+  flex: 0 1 440px;
+}
+
+.app-columns.map-focus .app-col-right {
+  flex: 1 1 1080px;
+}
+
+.btn-mapfocus-active {
+  background: rgba(37, 99, 235, 0.42);
+  box-shadow: 0 0 0 1px rgba(147, 197, 253, 0.4);
+}
 
 .app-col-left,
 .app-col-right {
@@ -595,6 +616,11 @@
 @media (max-width: 1100px) {
   .app-columns { flex-direction: column; }
   .app-col-right { position: static; }
+  .app-col-left {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
 }
 
 @media (max-width: 760px) {

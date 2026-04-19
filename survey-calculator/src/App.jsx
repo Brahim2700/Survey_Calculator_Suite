@@ -51,6 +51,7 @@ function App() {
   const [mapMetrics, setMapMetrics] = useState(null);
   const [isExportingMap, setIsExportingMap] = useState(false);
   const [showExportPanel, setShowExportPanel] = useState(false);
+  const [mapFocusMode, setMapFocusMode] = useState(false);
   const [exportSettings, setExportSettings] = useState({
     projectName: "Survey Plan",
     surveyor: "",
@@ -311,7 +312,7 @@ function App() {
       </header>
 
       {/* ── Two-column layout ── */}
-      <div className="app-columns">
+      <div className={`app-columns${mapFocusMode ? " map-focus" : ""}`}>
 
         {/* Left column: tools */}
         <div className="app-col-left">
@@ -358,6 +359,14 @@ function App() {
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 6H3"/><path d="M21 12H3"/><path d="M21 18H3"/></svg>
                   {measureMode ? "Measuring…" : "Measure"}
+                </button>
+                <button
+                  className={`btn btn-ghost${mapFocusMode ? " btn-mapfocus-active" : ""}`}
+                  onClick={() => setMapFocusMode((v) => !v)}
+                  title={mapFocusMode ? "Restore balanced layout" : "Expand map workspace"}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                  {mapFocusMode ? "Balanced View" : "Map Focus"}
                 </button>
                 <button
                   className="btn btn-ghost"
@@ -463,7 +472,7 @@ function App() {
             )}
 
             {/* Leaflet map */}
-            <div style={{ width: "100%", height: "520px", flexShrink: 0 }}>
+            <div style={{ width: "100%", height: mapFocusMode ? "72vh" : "520px", flexShrink: 0 }}>
               <MapVisualization
                 points={allPoints}
                 cadGeometry={cadGeometry}
