@@ -40,6 +40,64 @@ const buildMetadataRows = (metadata = {}) => {
   });
   return rows;
 };
+
+const parseDmsToDecimal = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const text = String(value).trim();
+  if (!text) return null;
+
+  const asNumber = Number.parseFloat(text);
+  if (Number.isFinite(asNumber) && !/[NSEW\u00B0'":]/i.test(text)) {
+    return asNumber;
+  }
+
+  const normalized = text
+    .toUpperCase()
+    .replace(/[\u00B0]/g, ' ')
+    .replace(/[']/g, ' ')
+    .replace(/[\"]/g, ' ')
+    .replace(/:/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const hemiMatch = normalized.match(/[NSEW]/);
+  const signFromHemisphere = hemiMatch && /[SW]/.test(hemiMatch[0]) ? -1 : 1;
+  const parts = normalized
+    .replace(/[NSEW]/g, '')
+    .trim()
+    .split(' ')
+    .filter(Boolean)
+    .map((token) => Number.parseFloat(token));
+
+  if (!parts.length || parts.some((p) => !Number.isFinite(p))) return null;
+
+  const deg = parts[0] || 0;
+  const min = parts[1] || 0;
+  const sec = parts[2] || 0;
+  const abs = Math.abs(deg) + (min / 60) + (sec / 3600);
+  const sign = deg < 0 ? -1 : signFromHemisphere;
+  return abs * sign;
+};
+
+const getNumericOutputXY = (row) => {
+  const rawX = Number.isFinite(Number(row?.outputXRaw)) ? Number(row.outputXRaw) : null;
+  const rawY = Number.isFinite(Number(row?.outputYRaw)) ? Number(row.outputYRaw) : null;
+  if (rawX !== null && rawY !== null) {
+    return { x: rawX, y: rawY };
+  }
+
+  const parsedX = Number.parseFloat(String(row?.outputX ?? ''));
+  const parsedY = Number.parseFloat(String(row?.outputY ?? ''));
+  const x = Number.isFinite(parsedX)
+    ? parsedX
+    : parseDmsToDecimal(row?.outputXDms ?? row?.outputX);
+  const y = Number.isFinite(parsedY)
+    ? parsedY
+    : parseDmsToDecimal(row?.outputYDms ?? row?.outputY);
+
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return { x, y };
+};
 /**
  * Export conversion results as CSV
  * @param {Array} results - Array of conversion result objects
@@ -103,31 +161,32 @@ export const exportAsGeoJSON = (results, toCrs, includeGeoid = false, metadata =
   if (!results || results.length === 0) return null;
 
   const features = results
-    .filter(row => Number.isFinite(parseFloat(row.outputX)) && Number.isFinite(parseFloat(row.outputY)))
-    .map(row => {
-      const lon = parseFloat(row.outputX);
-      const lat = parseFloat(row.outputY);
-      const coordinates = row.outputZ !== undefined && row.outputZ !== null && row.outputZ !== ''
-        ? [lon, lat, parseFloat(row.outputZ)]
+    .map((row) => ({ row, xy: getNumericOutputXY(row) }))
+    .filter(({ xy }) => Boolean(xy))
+    .map(({ row: source, xy }) => {
+      const lon = xy.x;
+      const lat = xy.y;
+      const coordinates = source.outputZ !== undefined && source.outputZ !== null && source.outputZ !== ''
+        ? [lon, lat, parseFloat(source.outputZ)]
         : [lon, lat];
 
       const properties = {
-        id: row.id || '',
-        inputX: row.inputX,
-        inputY: row.inputY,
-        outputX: row.outputX,
-        outputY: row.outputY,
+        id: source.id || '',
+        inputX: source.inputX,
+        inputY: source.inputY,
+        outputX: source.outputX,
+        outputY: source.outputY,
       };
 
-      if (row.inputZ !== undefined && row.inputZ !== null && row.inputZ !== '') {
-        properties.inputZ = row.inputZ;
+      if (source.inputZ !== undefined && source.inputZ !== null && source.inputZ !== '') {
+        properties.inputZ = source.inputZ;
       }
-      if (row.outputZ !== undefined && row.outputZ !== null && row.outputZ !== '') {
-        properties.outputZ = row.outputZ;
-        properties.h = parseFloat(row.outputZ);
+      if (source.outputZ !== undefined && source.outputZ !== null && source.outputZ !== '') {
+        properties.outputZ = source.outputZ;
+        properties.h = parseFloat(source.outputZ);
       }
-      if (includeGeoid && row.N !== undefined && row.N !== null) {
-        properties.N = row.N;
+      if (includeGeoid && source.N !== undefined && source.N !== null) {
+        properties.N = source.N;
       }
 
       return {
@@ -160,10 +219,11 @@ export const exportAsGeoJSONWithWKT = (results, toCrs) => {
   if (!results || results.length === 0) return null;
 
   const features = results
-    .filter(row => Number.isFinite(parseFloat(row.outputX)) && Number.isFinite(parseFloat(row.outputY)))
-    .map(row => {
-      const lon = parseFloat(row.outputX);
-      const lat = parseFloat(row.outputY);
+    .map((row) => ({ row, xy: getNumericOutputXY(row) }))
+    .filter(({ xy }) => Boolean(xy))
+    .map(({ row, xy }) => {
+      const lon = xy.x;
+      const lat = xy.y;
       const z = row.outputZ !== undefined && row.outputZ !== null && row.outputZ !== ''
         ? parseFloat(row.outputZ)
         : null;
@@ -206,10 +266,11 @@ export const exportAsKML = (results, toCrs, metadata = null) => {
   if (!results || results.length === 0) return null;
 
   const placemarks = results
-    .filter(row => Number.isFinite(parseFloat(row.outputX)) && Number.isFinite(parseFloat(row.outputY)))
-    .map((row, idx) => {
-      const x = parseFloat(row.outputX);
-      const y = parseFloat(row.outputY);
+    .map((row) => ({ row, xy: getNumericOutputXY(row) }))
+    .filter(({ xy }) => Boolean(xy))
+    .map(({ row: source, xy }, idx) => {
+      const x = xy.x;
+      const y = xy.y;
       let lon, lat;
       
       if (!isWgs84) {
@@ -228,24 +289,24 @@ export const exportAsKML = (results, toCrs, metadata = null) => {
         lat = y;
       }
       
-      const z = row.outputZ !== undefined && row.outputZ !== null && row.outputZ !== ''
-        ? `<altitude>${parseFloat(row.outputZ)}</altitude>`
+      const z = source.outputZ !== undefined && source.outputZ !== null && source.outputZ !== ''
+        ? `<altitude>${parseFloat(source.outputZ)}</altitude>`
         : '';
 
       const description = `
-        Input: (${row.inputX}, ${row.inputY})
-        Output: (${row.outputX}, ${row.outputY})
+        Input: (${source.inputX}, ${source.inputY})
+        Output: (${source.outputX}, ${source.outputY})
         CRS: ${toCrs}
-        ${row.outputZ ? `Height: ${row.outputZ}` : ''}
-        ${row.N ? `Geoid: ${row.N}` : ''}
+        ${source.outputZ ? `Height: ${source.outputZ}` : ''}
+        ${source.N ? `Geoid: ${source.N}` : ''}
       `.trim();
 
       return `
     <Placemark>
-      <name>${row.id || `Point ${idx + 1}`}</name>
+      <name>${source.id || `Point ${idx + 1}`}</name>
       <description>${description}</description>
       <Point>
-        <coordinates>${lon},${lat}${z ? `,${parseFloat(row.outputZ)}` : ''}</coordinates>
+        <coordinates>${lon},${lat}${z ? `,${parseFloat(source.outputZ)}` : ''}</coordinates>
       </Point>
     </Placemark>`;
     }).join('\n');
@@ -283,10 +344,11 @@ export const exportAsGPX = (results, toCrs, metadata = null) => {
   if (!results || results.length === 0) return null;
 
   const waypoints = results
-    .filter(row => Number.isFinite(parseFloat(row.outputX)) && Number.isFinite(parseFloat(row.outputY)))
-    .map((row, idx) => {
-      const x = parseFloat(row.outputX);
-      const y = parseFloat(row.outputY);
+    .map((row) => ({ row, xy: getNumericOutputXY(row) }))
+    .filter(({ xy }) => Boolean(xy))
+    .map(({ row: source, xy }, idx) => {
+      const x = xy.x;
+      const y = xy.y;
       let lon, lat;
       
       if (!isWgs84) {
@@ -304,13 +366,13 @@ export const exportAsGPX = (results, toCrs, metadata = null) => {
         lat = y;
       }
       
-      const ele = row.outputZ !== undefined && row.outputZ !== null && row.outputZ !== ''
-        ? `<ele>${parseFloat(row.outputZ)}</ele>`
+      const ele = source.outputZ !== undefined && source.outputZ !== null && source.outputZ !== ''
+        ? `<ele>${parseFloat(source.outputZ)}</ele>`
         : '';
 
       return `
   <wpt lat="${lat}" lon="${lon}">
-    <name>${row.id || `Point ${idx + 1}`}</name>
+    <name>${source.id || `Point ${idx + 1}`}</name>
     ${ele}
   </wpt>`;
     }).join('\n');
@@ -393,10 +455,11 @@ export const exportAsWKT = (results, metadata = null) => {
   if (!results || results.length === 0) return null;
 
   const wktBody = results
-    .filter(row => Number.isFinite(parseFloat(row.outputX)) && Number.isFinite(parseFloat(row.outputY)))
-    .map((row, idx) => {
-      const lon = parseFloat(row.outputX);
-      const lat = parseFloat(row.outputY);
+    .map((row) => ({ row, xy: getNumericOutputXY(row) }))
+    .filter(({ xy }) => Boolean(xy))
+    .map(({ row, xy }, idx) => {
+      const lon = xy.x;
+      const lat = xy.y;
       const z = row.outputZ !== undefined && row.outputZ !== null && row.outputZ !== ''
         ? parseFloat(row.outputZ)
         : null;
@@ -448,9 +511,9 @@ export const exportAsUTMFormat = (results, toCrs) => {
 export const exportAsDXF = (results, metadata = null) => {
   if (!results || results.length === 0) return null;
 
-  const filtered = results.filter(
-    (row) => Number.isFinite(parseFloat(row.outputX)) && Number.isFinite(parseFloat(row.outputY))
-  );
+  const filtered = results
+    .map((row) => ({ row, xy: getNumericOutputXY(row) }))
+    .filter(({ xy }) => Boolean(xy));
 
   const lines = [];
 
@@ -463,17 +526,14 @@ export const exportAsDXF = (results, metadata = null) => {
     '9',
     '$ACADVER',
     '1',
-    'AC1009',
-    '0',
-    'ENDSEC'
+    'AC1009'
   );
 
   if (metadata && metadata.fromCrs && metadata.toCrs) {
-    lines.splice(10, 0,
-      '9', '$EXTMIN',
-      '1', `From ${metadata.fromCrs} To ${metadata.toCrs}`
-    );
+    lines.push('999', `CRS_FROM=${metadata.fromCrs};CRS_TO=${metadata.toCrs}`);
   }
+
+  lines.push('0', 'ENDSEC');
 
   // TABLES section with only LTYPE and LAYER (R12 minimal)
   lines.push('0', 'SECTION', '2', 'TABLES');
@@ -514,7 +574,6 @@ export const exportAsDXF = (results, metadata = null) => {
   lines.push('0', 'ENDSEC');
 
   // BLOCKS section with required *MODEL_SPACE and *PAPER_SPACE definitions
-  console.log('DXF Export: Adding BLOCKS section with MODEL_SPACE and PAPER_SPACE');
   lines.push('0', 'SECTION', '2', 'BLOCKS');
 
   // *MODEL_SPACE block
@@ -544,9 +603,9 @@ export const exportAsDXF = (results, metadata = null) => {
   // ENTITIES section with POINT entities on POINTS layer
   lines.push('0', 'SECTION', '2', 'ENTITIES');
 
-  filtered.forEach((row) => {
-    const x = parseFloat(row.outputX);
-    const y = parseFloat(row.outputY);
+  filtered.forEach(({ row, xy }) => {
+    const x = xy.x;
+    const y = xy.y;
     const z =
       row.outputZ !== undefined && row.outputZ !== null && row.outputZ !== ''
         ? parseFloat(row.outputZ)
@@ -571,8 +630,6 @@ export const exportAsDXF = (results, metadata = null) => {
   lines.push('0', 'ENDSEC', '0', 'EOF');
 
   // AutoCAD expects CRLF line endings
-  console.log('Total DXF lines:', lines.length);
-  console.log('First 100 lines:', lines.slice(0, 100));
   return lines.join('\r\n');
 };
 
