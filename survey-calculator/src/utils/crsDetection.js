@@ -4,6 +4,26 @@
 import proj4 from 'proj4';
 import CRS_LIST from '../crsList.js';
 
+const CRS_BY_CODE = new Map(
+  CRS_LIST
+    .filter((entry) => entry?.code)
+    .map((entry) => [entry.code, entry])
+);
+
+const ensureCrsDefinition = (crsCode) => {
+  if (!crsCode) return false;
+  const existing = proj4.defs(crsCode);
+  if (existing) return true;
+  const entry = CRS_BY_CODE.get(crsCode);
+  if (!entry?.proj4def) return false;
+  let proj4def = entry.proj4def;
+  if (proj4def.includes('+nadgrids=')) {
+    proj4def = proj4def.replace(/\+nadgrids=[^\s]+\s*/g, '');
+  }
+  proj4.defs(crsCode, proj4def);
+  return true;
+};
+
 /**
  * Detect CRS from coordinate ranges and patterns
  * @param {Array} coordinates - Array of {x, y, z} objects
@@ -32,6 +52,7 @@ export const detectCRS = (coordinates, metadata = {}) => {
   try {
     suggestions.push(...detectByExtents(bounds));
     suggestions.push(...tryInferUtmFromBounds(coordinates, bounds));
+    suggestions.push(...tryInferProjectedFromCatalog(bounds));
     const swap = detectSwapCoordinates(coordinates);
     if (swap) suggestions.push(swap);
   } catch {
@@ -323,31 +344,54 @@ const detectGeographic = (bounds) => {
 
 // Extents-based projection tables (France Lambert examples)
 const FR_LAMBERT_EXTENTS = [
-  { code: 'EPSG:2154', name: 'RGF93 / Lambert-93', xmin: 0, xmax: 1300000, ymin: 6000000, ymax: 7200000 },
+  { code: 'EPSG:2154', name: 'RGF93 / Lambert-93', xmin: 0, xmax: 1300000, ymin: 6000000, ymax: 7200000, confidence: 0.88 },
   // Lambert II étendue (extended Lambert II area)
-  { code: 'EPSG:27562', name: 'Lambert II (étendue)', xmin: 0, xmax: 1200000, ymin: 1600000, ymax: 2700000 },
-  { code: 'EPSG:27561', name: 'Lambert I (France nord)', xmin: 0, xmax: 1200000, ymin: -700000, ymax: 400000 },
-  { code: 'EPSG:27562', name: 'Lambert II (France centre)', xmin: 0, xmax: 1200000, ymin: -400000, ymax: 700000 },
-  { code: 'EPSG:27563', name: 'Lambert III (France sud)', xmin: 0, xmax: 1200000, ymin: -100000, ymax: 1000000 },
-  { code: 'EPSG:27564', name: 'Lambert IV (Corse)', xmin: -600000, xmax: 600000, ymin: 100000, ymax: 1200000 },
-  { code: 'EPSG:27560', name: 'Lambert OACI', xmin: 100000, xmax: 1300000, ymin: -200000, ymax: 900000 },
+  { code: 'EPSG:27562', name: 'Lambert II (étendue)', xmin: 0, xmax: 1200000, ymin: 1600000, ymax: 2700000, confidence: 0.62 },
+  { code: 'EPSG:27561', name: 'Lambert I (France nord)', xmin: 0, xmax: 1200000, ymin: -700000, ymax: 400000, confidence: 0.62 },
+  { code: 'EPSG:27562', name: 'Lambert II (France centre)', xmin: 0, xmax: 1200000, ymin: -400000, ymax: 700000, confidence: 0.62 },
+  { code: 'EPSG:27563', name: 'Lambert III (France sud)', xmin: 0, xmax: 1200000, ymin: -100000, ymax: 1000000, confidence: 0.62 },
+  { code: 'EPSG:27564', name: 'Lambert IV (Corse)', xmin: -600000, xmax: 600000, ymin: 100000, ymax: 1200000, confidence: 0.62 },
+  { code: 'EPSG:27560', name: 'Lambert OACI', xmin: 100000, xmax: 1300000, ymin: -200000, ymax: 900000, confidence: 0.62 },
   // Add UTM rough extents for France zones
-  { code: 'EPSG:32630', name: 'UTM 30N', xmin: 300000, xmax: 1600000, ymin: 4600000, ymax: 5700000 },
-  { code: 'EPSG:32631', name: 'UTM 31N', xmin: -200000, xmax: 1100000, ymin: 4500000, ymax: 5700000 },
-  { code: 'EPSG:32632', name: 'UTM 32N', xmin: -600000, xmax: 5300000, ymin: 4500000, ymax: 5700000 }
+  { code: 'EPSG:32630', name: 'UTM 30N', xmin: 300000, xmax: 1600000, ymin: 4600000, ymax: 5700000, confidence: 0.74 },
+  { code: 'EPSG:32631', name: 'UTM 31N', xmin: -200000, xmax: 1100000, ymin: 4500000, ymax: 5700000, confidence: 0.74 },
+  { code: 'EPSG:32632', name: 'UTM 32N', xmin: -600000, xmax: 5300000, ymin: 4500000, ymax: 5700000, confidence: 0.74 }
 ];
 
 // Additional common grids / zones (approximate extents)
 FR_LAMBERT_EXTENTS.push(
-  { code: 'EPSG:25830', name: 'ETRS89 / UTM zone 30N', xmin: 300000, xmax: 1600000, ymin: 4600000, ymax: 5700000 },
-  { code: 'EPSG:25831', name: 'ETRS89 / UTM zone 31N', xmin: -200000, xmax: 1100000, ymin: 4500000, ymax: 5700000 },
-  { code: 'EPSG:25832', name: 'ETRS89 / UTM zone 32N', xmin: -600000, xmax: 5300000, ymin: 4500000, ymax: 5700000 },
-  { code: 'EPSG:3035', name: 'ETRS89 / LAEA Europe', xmin: -4000000, xmax: 9000000, ymin: -4000000, ymax: 9000000 },
-  { code: 'EPSG:21781', name: 'CH1903 / LV03 (Switzerland)', xmin: 480000, xmax: 840000, ymin: 60000, ymax: 310000 },
-  { code: 'EPSG:28992', name: 'Amersfoort / RD New (Netherlands)', xmin: -250000, xmax: 850000, ymin: 250000, ymax: 625000 }
+  { code: 'EPSG:25830', name: 'ETRS89 / UTM zone 30N', xmin: 300000, xmax: 1600000, ymin: 4600000, ymax: 5700000, confidence: 0.72 },
+  { code: 'EPSG:25831', name: 'ETRS89 / UTM zone 31N', xmin: -200000, xmax: 1100000, ymin: 4500000, ymax: 5700000, confidence: 0.72 },
+  { code: 'EPSG:25832', name: 'ETRS89 / UTM zone 32N', xmin: -600000, xmax: 5300000, ymin: 4500000, ymax: 5700000, confidence: 0.72 },
+  { code: 'EPSG:3035', name: 'ETRS89 / LAEA Europe', xmin: -4000000, xmax: 9000000, ymin: -4000000, ymax: 9000000, confidence: 0.7 },
+  { code: 'EPSG:21781', name: 'CH1903 / LV03 (Switzerland)', xmin: 480000, xmax: 840000, ymin: 60000, ymax: 310000, confidence: 0.87 },
+  { code: 'EPSG:28992', name: 'Amersfoort / RD New (Netherlands)', xmin: -250000, xmax: 850000, ymin: 250000, ymax: 625000, confidence: 0.84 },
+  { code: 'EPSG:27700', name: 'OSGB 1936 / British National Grid', xmin: 0, xmax: 700000, ymin: 0, ymax: 1300000, confidence: 0.86 },
+  { code: 'EPSG:2157', name: 'IRENET95 / Irish Transverse Mercator', xmin: 350000, xmax: 900000, ymin: 550000, ymax: 1000000, confidence: 0.86 }
 );
 
+for (let zone = 42; zone <= 50; zone += 1) {
+  const y0 = 1200000 + ((zone - 42) * 1000000);
+  FR_LAMBERT_EXTENTS.push({
+    code: `EPSG:${3900 + zone}`,
+    name: `RGF93 / CC${zone}`,
+    xmin: 700000,
+    xmax: 2700000,
+    ymin: y0 - 800000,
+    ymax: y0 + 800000,
+    confidence: 0.9,
+  });
+}
+
+const extentConfidence = (entry, swapped = false) => {
+  const base = Number.isFinite(entry?.confidence) ? entry.confidence : 0.76;
+  const adjusted = swapped ? Math.min(0.92, base + 0.04) : base;
+  return adjusted;
+};
+
 const detectByExtents = (bounds, table = FR_LAMBERT_EXTENTS) => {
+  if (!isProjected(bounds)) return [];
+
   const hits = [];
   const { avgX, avgY } = bounds;
   for (const p of table) {
@@ -355,7 +399,7 @@ const detectByExtents = (bounds, table = FR_LAMBERT_EXTENTS) => {
     const avgInside = (avgX >= p.xmin && avgX <= p.xmax && avgY >= p.ymin && avgY <= p.ymax);
     const fullContained = (bounds.minX >= p.xmin && bounds.maxX <= p.xmax && bounds.minY >= p.ymin && bounds.maxY <= p.ymax);
     if (avgInside || fullContained) {
-      hits.push({ code: p.code, name: p.name, confidence: 0.92, reason: 'Within projection extents' });
+      hits.push({ code: p.code, name: p.name, confidence: extentConfidence(p, false), reason: 'Within projection extents' });
       continue;
     }
 
@@ -365,7 +409,7 @@ const detectByExtents = (bounds, table = FR_LAMBERT_EXTENTS) => {
       hits.push({
         code: p.code,
         name: p.name,
-        confidence: 0.97,
+        confidence: extentConfidence(p, true),
         reason: 'Within projection extents after swapping X/Y axes',
       });
     }
@@ -386,10 +430,8 @@ const parseProj4Token = (proj4def, tokenName) => {
 };
 
 const getCrsProjectionHints = (crsCode) => {
-  const crs = CRS_LIST.find((entry) => entry.code === crsCode);
+  const crs = CRS_BY_CODE.get(crsCode);
   if (!crs?.proj4def) return null;
-
-  proj4.defs(crs.code, crs.proj4def);
 
   const projNameMatch = crs.proj4def.match(/(?:^|\s)\+proj=([^\s]+)/);
   const zoneMatch = crs.proj4def.match(/(?:^|\s)\+zone=(\d{1,2})/);
@@ -418,7 +460,10 @@ const lonDelta = (lon, refLon) => {
   return Math.abs((((lon - refLon) + 180) % 360 + 360) % 360 - 180);
 };
 
+const clampScore = (value, min, max) => Math.max(min, Math.min(max, value));
+
 const scoreAxisOrientationForCrs = (crsCode, first, second) => {
+  if (!ensureCrsDefinition(crsCode)) return Number.NEGATIVE_INFINITY;
   const hints = getCrsProjectionHints(crsCode);
   let score = 0;
 
@@ -463,6 +508,82 @@ const scoreAxisOrientationForCrs = (crsCode, first, second) => {
   }
 
   return score;
+};
+
+const buildProjectedCatalogCandidates = () => CRS_LIST
+  .filter((entry) => entry?.type === 'projected' && entry?.code && entry?.proj4def)
+  .map((entry) => {
+    const hints = getCrsProjectionHints(entry.code);
+    if (!hints) return null;
+    return {
+      code: entry.code,
+      name: entry.label || entry.name || entry.code,
+      hints,
+    };
+  })
+  .filter(Boolean);
+
+const PROJECTED_CATALOG_CANDIDATES = buildProjectedCatalogCandidates();
+
+const chooseCatalogShortlist = (bounds) => {
+  const { avgX, avgY } = bounds;
+  if (!Number.isFinite(avgX) || !Number.isFinite(avgY)) return [];
+
+  return PROJECTED_CATALOG_CANDIDATES
+    .map((candidate) => {
+      const x0 = candidate.hints?.x0;
+      const y0 = candidate.hints?.y0;
+      let closeness = Number.POSITIVE_INFINITY;
+
+      if (Number.isFinite(x0) && Number.isFinite(y0)) {
+        const normalDistance = Math.abs(avgX - x0) + Math.abs(avgY - y0);
+        const swappedDistance = Math.abs(avgY - x0) + Math.abs(avgX - y0);
+        closeness = Math.min(normalDistance, swappedDistance);
+      } else if (candidate.hints?.projName === 'utm') {
+        const eastingDistance = Math.min(Math.abs(avgX - 500000), Math.abs(avgY - 500000));
+        closeness = eastingDistance;
+      }
+
+      return {
+        ...candidate,
+        closeness,
+      };
+    })
+    .filter((candidate) => Number.isFinite(candidate.closeness))
+    .filter((candidate) => {
+      if (candidate.hints?.projName === 'utm') return true;
+      return candidate.closeness <= 3000000;
+    })
+    .sort((a, b) => a.closeness - b.closeness)
+    .slice(0, 100);
+};
+
+const tryInferProjectedFromCatalog = (bounds) => {
+  const suggestions = [];
+  if (!isProjected(bounds)) return suggestions;
+
+  const shortlist = chooseCatalogShortlist(bounds);
+  shortlist.forEach((candidate) => {
+    const normalScore = scoreAxisOrientationForCrs(candidate.code, bounds.avgX, bounds.avgY);
+    const swappedScore = scoreAxisOrientationForCrs(candidate.code, bounds.avgY, bounds.avgX);
+    const bestScore = Math.max(normalScore, swappedScore);
+
+    if (!Number.isFinite(bestScore) || bestScore < 1.85) return;
+
+    const swapped = swappedScore > normalScore + 0.75;
+    const closenessPenalty = Math.min((candidate.closeness || 0) / 2000000, 0.45);
+    const confidence = clampScore(0.45 + ((bestScore - 1.85) * 0.08) - closenessPenalty, 0.35, 0.72);
+    suggestions.push({
+      code: candidate.code,
+      name: candidate.name,
+      confidence,
+      reason: swapped
+        ? 'Catalog plausibility suggests swapped projected axes'
+        : 'Catalog plausibility from projection parameters',
+    });
+  });
+
+  return deduplicateSuggestions(suggestions).slice(0, 10);
 };
 
 const getAxisExtentRulesForCrs = (crsCode) => {
@@ -533,6 +654,7 @@ const tryInferUtmFromBounds = (coordinates, bounds) => {
     for (const hemi of ['N', 'S']) {
       const code = hemi === 'N' ? `EPSG:326${zoneStr}` : `EPSG:327${zoneStr}`;
       try {
+        if (!ensureCrsDefinition(code)) continue;
         // Transform projected avg to geographic lon/lat
         const [lon, lat] = proj4(code, 'EPSG:4326', [avgX, avgY]);
         if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
@@ -541,7 +663,7 @@ const tryInferUtmFromBounds = (coordinates, bounds) => {
         const lonDiff = Math.abs(((lon - cm + 180 + 360) % 360) - 180);
         // Score based on closeness to central meridian and reasonable latitude
         if (lat <= 90 && lat >= -90 && lonDiff < 6) {
-          const confidence = Math.max(0.6, 0.95 - lonDiff / 12);
+          const confidence = Math.max(0.46, 0.64 - lonDiff / 15);
           suggestions.push({ code, name: `WGS 84 / UTM zone ${zone}${hemi}`, confidence, reason: 'Trial transform plausibility' });
         }
       } catch {
@@ -666,19 +788,19 @@ const detectUTM = (bounds) => {
         suggestions.push({
           code: 'EPSG:32631',
           name: 'WGS 84 / UTM zone 31N',
-          confidence: 0.75,
+          confidence: 0.48,
           reason: `UTM Northern (E: ${Math.round(avgX/1000)}km, N: ${Math.round(avgY/1000)}km)`
         });
         suggestions.push({
           code: 'EPSG:32632',
           name: 'WGS 84 / UTM zone 32N',
-          confidence: 0.70,
+          confidence: 0.45,
           reason: 'UTM Northern - adjacent zone'
         });
         suggestions.push({
           code: 'EPSG:32630',
           name: 'WGS 84 / UTM zone 30N',
-          confidence: 0.70,
+          confidence: 0.45,
           reason: 'UTM Northern - adjacent zone'
         });
       } else {
@@ -686,7 +808,7 @@ const detectUTM = (bounds) => {
         suggestions.push({
           code: 'EPSG:32633',
           name: 'WGS 84 / UTM zone 33N',
-          confidence: 0.65,
+          confidence: 0.42,
           reason: 'UTM Northern hemisphere'
         });
       }
@@ -695,7 +817,7 @@ const detectUTM = (bounds) => {
       suggestions.push({
         code: 'EPSG:32733',
         name: 'WGS 84 / UTM zone 33S',
-        confidence: 0.65,
+        confidence: 0.42,
         reason: 'UTM Southern hemisphere'
       });
     }
@@ -731,6 +853,7 @@ export const validateDetectedCRS = (coordinates, detectedCrs) => {
   if (!coordinates || coordinates.length === 0) return false;
   
   try {
+    if (!ensureCrsDefinition(detectedCrs)) return false;
     // Try to transform first coordinate to WGS84
     const firstCoord = coordinates[0];
     const x = parseFloat(firstCoord.x);

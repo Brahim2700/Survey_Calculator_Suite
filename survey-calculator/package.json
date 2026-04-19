@@ -12,6 +12,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "test:crs": "node ./scripts/crs-detection-test.mjs",
+    "test:crs:regression": "node ./scripts/crs-detection-regression.mjs",
     "test:benchmark": "node ./scripts/benchmark-regression-test.mjs",
     "preview": "vite preview",
     "generate:samples": "node ./scripts/generate-samples.mjs"
