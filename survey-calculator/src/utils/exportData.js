@@ -98,6 +98,36 @@ const getNumericOutputXY = (row) => {
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
   return { x, y };
 };
+
+const normalizeDxfLayerName = (value) => {
+  const raw = String(value || '0').trim();
+  if (!raw) return '0';
+  const normalized = raw
+    .replace(/[<>\\/":;?*=|,]+/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .slice(0, 255);
+  return normalized || '0';
+};
+
+const toFiniteNumber = (value, fallback = 0) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+};
+
+const collectGeometryLayers = (geometry = {}) => {
+  const layers = new Set(['0']);
+  (Array.isArray(geometry.lines) ? geometry.lines : []).forEach((line) => {
+    layers.add(normalizeDxfLayerName(line?.layerStandardized || line?.layerNormalized || line?.layerOriginal || line?.layer || '0'));
+  });
+  (Array.isArray(geometry.polylines) ? geometry.polylines : []).forEach((poly) => {
+    layers.add(normalizeDxfLayerName(poly?.layerStandardized || poly?.layerNormalized || poly?.layerOriginal || poly?.layer || '0'));
+  });
+  (Array.isArray(geometry.texts) ? geometry.texts : []).forEach((text) => {
+    layers.add(normalizeDxfLayerName(text?.layerStandardized || text?.layerNormalized || text?.layerOriginal || text?.layer || '0'));
+  });
+  return [...layers];
+};
 /**
  * Export conversion results as CSV
  * @param {Array} results - Array of conversion result objects
@@ -634,6 +664,115 @@ export const exportAsDXF = (results, metadata = null) => {
 };
 
 /**
+ * Export CAD geometry (lines, polylines, texts) as DXF.
+ * Coordinates must already be in desired output CRS.
+ */
+export const exportAsDXFGeometry = (geometry, metadata = null) => {
+  const lines = [];
+  const safeGeometry = {
+    lines: Array.isArray(geometry?.lines) ? geometry.lines : [],
+    polylines: Array.isArray(geometry?.polylines) ? geometry.polylines : [],
+    texts: Array.isArray(geometry?.texts) ? geometry.texts : [],
+  };
+
+  if (!safeGeometry.lines.length && !safeGeometry.polylines.length && !safeGeometry.texts.length) {
+    return null;
+  }
+
+  lines.push('0', 'SECTION', '2', 'HEADER', '9', '$ACADVER', '1', 'AC1009');
+  if (metadata?.fromCrs && metadata?.toCrs) {
+    lines.push('999', `CRS_FROM=${metadata.fromCrs};CRS_TO=${metadata.toCrs}`);
+  }
+  lines.push('0', 'ENDSEC');
+
+  const layerNames = collectGeometryLayers(safeGeometry);
+  lines.push('0', 'SECTION', '2', 'TABLES');
+  lines.push('0', 'TABLE', '2', 'LTYPE', '70', '1');
+  lines.push('0', 'LTYPE', '2', 'CONTINUOUS', '70', '0', '3', 'Solid line', '72', '65', '73', '0', '40', '0.0');
+  lines.push('0', 'ENDTAB');
+
+  lines.push('0', 'TABLE', '2', 'LAYER', '70', String(layerNames.length));
+  layerNames.forEach((layerName) => {
+    lines.push('0', 'LAYER', '2', layerName, '70', '0', '62', '7', '6', 'CONTINUOUS');
+  });
+  lines.push('0', 'ENDTAB');
+  lines.push('0', 'ENDSEC');
+
+  lines.push('0', 'SECTION', '2', 'BLOCKS');
+  lines.push('0', 'BLOCK', '8', '0', '2', '*MODEL_SPACE', '70', '0', '10', '0', '20', '0', '30', '0', '3', '*MODEL_SPACE');
+  lines.push('0', 'ENDBLK', '8', '0');
+  lines.push('0', 'BLOCK', '8', '0', '2', '*PAPER_SPACE', '70', '0', '10', '0', '20', '0', '30', '0', '3', '*PAPER_SPACE');
+  lines.push('0', 'ENDBLK', '8', '0');
+  lines.push('0', 'ENDSEC');
+
+  lines.push('0', 'SECTION', '2', 'ENTITIES');
+
+  safeGeometry.lines.forEach((lineEntity) => {
+    const start = Array.isArray(lineEntity?.start) ? lineEntity.start : [];
+    const end = Array.isArray(lineEntity?.end) ? lineEntity.end : [];
+    const x1 = toFiniteNumber(start[0], NaN);
+    const y1 = toFiniteNumber(start[1], NaN);
+    const z1 = toFiniteNumber(start[2], 0);
+    const x2 = toFiniteNumber(end[0], NaN);
+    const y2 = toFiniteNumber(end[1], NaN);
+    const z2 = toFiniteNumber(end[2], 0);
+    if (!Number.isFinite(x1) || !Number.isFinite(y1) || !Number.isFinite(x2) || !Number.isFinite(y2)) return;
+    const layer = normalizeDxfLayerName(lineEntity?.layerStandardized || lineEntity?.layerNormalized || lineEntity?.layerOriginal || lineEntity?.layer || '0');
+    lines.push('0', 'LINE', '8', layer, '10', String(x1), '20', String(y1), '30', String(z1), '11', String(x2), '21', String(y2), '31', String(z2));
+  });
+
+  safeGeometry.polylines.forEach((polyEntity) => {
+    const points = (Array.isArray(polyEntity?.points) ? polyEntity.points : [])
+      .map((point) => {
+        const x = toFiniteNumber(point?.[0], NaN);
+        const y = toFiniteNumber(point?.[1], NaN);
+        const z = toFiniteNumber(point?.[2], 0);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+        return [x, y, z];
+      })
+      .filter(Boolean);
+    if (points.length < 2) return;
+
+    const layer = normalizeDxfLayerName(polyEntity?.layerStandardized || polyEntity?.layerNormalized || polyEntity?.layerOriginal || polyEntity?.layer || '0');
+    lines.push('0', 'POLYLINE', '8', layer, '66', '1', '70', '0');
+    points.forEach((point) => {
+      lines.push('0', 'VERTEX', '8', layer, '10', String(point[0]), '20', String(point[1]), '30', String(point[2]));
+    });
+    lines.push('0', 'SEQEND', '8', layer);
+  });
+
+  safeGeometry.texts.forEach((textEntity) => {
+    const position = Array.isArray(textEntity?.position) ? textEntity.position : [];
+    const x = toFiniteNumber(position[0], NaN);
+    const y = toFiniteNumber(position[1], NaN);
+    const z = toFiniteNumber(position[2], 0);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+
+    const layer = normalizeDxfLayerName(textEntity?.layerStandardized || textEntity?.layerNormalized || textEntity?.layerOriginal || textEntity?.layer || '0');
+    const textValue = String(textEntity?.text || textEntity?.rawText || '').replace(/\r?\n/g, ' ').trim();
+    if (!textValue) return;
+    const textHeight = Math.max(0.01, toFiniteNumber(textEntity?.textHeight, 2.5));
+    const rotation = toFiniteNumber(textEntity?.rotation, 0);
+    const styleName = String(textEntity?.styleName || 'STANDARD').trim() || 'STANDARD';
+
+    lines.push(
+      '0', 'TEXT',
+      '8', layer,
+      '10', String(x),
+      '20', String(y),
+      '30', String(z),
+      '40', String(textHeight),
+      '1', textValue,
+      '50', String(rotation),
+      '7', styleName
+    );
+  });
+
+  lines.push('0', 'ENDSEC', '0', 'EOF');
+  return lines.join('\r\n');
+};
+
+/**
  * Export conversion results as DWG (text-based ASCII DXF format)
  * Note: True binary DWG requires specialized libraries; this exports as DXF with .dwg extension
  * @param {Array} results - Array of conversion result objects
@@ -758,7 +897,7 @@ export const exportAsShapefile = async () => {
  * @param {String} toCrs - Target CRS code
  * @param {Boolean} includeGeoid - Whether geoid data is included
  */
-export const exportAllFormats = async (results, fromCrs, toCrs, includeGeoid = false, metadata = null) => {
+export const exportAllFormats = async (results, fromCrs, toCrs, includeGeoid = false, metadata = null, options = {}) => {
   const JSZip = (await import('jszip')).default;
   const zip = new JSZip();
 
@@ -783,7 +922,7 @@ export const exportAllFormats = async (results, fromCrs, toCrs, includeGeoid = f
   if (wkt) zip.file('coordinates.wkt', wkt);
 
   // Add DXF
-  const dxf = exportAsDXF(results, metadata);
+  const dxf = options?.dxfData || exportAsDXF(results, metadata);
   if (dxf) zip.file('coordinates.dxf', dxf);
 
   // Add XLSX

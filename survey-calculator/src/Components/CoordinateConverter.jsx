@@ -10,7 +10,7 @@ import CrsSearchSelector from "./CrsSearchSelector";
 import GeoidLoader from "./GeoidLoader";
 import { tryParseWKT, tryParseUTM, parseHemisphericNumber, parseGeoJSONFile, parseGPXFile, parseKMLFile, parseShapefileZip, parseXLSXFile, parseDXFFile, parseDWGFile } from "../utils/fileImport";
 import { getCadBackendStatus } from "../utils/cadApi";
-import { exportAsCSV, exportAsGeoJSON, exportAsKML, exportAsGPX, exportAsXLSX, exportAsWKT, exportAsDXF, exportAllFormats, downloadFile } from "../utils/exportData";
+import { exportAsCSV, exportAsGeoJSON, exportAsKML, exportAsGPX, exportAsXLSX, exportAsWKT, exportAsDXF, exportAsDXFGeometry, exportAllFormats, downloadFile } from "../utils/exportData";
 // Import the map visualization component
 import MapVisualization from "./MapVisualization";
 import { on, emit } from "../utils/eventBus";
@@ -1016,6 +1016,8 @@ const CoordinateConverter = () => {
   const [cadBackendStatus, setCadBackendStatus] = useState(null);
   const [cadBackendStatusError, setCadBackendStatusError] = useState("");
   const [cadInspection, setCadInspection] = useState(null);
+  const [cadSourceGeometry, setCadSourceGeometry] = useState(null);
+  const [cadGeometrySourceCrs, setCadGeometrySourceCrs] = useState(null);
   const [cadValidationSortBy, setCadValidationSortBy] = useState("severity");
   const [cadValidationSortDir, setCadValidationSortDir] = useState("desc");
   const [cadValidationSeverityFilter, setCadValidationSeverityFilter] = useState("all");
@@ -1551,20 +1553,88 @@ const CoordinateConverter = () => {
     }
   }, [bulkResults, buildExportMetadata]);
 
+  const buildCadGeometryDxfBundle = useCallback(() => {
+    const hasCadGeometry = Boolean(
+      cadSourceGeometry
+      && ((Array.isArray(cadSourceGeometry.lines) && cadSourceGeometry.lines.length > 0)
+        || (Array.isArray(cadSourceGeometry.polylines) && cadSourceGeometry.polylines.length > 0)
+        || (Array.isArray(cadSourceGeometry.texts) && cadSourceGeometry.texts.length > 0))
+    );
+    if (!hasCadGeometry) return null;
+
+    const isKnownCrs = (code) => CRS_LIST.some((crs) => crs.code === code);
+    const sourceCandidate = cadGeometrySourceCrs;
+    const resolvedSourceCrs = (sourceCandidate && sourceCandidate !== "LOCAL:ENGINEERING" && isKnownCrs(sourceCandidate))
+      ? sourceCandidate
+      : fromCrs;
+
+    if (!isKnownCrs(resolvedSourceCrs) || !isKnownCrs(toCrs)) {
+      throw new Error("CAD geometry export needs valid source and target CRS. Set CRS manually and retry.");
+    }
+
+    const projectPoint = (point) => {
+      const x = Number(point?.[0]);
+      const y = Number(point?.[1]);
+      const z = Number(point?.[2] ?? 0);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      if (resolvedSourceCrs === toCrs) return [x, y, Number.isFinite(z) ? z : 0];
+      const [xOut, yOut] = projectWithNormalizedSourceAxes(resolvedSourceCrs, toCrs, x, y);
+      if (!Number.isFinite(xOut) || !Number.isFinite(yOut)) return null;
+      return [xOut, yOut, Number.isFinite(z) ? z : 0];
+    };
+
+    const transformedGeometry = {
+      lines: (Array.isArray(cadSourceGeometry.lines) ? cadSourceGeometry.lines : [])
+        .map((line) => {
+          const start = projectPoint(line?.start);
+          const end = projectPoint(line?.end);
+          if (!start || !end) return null;
+          return { ...line, start, end };
+        })
+        .filter(Boolean),
+      polylines: (Array.isArray(cadSourceGeometry.polylines) ? cadSourceGeometry.polylines : [])
+        .map((poly) => {
+          const points = (Array.isArray(poly?.points) ? poly.points : []).map((pt) => projectPoint(pt)).filter(Boolean);
+          if (points.length < 2) return null;
+          return { ...poly, points };
+        })
+        .filter(Boolean),
+      texts: (Array.isArray(cadSourceGeometry.texts) ? cadSourceGeometry.texts : [])
+        .map((textEntity) => {
+          const position = projectPoint(textEntity?.position);
+          if (!position) return null;
+          return { ...textEntity, position };
+        })
+        .filter(Boolean),
+    };
+
+    const metadata = {
+      ...buildExportMetadata(),
+      fromCrs: resolvedSourceCrs,
+      toCrs,
+    };
+    const data = exportAsDXFGeometry(transformedGeometry, metadata);
+    if (!data) return null;
+    return { data, metadata };
+  }, [buildExportMetadata, cadGeometrySourceCrs, cadSourceGeometry, fromCrs, toCrs]);
+
   const handleExportDXF = useCallback(() => {
     if (bulkResults.length === 0) {
       alert("No results to export");
       return;
     }
     try {
-      const data = exportAsDXF(bulkResults, buildExportMetadata());
-      const filename = `coordinates_${new Date().toISOString().split('T')[0]}.dxf`;
+      const cadBundle = buildCadGeometryDxfBundle();
+      const data = cadBundle?.data || exportAsDXF(bulkResults, buildExportMetadata());
+      const filename = cadBundle
+        ? `coordinates_cad_geometry_${new Date().toISOString().split('T')[0]}.dxf`
+        : `coordinates_${new Date().toISOString().split('T')[0]}.dxf`;
       downloadFile(data, filename, 'dxf');
     } catch (err) {
       console.error('Export DXF failed:', err);
       alert('Export failed: ' + err.message);
     }
-  }, [bulkResults, buildExportMetadata]);
+  }, [bulkResults, buildCadGeometryDxfBundle, buildExportMetadata]);
 
   const handleExportAll = useCallback(async () => {
     if (bulkResults.length === 0) {
@@ -1572,12 +1642,20 @@ const CoordinateConverter = () => {
       return;
     }
     try {
-      await exportAllFormats(bulkResults, fromCrs, toCrs, geoidMode !== "none", buildExportMetadata());
+      const cadBundle = buildCadGeometryDxfBundle();
+      await exportAllFormats(
+        bulkResults,
+        fromCrs,
+        toCrs,
+        geoidMode !== "none",
+        buildExportMetadata(),
+        { dxfData: cadBundle?.data || null }
+      );
     } catch (err) {
       console.error('Export All failed:', err);
       alert('Export failed: ' + err.message);
     }
-  }, [bulkResults, fromCrs, toCrs, geoidMode, buildExportMetadata]);
+  }, [bulkResults, fromCrs, toCrs, geoidMode, buildCadGeometryDxfBundle, buildExportMetadata]);
 
   const handleExportBenchmarkReport = useCallback(() => {
     if (!benchmarkSummary || benchmarkRows.length === 0) {
@@ -2767,6 +2845,8 @@ const CoordinateConverter = () => {
     setBulkUploadFile(null);
     setBulkUploadError("");
     setCadInspection(null);
+    setCadSourceGeometry(null);
+    setCadGeometrySourceCrs(null);
     setSelectedBulkRows([]);
     setShowBulkTextInput(false);
 
@@ -2824,6 +2904,8 @@ const CoordinateConverter = () => {
     setBulkUploadFile(file || null);
     setBulkUploadError("");
     setImportCrsNotice("");
+    setCadSourceGeometry(null);
+    setCadGeometrySourceCrs(null);
     setCadInspection(file ? {
       fileName: file.name,
       extension: `.${(file.name.split('.')?.pop() || '').toLowerCase()}`,
@@ -2918,11 +3000,13 @@ const CoordinateConverter = () => {
       }
 
       setCadInspection(buildCadInspectionSummary(file, rows, latestCadStatus, cadPayload));
+        setCadSourceGeometry(cadPayload?.geometry || null);
+        setCadGeometrySourceCrs(sourceCrs || null);
 
-  const previewPoints = projectCadRowsToWgs84(rows, sourceCrs, cadPayload?.geometry);
+        const previewPoints = projectCadRowsToWgs84(rows, sourceCrs, cadPayload?.geometry);
       emit("converter:pointsForMap", { points: previewPoints });
 
-  const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrs, rows);
+        const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrs, rows);
       emit("converter:cadGeometryForMap", { geometry: projectedGeometry });
 
       setBulkProgress(null);
@@ -3072,9 +3156,13 @@ const CoordinateConverter = () => {
           setCadInspection(buildCadInspectionSummary(file, rows, latestCadStatus, cadPayload));
 
           const sourceCrsForGeometry = rows.find((r) => r.detectedFromCrs)?.detectedFromCrs || cadPayload?.inspection?.detectedFromCrs || fromCrs;
+          setCadSourceGeometry(cadPayload?.geometry || null);
+          setCadGeometrySourceCrs(sourceCrsForGeometry || null);
           const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrsForGeometry, rows);
           emit("converter:cadGeometryForMap", { geometry: projectedGeometry });
         } else {
+          setCadSourceGeometry(null);
+          setCadGeometrySourceCrs(null);
           emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [] } });
         }
         
