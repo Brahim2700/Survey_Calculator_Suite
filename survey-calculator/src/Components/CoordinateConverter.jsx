@@ -1033,8 +1033,6 @@ const CoordinateConverter = () => {
   const [showConfidenceTooltip, setShowConfidenceTooltip] = useState(false);
   const [lastDetectInput, setLastDetectInput] = useState(null);
   const [detectionMapMode, setDetectionMapMode] = useState("top"); // top | all
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [showBulkResetConfirm, setShowBulkResetConfirm] = useState(false);
   const [, setBulkSummary] = useState(null);
   const [bulkIsConverting, setBulkIsConverting] = useState(false);
   const [presets, setPresets] = useState([]);
@@ -2844,8 +2842,6 @@ const CoordinateConverter = () => {
 
   const performResetAll = () => {
     pushHistory();
-    setShowResetConfirm(false);
-    setShowBulkResetConfirm(false);
 
     // Clear single point inputs and results
     setX("");
@@ -2902,18 +2898,12 @@ const CoordinateConverter = () => {
   };
 
   const handleResetAll = () => {
-    if (hasDataToClear()) {
-      setShowResetConfirm(true);
-      return;
-    }
+    if (!hasDataToClear()) return;
     performResetAll();
   };
 
   const handleBulkResetAll = () => {
-    if (hasDataToClear()) {
-      setShowBulkResetConfirm(true);
-      return;
-    }
+    if (!hasDataToClear()) return;
     performResetAll();
   };
 
@@ -4364,28 +4354,6 @@ const CoordinateConverter = () => {
         </div>
       </div>
 
-      {showResetConfirm && (
-        <div style={{ marginTop: "0.65rem", padding: "0.65rem 0.75rem", border: "1px solid #fecaca", background: "#fff1f2", borderRadius: "8px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
-          <span style={{ color: "#9f1239", fontSize: "0.88rem", fontWeight: 600 }}>
-            Reset the current single-point workflow and clear all results?
-          </span>
-          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-            <button
-              onClick={() => setShowResetConfirm(false)}
-              style={{ padding: "0.35rem 0.7rem", border: "1px solid #cbd5e1", borderRadius: "6px", background: "#fff", color: "#334155", cursor: "pointer", fontWeight: 600 }}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={performResetAll}
-              style={{ padding: "0.35rem 0.7rem", border: "none", borderRadius: "6px", background: "#dc2626", color: "#fff", cursor: "pointer", fontWeight: 600 }}
-            >
-              Reset Now
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Detect suggestions dropdown */}
       {showDetectSuggestions && detectSuggestions && detectSuggestions.length > 0 && (
         <div style={{ marginTop: "0.5rem", border: '1px solid #e2e8f0', borderRadius: 8, padding: 8, background: '#fff', maxWidth: 720 }}>
@@ -5054,28 +5022,6 @@ const CoordinateConverter = () => {
           </div>
         )}
       </div>
-      )}
-
-      {showBulkResetConfirm && (
-        <div style={{ marginTop: "0.65rem", padding: "0.65rem 0.75rem", border: "1px solid #fecaca", background: "#fff1f2", borderRadius: "8px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
-          <span style={{ color: "#9f1239", fontSize: "0.88rem", fontWeight: 600 }}>
-            Reset the current bulk workflow, benchmark results, and map output?
-          </span>
-          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-            <button
-              onClick={() => setShowBulkResetConfirm(false)}
-              style={{ padding: "0.35rem 0.7rem", border: "1px solid #cbd5e1", borderRadius: "6px", background: "#fff", color: "#334155", cursor: "pointer", fontWeight: 600 }}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={performResetAll}
-              style={{ padding: "0.35rem 0.7rem", border: "none", borderRadius: "6px", background: "#dc2626", color: "#fff", cursor: "pointer", fontWeight: 600 }}
-            >
-              Reset Now
-            </button>
-          </div>
-        </div>
       )}
 
       {bulkResults.length > 0 && (
