@@ -468,6 +468,23 @@ const collectTextLabels = (entities) => {
   return labels;
 };
 
+const parseCadElevationText = (value) => {
+  const text = normalizeCadLabelCandidate(value);
+  if (!text) return null;
+  const normalized = text
+    .replace(',', '.')
+    .replace(/[^0-9+\-.]/g, ' ')
+    .trim();
+  if (!normalized) return null;
+  const token = normalized.split(/\s+/).find((part) => /^[-+]?\d+(?:\.\d+)?$/.test(part));
+  if (!token) return null;
+  const numeric = Number(token);
+  if (!Number.isFinite(numeric)) return null;
+  // Accept typical survey elevations while avoiding accidental huge IDs.
+  if (numeric < -2000 || numeric > 15000) return null;
+  return numeric;
+};
+
 const assignNearbyTextNames = (rows, labels, drawingDiagonal = 0) => {
   if (!Array.isArray(rows) || rows.length === 0 || !Array.isArray(labels) || labels.length === 0) return 0;
 
@@ -504,6 +521,42 @@ const assignNearbyTextNames = (rows, labels, drawingDiagonal = 0) => {
     rows[best.idx].id = label.text;
     rows[best.idx].hasExplicitName = true;
     usedRowIndexes.add(best.idx);
+    assigned += 1;
+  });
+
+  return assigned;
+};
+
+const assignNearbyTextElevations = (rows, labels, drawingDiagonal = 0) => {
+  if (!Array.isArray(rows) || rows.length === 0 || !Array.isArray(labels) || labels.length === 0) return 0;
+
+  const tolerance = Math.max(2, Math.min(250, drawingDiagonal > 0 ? drawingDiagonal * 0.004 : 50));
+  let assigned = 0;
+
+  rows.forEach((row) => {
+    const hasNumericZ = Number.isFinite(Number(row?.z));
+    if (hasNumericZ && Number(row.z) !== 0) return;
+
+    const candidate = labels
+      .map((label) => {
+        const value = parseCadElevationText(label?.text);
+        if (!Number.isFinite(value)) return null;
+        const dist = Math.hypot((Number(row?.x) || 0) - Number(label?.x), (Number(row?.y) || 0) - Number(label?.y));
+        return {
+          value,
+          dist,
+          sameLayer: String(row?.layer || '') === String(label?.layer || ''),
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => {
+        if (a.sameLayer !== b.sameLayer) return a.sameLayer ? -1 : 1;
+        return a.dist - b.dist;
+      })[0];
+
+    if (!candidate || candidate.dist > tolerance) return;
+    row.z = candidate.value;
+    row.hasExplicitElevation = true;
     assigned += 1;
   });
 
@@ -1017,6 +1070,7 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
       fallbackVertices: 0,
       dedupMerged: 0,
       textLabelAssigned: 0,
+      textElevationAssigned: 0,
     },
     references: expandedCad.diagnostics.references,
     resolution: expandedCad.diagnostics.resolution,
@@ -1098,6 +1152,7 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
   }
 
   diagnostics.extraction.textLabelAssigned = assignNearbyTextNames(rows, textLabels, drawingDiagonal);
+  diagnostics.extraction.textElevationAssigned = assignNearbyTextElevations(rows, textLabels, drawingDiagonal);
 
   const coordinates = rows.map((row) => ({ x: row.x, y: row.y, z: row.z }));
   const bounds = getBoundingBoxFromPoints(coordinates);

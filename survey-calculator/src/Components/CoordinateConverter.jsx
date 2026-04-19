@@ -2151,9 +2151,7 @@ const CoordinateConverter = () => {
         const xVal = Number(row?.x);
         const yVal = Number(row?.y);
         if (!Number.isFinite(xVal) || !Number.isFinite(yVal)) return null;
-        const pointName = row?.hasExplicitName && String(row?.id || '').trim()
-          ? String(row.id).trim()
-          : String(index + 1);
+        const pointName = String(row?.id || '').trim() || String(index + 1);
         const pointId = String(row?.id || pointName || `cad_${index + 1}`);
 
         if (useLocalPreview) {
