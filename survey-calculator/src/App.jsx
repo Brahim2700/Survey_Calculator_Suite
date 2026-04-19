@@ -628,16 +628,6 @@ function App() {
                 )}
               </div>
             )}
-
-            {/* Geoid undulation legend */}
-            <div className="geoid-bar">
-              <strong>Geoid undulation:</strong>
-              <span className="geoid-chip" style={{ background:"rgba(0,0,255,.15)", color:"#93c5fd" }}>&lt;−10 m</span>
-              <span className="geoid-chip" style={{ background:"rgba(0,200,200,.12)", color:"#67e8f9" }}>−10 → −2 m</span>
-              <span className="geoid-chip" style={{ background:"rgba(0,200,80,.12)", color:"#6ee7b7" }}>±2 m</span>
-              <span className="geoid-chip" style={{ background:"rgba(220,200,0,.12)", color:"#fde68a" }}>+2 → +10 m</span>
-              <span className="geoid-chip" style={{ background:"rgba(220,38,38,.12)", color:"#fca5a5" }}>&gt;+10 m</span>
-            </div>
           </div>
         </div>
       </div>
