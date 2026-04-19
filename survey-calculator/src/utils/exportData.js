@@ -117,6 +117,9 @@ const toFiniteNumber = (value, fallback = 0) => {
 
 const collectGeometryLayers = (geometry = {}) => {
   const layers = new Set(['0']);
+  (Array.isArray(geometry.points) ? geometry.points : []).forEach((point) => {
+    layers.add(normalizeDxfLayerName(point?.layer || 'POINTS'));
+  });
   (Array.isArray(geometry.lines) ? geometry.lines : []).forEach((line) => {
     layers.add(normalizeDxfLayerName(line?.layerStandardized || line?.layerNormalized || line?.layerOriginal || line?.layer || '0'));
   });
@@ -559,6 +562,10 @@ export const exportAsDXF = (results, metadata = null) => {
     'AC1009'
   );
 
+  // Make POINT entities visible in most CAD viewers by default.
+  lines.push('9', '$PDMODE', '70', '35');
+  lines.push('9', '$PDSIZE', '40', '1.0');
+
   if (metadata && metadata.fromCrs && metadata.toCrs) {
     lines.push('999', `CRS_FROM=${metadata.fromCrs};CRS_TO=${metadata.toCrs}`);
   }
@@ -670,16 +677,19 @@ export const exportAsDXF = (results, metadata = null) => {
 export const exportAsDXFGeometry = (geometry, metadata = null) => {
   const lines = [];
   const safeGeometry = {
+    points: Array.isArray(geometry?.points) ? geometry.points : [],
     lines: Array.isArray(geometry?.lines) ? geometry.lines : [],
     polylines: Array.isArray(geometry?.polylines) ? geometry.polylines : [],
     texts: Array.isArray(geometry?.texts) ? geometry.texts : [],
   };
 
-  if (!safeGeometry.lines.length && !safeGeometry.polylines.length && !safeGeometry.texts.length) {
+  if (!safeGeometry.points.length && !safeGeometry.lines.length && !safeGeometry.polylines.length && !safeGeometry.texts.length) {
     return null;
   }
 
   lines.push('0', 'SECTION', '2', 'HEADER', '9', '$ACADVER', '1', 'AC1009');
+  lines.push('9', '$PDMODE', '70', '35');
+  lines.push('9', '$PDSIZE', '40', '1.0');
   if (metadata?.fromCrs && metadata?.toCrs) {
     lines.push('999', `CRS_FROM=${metadata.fromCrs};CRS_TO=${metadata.toCrs}`);
   }
@@ -706,6 +716,15 @@ export const exportAsDXFGeometry = (geometry, metadata = null) => {
   lines.push('0', 'ENDSEC');
 
   lines.push('0', 'SECTION', '2', 'ENTITIES');
+
+  safeGeometry.points.forEach((pointEntity) => {
+    const x = toFiniteNumber(pointEntity?.x ?? pointEntity?.[0], NaN);
+    const y = toFiniteNumber(pointEntity?.y ?? pointEntity?.[1], NaN);
+    const z = toFiniteNumber(pointEntity?.z ?? pointEntity?.[2], 0);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const layer = normalizeDxfLayerName(pointEntity?.layer || 'POINTS');
+    lines.push('0', 'POINT', '8', layer, '62', '7', '10', String(x), '20', String(y), '30', String(z));
+  });
 
   safeGeometry.lines.forEach((lineEntity) => {
     const start = Array.isArray(lineEntity?.start) ? lineEntity.start : [];

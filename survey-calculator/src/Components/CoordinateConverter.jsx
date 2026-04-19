@@ -1612,6 +1612,31 @@ const CoordinateConverter = () => {
     };
 
     const transformedGeometry = {
+      points: (Array.isArray(bulkResults) ? bulkResults : [])
+        .map((row, index) => {
+          const xRaw = Number(row?.outputXRaw);
+          const yRaw = Number(row?.outputYRaw);
+          const xParsed = Number.isFinite(xRaw)
+            ? xRaw
+            : parseFloat(normalizeNumericToken(row?.outputX));
+          const yParsed = Number.isFinite(yRaw)
+            ? yRaw
+            : parseFloat(normalizeNumericToken(row?.outputY));
+          const x = Number.isFinite(xParsed) ? xParsed : parseDMSToDD(row?.outputX);
+          const y = Number.isFinite(yParsed) ? yParsed : parseDMSToDD(row?.outputY);
+          const z = row?.outputZ !== undefined && row?.outputZ !== null && row?.outputZ !== ''
+            ? Number(normalizeNumericToken(row.outputZ))
+            : 0;
+          if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+          return {
+            x,
+            y,
+            z: Number.isFinite(z) ? z : 0,
+            layer: 'POINTS',
+            id: String(row?.id || index + 1),
+          };
+        })
+        .filter(Boolean),
       lines: (Array.isArray(cadSourceGeometry.lines) ? cadSourceGeometry.lines : [])
         .map((line) => {
           const start = projectPoint(line?.start);
@@ -1644,7 +1669,7 @@ const CoordinateConverter = () => {
     const data = exportAsDXFGeometry(transformedGeometry, metadata);
     if (!data) return null;
     return { data, metadata };
-  }, [buildExportMetadata, cadGeometrySourceCrs, cadSourceGeometry, fromCrs, toCrs]);
+  }, [buildExportMetadata, bulkResults, cadGeometrySourceCrs, cadSourceGeometry, fromCrs, toCrs]);
 
   const handleExportDXF = useCallback(() => {
     if (bulkResults.length === 0) {
