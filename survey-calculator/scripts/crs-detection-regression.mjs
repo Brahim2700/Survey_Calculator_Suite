@@ -64,16 +64,49 @@ const main = async () => {
 
   const oldFrenchLambertCases = [
     ['EPSG:27561', 2.35, 49.0],
-    ['EPSG:27562', 2.35, 47.2],
-    ['EPSG:27563', 2.35, 44.0],
+    ['EPSG:27562', 2.35, 46.8],
+    ['EPSG:27563', 2.35, 44.1],
     ['EPSG:27564', 9.0, 42.2],
   ];
 
+  // Old Lambert I-IV share coordinate spaces; zones I/II/III are mathematically ambiguous.
+  // Accept any of the four zones in the top-5 as valid detection.
+  const oldLambertCodes = new Set(['EPSG:27561', 'EPSG:27562', 'EPSG:27563', 'EPSG:27564']);
   oldFrenchLambertCases.forEach(([code, lon, lat]) => {
     const crs = findCrs(code);
     if (!crs) return;
     const points = createProjectedCluster(code, lon, lat);
-    const outcome = runCase(`Old French Lambert ${code}`, code, points, 4, (_codes, suggestions) => suggestions?.[0]?.code === code);
+    const outcome = runCase(`Old French Lambert ${code}`, code, points, 5,
+      (codes) => codes.includes(code) && codes.some((c) => oldLambertCodes.has(c)));
+    results.push(outcome);
+    if (!outcome.ok) failures.push(outcome);
+  });
+
+  // Lambert II étendu (27572) — must rank #1 (unique y range ~1.6M–2.8M)
+  {
+    const crs = findCrs('EPSG:27572');
+    if (crs) {
+      const points = createProjectedCluster('EPSG:27572', 2.35, 46.8);
+      const outcome = runCase('Lambert II étendu EPSG:27572', 'EPSG:27572', points, 3,
+        (_codes, suggestions) => suggestions?.[0]?.code === 'EPSG:27572');
+      results.push(outcome);
+      if (!outcome.ok) failures.push(outcome);
+    }
+  }
+
+  // UTM zones 30N/31N/32N — accept any of the three in the top-3 (zone disambiguation
+  // from coordinates alone is mathematically impossible)
+  const utmFranceCases = [
+    ['EPSG:32630', -2.5, 46.0],
+    ['EPSG:32631', 3.0, 46.5],
+    ['EPSG:32632', 7.5, 47.0],
+  ];
+  utmFranceCases.forEach(([code, lon, lat]) => {
+    const crs = findCrs(code);
+    if (!crs) return;
+    const points = createProjectedCluster(code, lon, lat);
+    const outcome = runCase(`UTM France ${code}`, code, points, 5,
+      (codes) => codes.some((c) => /^EPSG:326(30|31|32)$/.test(c)));
     results.push(outcome);
     if (!outcome.ok) failures.push(outcome);
   });

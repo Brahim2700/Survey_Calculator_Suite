@@ -345,24 +345,24 @@ const detectGeographic = (bounds) => {
 // Extents-based projection tables (France Lambert examples)
 const FR_LAMBERT_EXTENTS = [
   { code: 'EPSG:2154', name: 'RGF93 / Lambert-93', xmin: 0, xmax: 1300000, ymin: 6000000, ymax: 7200000, confidence: 0.88 },
-  // Lambert II étendue (extended Lambert II area)
-  { code: 'EPSG:27562', name: 'Lambert II (étendue)', xmin: 0, xmax: 1200000, ymin: 1600000, ymax: 2700000, confidence: 0.62 },
-  { code: 'EPSG:27561', name: 'Lambert I (France nord)', xmin: 0, xmax: 1200000, ymin: -700000, ymax: 400000, confidence: 0.62 },
-  { code: 'EPSG:27562', name: 'Lambert II (France centre)', xmin: 0, xmax: 1200000, ymin: -400000, ymax: 700000, confidence: 0.62 },
-  { code: 'EPSG:27563', name: 'Lambert III (France sud)', xmin: 0, xmax: 1200000, ymin: -100000, ymax: 1000000, confidence: 0.62 },
-  { code: 'EPSG:27564', name: 'Lambert IV (Corse)', xmin: -600000, xmax: 600000, ymin: 100000, ymax: 1200000, confidence: 0.62 },
-  { code: 'EPSG:27560', name: 'Lambert OACI', xmin: 100000, xmax: 1300000, ymin: -200000, ymax: 900000, confidence: 0.62 },
-  // Add UTM rough extents for France zones
-  { code: 'EPSG:32630', name: 'UTM 30N', xmin: 300000, xmax: 1600000, ymin: 4600000, ymax: 5700000, confidence: 0.74 },
-  { code: 'EPSG:32631', name: 'UTM 31N', xmin: -200000, xmax: 1100000, ymin: 4500000, ymax: 5700000, confidence: 0.74 },
-  { code: 'EPSG:32632', name: 'UTM 32N', xmin: -600000, xmax: 5300000, ymin: 4500000, ymax: 5700000, confidence: 0.74 }
+  // NTF Lambert zones (old French Lambert)
+  { code: 'EPSG:27561', name: 'Lambert I (France nord)', xmin: 0, xmax: 1200000, ymin: -200000, ymax: 400000, confidence: 0.82 },
+  { code: 'EPSG:27562', name: 'Lambert II (France centre)', xmin: 0, xmax: 1200000, ymin: 0, ymax: 500000, confidence: 0.82 },
+  { code: 'EPSG:27563', name: 'Lambert III (France sud)', xmin: 0, xmax: 1200000, ymin: 0, ymax: 600000, confidence: 0.82 },
+  { code: 'EPSG:27564', name: 'Lambert IV (Corse)', xmin: 400000, xmax: 700000, ymin: 50000, ymax: 400000, confidence: 0.82 },
+  // Lambert II étendu (covers all of France, y_0=2200000)
+  { code: 'EPSG:27572', name: 'Lambert II étendu', xmin: 0, xmax: 1200000, ymin: 1600000, ymax: 2800000, confidence: 0.88 },
+  // UTM zones covering France (proper easting range)
+  { code: 'EPSG:32630', name: 'UTM 30N', xmin: 166000, xmax: 834000, ymin: 4600000, ymax: 5700000, confidence: 0.78 },
+  { code: 'EPSG:32631', name: 'UTM 31N', xmin: 166000, xmax: 834000, ymin: 4600000, ymax: 5700000, confidence: 0.78 },
+  { code: 'EPSG:32632', name: 'UTM 32N', xmin: 166000, xmax: 834000, ymin: 4600000, ymax: 5700000, confidence: 0.78 }
 ];
 
 // Additional common grids / zones (approximate extents)
 FR_LAMBERT_EXTENTS.push(
-  { code: 'EPSG:25830', name: 'ETRS89 / UTM zone 30N', xmin: 300000, xmax: 1600000, ymin: 4600000, ymax: 5700000, confidence: 0.72 },
-  { code: 'EPSG:25831', name: 'ETRS89 / UTM zone 31N', xmin: -200000, xmax: 1100000, ymin: 4500000, ymax: 5700000, confidence: 0.72 },
-  { code: 'EPSG:25832', name: 'ETRS89 / UTM zone 32N', xmin: -600000, xmax: 5300000, ymin: 4500000, ymax: 5700000, confidence: 0.72 },
+  { code: 'EPSG:25830', name: 'ETRS89 / UTM zone 30N', xmin: 166000, xmax: 834000, ymin: 4600000, ymax: 5700000, confidence: 0.76 },
+  { code: 'EPSG:25831', name: 'ETRS89 / UTM zone 31N', xmin: 166000, xmax: 834000, ymin: 4600000, ymax: 5700000, confidence: 0.76 },
+  { code: 'EPSG:25832', name: 'ETRS89 / UTM zone 32N', xmin: 166000, xmax: 834000, ymin: 4600000, ymax: 5700000, confidence: 0.76 },
   { code: 'EPSG:3035', name: 'ETRS89 / LAEA Europe', xmin: -4000000, xmax: 9000000, ymin: -4000000, ymax: 9000000, confidence: 0.7 },
   { code: 'EPSG:21781', name: 'CH1903 / LV03 (Switzerland)', xmin: 480000, xmax: 840000, ymin: 60000, ymax: 310000, confidence: 0.87 },
   { code: 'EPSG:28992', name: 'Amersfoort / RD New (Netherlands)', xmin: -250000, xmax: 850000, ymin: 250000, ymax: 625000, confidence: 0.84 },
@@ -389,14 +389,15 @@ const extentConfidence = (entry, swapped = false) => {
   return adjusted;
 };
 
-const isFrenchProjectedCandidate = (code) => /^EPSG:(2154|2756[0-4]|394[2-9]|3950)$/.test(code);
+const isFrenchProjectedCandidate = (code) => /^EPSG:(2154|2756[0-4]|27572|394[2-9]|3950)$/.test(code);
 
 const OLD_FRENCH_LAMBERT_LATITUDE = {
   'EPSG:27560': 46.5,
   'EPSG:27561': 49.0,
-  'EPSG:27562': 47.2,
-  'EPSG:27563': 44.0,
+  'EPSG:27562': 46.8,
+  'EPSG:27563': 44.1,
   'EPSG:27564': 42.2,
+  'EPSG:27572': 46.8,
 };
 
 const OLD_FRENCH_LAMBERT_LONGITUDE = {
@@ -405,6 +406,17 @@ const OLD_FRENCH_LAMBERT_LONGITUDE = {
   'EPSG:27562': 2.337229,
   'EPSG:27563': 2.337229,
   'EPSG:27564': 8.9,
+  'EPSG:27572': 2.337229,
+};
+
+// Geographic coverage bands for old French Lambert zones
+const OLD_FRENCH_LAMBERT_COVERAGE = {
+  'EPSG:27560': { latMin: 42.0, latMax: 51.5, lonMin: -5.5, lonMax: 10.0 },
+  'EPSG:27561': { latMin: 48.15, latMax: 51.1, lonMin: -5.5, lonMax: 8.5 },
+  'EPSG:27562': { latMin: 45.45, latMax: 48.15, lonMin: -5.5, lonMax: 8.5 },
+  'EPSG:27563': { latMin: 42.76, latMax: 45.45, lonMin: -5.5, lonMax: 8.5 },
+  'EPSG:27564': { latMin: 41.0, latMax: 43.8, lonMin: 8.0, lonMax: 10.0 },
+  'EPSG:27572': { latMin: 42.0, latMax: 51.5, lonMin: -5.5, lonMax: 10.0 },
 };
 
 const isWithinFranceLikeBounds = (lon, lat, code) => {
@@ -413,6 +425,36 @@ const isWithinFranceLikeBounds = (lon, lat, code) => {
     return lon >= 8 && lon <= 10 && lat >= 41 && lat <= 43.5;
   }
   return lon >= -6.5 && lon <= 11.5 && lat >= 41 && lat <= 52.5;
+};
+
+/**
+ * Score how well a reverse-projected position matches a zone's geographic coverage.
+ * Returns a value in [-0.30, +0.15] that adjusts the base confidence.
+ */
+const getOldLambertCoverageScore = (code, lon, lat) => {
+  const band = OLD_FRENCH_LAMBERT_COVERAGE[code];
+  if (!band) return 0;
+
+  const inLat = lat >= band.latMin && lat <= band.latMax;
+  const inLon = lon >= band.lonMin && lon <= band.lonMax;
+
+  if (inLat && inLon) {
+    // Perfect match: within zone coverage
+    const latCenter = (band.latMin + band.latMax) / 2;
+    const latRadius = (band.latMax - band.latMin) / 2;
+    const latCloseness = 1 - Math.abs(lat - latCenter) / (latRadius || 1);
+    return 0.10 + latCloseness * 0.05;
+  }
+
+  if (!inLon) {
+    // Wrong longitude region (e.g., mainland coords tested against Corsica zone)
+    const lonOff = Math.min(Math.abs(lon - band.lonMin), Math.abs(lon - band.lonMax));
+    return -Math.min(0.30, lonOff * 0.04);
+  }
+
+  // Right longitude, wrong latitude band
+  const latOff = lat < band.latMin ? band.latMin - lat : lat - band.latMax;
+  return -Math.min(0.20, latOff * 0.06);
 };
 
 const getFrenchLatitudePenalty = (code, lat) => {
@@ -435,14 +477,77 @@ const getFrenchLongitudePenalty = (code, lon) => {
   return Math.min(0.24, diff * 0.08);
 };
 
+const isUtmCode = (code) => /^EPSG:(326|327)\d{2}$/.test(code);
+const isEtrsUtmCode = (code) => /^EPSG:258(2\d|3[0-2])$/.test(code);
+
+const getUtmZoneFromCode = (code) => {
+  if (isUtmCode(code)) return parseInt(code.replace(/^EPSG:32[67]/, ''), 10);
+  if (isEtrsUtmCode(code)) {
+    const num = parseInt(code.replace('EPSG:', ''), 10);
+    return num - 25800;
+  }
+  return null;
+};
+
+const isUtmSouth = (code) => /^EPSG:327\d{2}$/.test(code);
+
+// Geographic coverage bands for major foreign grids (reverse-projection plausibility)
+const FOREIGN_GRID_COVERAGE = {
+  'EPSG:27700': { latMin: 49.0, latMax: 61.0, lonMin: -8.0, lonMax: 2.0 },
+  'EPSG:21781': { latMin: 45.8, latMax: 47.9, lonMin: 5.9, lonMax: 10.5 },
+  'EPSG:28992': { latMin: 50.7, latMax: 53.7, lonMin: 3.2, lonMax: 7.3 },
+  'EPSG:2157':  { latMin: 51.3, latMax: 55.5, lonMin: -10.6, lonMax: -5.3 },
+};
+
 const adjustedExtentConfidence = (entry, bounds, swapped = false) => {
   const base = extentConfidence(entry, swapped);
-  if (!entry?.code || !isFrenchProjectedCandidate(entry.code)) return base;
-  if (!Number.isFinite(bounds?.avgX) || !Number.isFinite(bounds?.avgY)) return base;
+  if (!entry?.code || !Number.isFinite(bounds?.avgX) || !Number.isFinite(bounds?.avgY)) return base;
   if (!ensureCrsDefinition(entry.code)) return base;
 
   const inputX = swapped ? bounds.avgY : bounds.avgX;
   const inputY = swapped ? bounds.avgX : bounds.avgY;
+
+  // Foreign grid plausibility via reverse-projection (non-swapped only)
+  const foreignCov = FOREIGN_GRID_COVERAGE[entry.code];
+  if (foreignCov && !swapped) {
+    try {
+      const [lon, lat] = proj4(entry.code, 'EPSG:4326', [inputX, inputY]);
+      if (!Number.isFinite(lon) || !Number.isFinite(lat) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+        return Math.max(0.35, base - 0.15);
+      }
+      if (lon >= foreignCov.lonMin && lon <= foreignCov.lonMax && lat >= foreignCov.latMin && lat <= foreignCov.latMax) {
+        return Math.min(0.94, base + 0.06);
+      }
+      return Math.max(0.50, base - 0.08);
+    } catch {
+      return base;
+    }
+  }
+
+  // UTM zone disambiguation via reverse-projection
+  const utmZone = getUtmZoneFromCode(entry.code);
+  if (utmZone !== null) {
+    try {
+      const [lon, lat] = proj4(entry.code, 'EPSG:4326', [inputX, inputY]);
+      if (!Number.isFinite(lon) || !Number.isFinite(lat) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+        return Math.max(0.35, base - 0.2);
+      }
+      const zoneCenterLon = (utmZone - 1) * 6 - 180 + 3;
+      const lonOff = Math.abs(((lon - zoneCenterLon + 180 + 360) % 360) - 180);
+      // Correct zone: lon within ±3° of center
+      if (lonOff <= 3) {
+        const boost = 0.14 - (lonOff * 0.02);
+        return Math.min(0.94, base + boost);
+      }
+      // Adjacent zone: penalise proportionally
+      return Math.max(0.35, base - (lonOff - 3) * 0.06);
+    } catch {
+      return base;
+    }
+  }
+
+  // French projected candidates (Lambert-93, CC, old Lambert)
+  if (!isFrenchProjectedCandidate(entry.code)) return base;
 
   try {
     const [lon, lat] = proj4(entry.code, 'EPSG:4326', [inputX, inputY]);
@@ -459,9 +564,9 @@ const adjustedExtentConfidence = (entry, bounds, swapped = false) => {
       if (!isWithinFranceLikeBounds(lon, lat, entry.code)) {
         return Math.max(0.35, base - 0.18);
       }
-      const latPenalty = getFrenchLatitudePenalty(entry.code, lat);
-      const lonPenalty = getFrenchLongitudePenalty(entry.code, lon);
-      return Math.max(0.45, Math.min(0.97, base + 0.38 - latPenalty - lonPenalty));
+      // Use coverage-band scoring for precise zone discrimination
+      const coverageScore = getOldLambertCoverageScore(entry.code, lon, lat);
+      return Math.max(0.45, Math.min(0.93, base + 0.08 + coverageScore));
     }
 
     const penalty = getFrenchLatitudePenalty(entry.code, lat);
@@ -753,7 +858,8 @@ const tryInferUtmFromBounds = (coordinates, bounds) => {
         const lonDiff = Math.abs(((lon - cm + 180 + 360) % 360) - 180);
         // Score based on closeness to central meridian and reasonable latitude
         if (lat <= 90 && lat >= -90 && lonDiff < 6) {
-          const confidence = Math.max(0.46, 0.64 - lonDiff / 15);
+          // Within the zone's 6° band — strong match; boost for closeness to center
+          const confidence = Math.max(0.60, 0.82 - lonDiff / 12);
           suggestions.push({ code, name: `WGS 84 / UTM zone ${zone}${hemi}`, confidence, reason: 'Trial transform plausibility' });
         }
       } catch {
@@ -816,10 +922,12 @@ const detectProjected = (bounds) => {
   if (Math.abs(minX) < 20037509 && Math.abs(maxX) < 20037509 &&
       Math.abs(minY) < 20037509 && Math.abs(maxY) < 20037509 &&
       (Math.abs(avgX) > 100000 || Math.abs(avgY) > 100000)) {
+    // Lower confidence since Web Mercator coordinates overlap with many national grids
+    // and surveyors almost never use Web Mercator
     suggestions.push({
       code: 'EPSG:3857',
       name: 'Web Mercator (Google Maps)',
-      confidence: 0.75,
+      confidence: 0.55,
       reason: 'Coordinates within Web Mercator bounds'
     });
   }
