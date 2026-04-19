@@ -2096,6 +2096,26 @@ const CoordinateConverter = () => {
   }, []);
 
   const projectCadRowsToWgs84 = useCallback((rows, sourceCrs, geometry = null) => {
+    const normalizeCadText = (value) => String(value || '').trim();
+    const parseCadElevationLabel = (value) => {
+      const text = normalizeCadText(value);
+      if (!text) return null;
+      const normalized = text.replace(',', '.').replace(/[^0-9+\-.]/g, ' ').trim();
+      if (!normalized) return null;
+      const token = normalized.split(/\s+/).find((part) => /^[-+]?\d+(?:\.\d+)?$/.test(part));
+      if (!token) return null;
+      const numeric = Number(token);
+      if (!Number.isFinite(numeric) || numeric < -2000 || numeric > 15000) return null;
+      return numeric;
+    };
+
+    const isImportedCadName = (value) => {
+      const text = normalizeCadText(value);
+      if (!text || text.length > 48) return false;
+      if (/^[-+]?\d+(?:[.,]\d+)?$/.test(text)) return false;
+      return /[A-Za-z]/.test(text) || /[._-]/.test(text);
+    };
+
     const collectRawCadPoints = (rowsForPreview = [], geometryForPreview = null) => {
       const points = [];
       (Array.isArray(rowsForPreview) ? rowsForPreview : []).forEach((row) => {
@@ -2118,6 +2138,62 @@ const CoordinateConverter = () => {
         });
       });
       return points;
+    };
+
+    const buildCadPointAnnotations = (rowsForPreview = [], geometryForPreview = null) => {
+      const texts = (Array.isArray(geometryForPreview?.texts) ? geometryForPreview.texts : [])
+        .map((textEntity) => {
+          const position = Array.isArray(textEntity?.position) ? textEntity.position : [];
+          const x = Number(position[0]);
+          const y = Number(position[1]);
+          const text = normalizeCadText(textEntity?.text || textEntity?.rawText || '');
+          if (!Number.isFinite(x) || !Number.isFinite(y) || !text) return null;
+          return {
+            x,
+            y,
+            text,
+            layer: textEntity?.layerOriginal || textEntity?.layer || null,
+            elevation: parseCadElevationLabel(text),
+          };
+        })
+        .filter(Boolean);
+
+      if (!texts.length) return rowsForPreview.map(() => ({ name: '', elevationText: '' }));
+
+      const rawPoints = collectRawCadPoints(rowsForPreview, geometryForPreview);
+      const xs = rawPoints.map((point) => point.x);
+      const ys = rawPoints.map((point) => point.y);
+      const span = xs.length && ys.length
+        ? Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 1)
+        : 1;
+      const tolerance = Math.max(2, Math.min(250, span * 0.004));
+
+      return rowsForPreview.map((row) => {
+        const rowX = Number(row?.x);
+        const rowY = Number(row?.y);
+        const rowLayer = String(row?.layer || '');
+        const importedRowName = String(row?.hasExplicitName ? (row?.id || '') : '').trim();
+
+        const nearbyTexts = texts
+          .map((item) => ({
+            ...item,
+            dist: Math.hypot(rowX - item.x, rowY - item.y),
+            sameLayer: rowLayer && String(item.layer || '') === rowLayer,
+          }))
+          .filter((item) => item.dist <= tolerance)
+          .sort((a, b) => {
+            if (a.sameLayer !== b.sameLayer) return a.sameLayer ? -1 : 1;
+            return a.dist - b.dist;
+          });
+
+        const nameMatch = nearbyTexts.find((item) => isImportedCadName(item.text));
+        const elevationMatch = nearbyTexts.find((item) => Number.isFinite(item.elevation));
+
+        return {
+          name: importedRowName || nameMatch?.text || '',
+          elevationText: elevationMatch?.text || '',
+        };
+      });
     };
 
     const createLocalPreviewTransform = (rowsForPreview = [], geometryForPreview = null) => {
@@ -2145,14 +2221,19 @@ const CoordinateConverter = () => {
     const sourceIsGeo = sourceDef?.type === 'geographic' || source === 'EPSG:4326';
     const useLocalPreview = source === 'LOCAL:ENGINEERING' || !sourceDef;
     const localPreviewTransform = useLocalPreview ? createLocalPreviewTransform(rows, geometry) : null;
+    const pointAnnotations = buildCadPointAnnotations(Array.isArray(rows) ? rows : [], geometry);
 
     return (Array.isArray(rows) ? rows : [])
       .map((row, index) => {
         const xVal = Number(row?.x);
         const yVal = Number(row?.y);
         if (!Number.isFinite(xVal) || !Number.isFinite(yVal)) return null;
-        const pointName = String(row?.id || '').trim() || String(index + 1);
-        const pointId = String(row?.id || pointName || `cad_${index + 1}`);
+        const annotation = pointAnnotations[index] || { name: '', elevationText: '' };
+        const importedCadName = annotation.name || '';
+        const importedCadElevationText = annotation.elevationText || '';
+        const fallbackPointId = String(row?.id || '').trim() || `cad_${index + 1}`;
+        const pointId = fallbackPointId;
+        const pointLabel = importedCadName || '';
 
         if (useLocalPreview) {
           if (!localPreviewTransform) return null;
@@ -2160,7 +2241,9 @@ const CoordinateConverter = () => {
             id: pointId,
             lat: localPreviewTransform.anchorLat + ((yVal - localPreviewTransform.centerY) * localPreviewTransform.scale),
             lng: localPreviewTransform.anchorLng + ((xVal - localPreviewTransform.centerX) * localPreviewTransform.scale),
-            label: pointName,
+            label: pointLabel,
+            importedCadName,
+            importedCadElevationText,
             height: Number.isFinite(Number(row?.z)) ? Number(row.z) : 0,
             sourceType: 'cad-point',
             markerSeverity: 'medium',
@@ -2174,7 +2257,9 @@ const CoordinateConverter = () => {
             id: pointId,
             lat: yVal,
             lng: xVal,
-            label: pointName,
+            label: pointLabel,
+            importedCadName,
+            importedCadElevationText,
             height: Number.isFinite(Number(row?.z)) ? Number(row.z) : 0,
             sourceType: 'cad-point',
             validationMessage: row?.outlierWarning || row?.utmWarning || row?.ccWarning || row?.otherZoneWarning || '',
@@ -2188,7 +2273,9 @@ const CoordinateConverter = () => {
             id: pointId,
             lat,
             lng: lon,
-            label: pointName,
+            label: pointLabel,
+            importedCadName,
+            importedCadElevationText,
             height: Number.isFinite(Number(row?.z)) ? Number(row.z) : 0,
             sourceType: 'cad-point',
             validationMessage: row?.outlierWarning || row?.utmWarning || row?.ccWarning || row?.otherZoneWarning || '',

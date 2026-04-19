@@ -177,7 +177,15 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         font-family: 'Avenir Next', 'Segoe UI Variable Text', 'Trebuchet MS', sans-serif;
         text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
         box-shadow: 0 2px 8px rgba(2, 6, 23, 0.45);
-        white-space: nowrap;
+        white-space: normal;
+      }
+      .point-name-label .cad-point-name {
+        font-weight: 700;
+        color: #67e8f9;
+      }
+      .point-name-label .cad-point-elevation {
+        color: #4ade80;
+        margin-top: 1px;
       }
       .point-name-label.leaflet-tooltip-top:before {
         border-top-color: rgba(9, 17, 30, 0.86);
@@ -309,6 +317,27 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   const getPointLabel = (point) => {
     const raw = String(point?.label || point?.id || 'Point');
     return raw.length > 42 ? `${raw.slice(0, 39)}...` : raw;
+  };
+
+  const getPointLabelMarkup = (point) => {
+    const importedName = String(point?.importedCadName || '').trim();
+    const importedElevationText = String(point?.importedCadElevationText || '').trim();
+    if (point?.sourceType === 'cad-point' && (importedName || importedElevationText)) {
+      const nameHtml = importedName ? `<div class="cad-point-name">${escapeHtml(importedName)}</div>` : '';
+      const elevationHtml = importedElevationText ? `<div class="cad-point-elevation">${escapeHtml(importedElevationText)}</div>` : '';
+      return `${nameHtml}${elevationHtml}`;
+    }
+    return escapeHtml(getPointLabel(point));
+  };
+
+  const getPointPopupTitle = (point) => {
+    const importedName = String(point?.importedCadName || '').trim();
+    if (importedName) return importedName;
+    const label = String(point?.label || '').trim();
+    if (label) return label;
+    const id = String(point?.id || '').trim();
+    if (id) return id;
+    return 'Point';
   };
 
   const getLabelBudget = (zoom, totalPoints) => {
@@ -757,7 +786,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       })
         .bindPopup(
           `<div style="font-size: 12px; min-width: 180px;">
-            <b>${point.label || 'Point'}</b><br/>
+            <b>${escapeHtml(getPointPopupTitle(point))}</b><br/>
             Lat: ${point.lat.toFixed(4)}°<br/>
             Lng: ${point.lng.toFixed(4)}°<br/>
             Height: ${(point.height || 0).toFixed(2)} m<br/>
@@ -793,11 +822,12 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         const overlapIndex = overlapGroup ? overlapGroup.points.findIndex((p) => String(p.id) === String(point.id) && p.label === point.label) : 0;
         const labelLayout = getSmartLabelLayout(Math.max(overlapIndex, 0), overlapSize);
         const pointId = point.id !== undefined ? String(point.id) : null;
+        const hasImportedCadLabel = Boolean(String(point?.importedCadName || '').trim() || String(point?.importedCadElevationText || '').trim());
         const shouldShowConvertedLabel = pointId
           ? visibleConvertedLabelIds.has(pointId)
           : false;
 
-        if (effectiveShowLabels && shouldShowConvertedLabel) {
+        if (effectiveShowLabels && shouldShowConvertedLabel && (point.sourceType !== 'cad-point' || hasImportedCadLabel)) {
           const nameTooltip = L.tooltip({
             permanent: true,
             direction: labelLayout.direction,
@@ -805,7 +835,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
             offset: labelLayout.offset,
             opacity: 1,
           })
-            .setContent(getPointLabel(point))
+            .setContent(getPointLabelMarkup(point))
             .setLatLng([displayLat, displayLng])
             .addTo(map.current);
           markers.current.push(nameTooltip);
