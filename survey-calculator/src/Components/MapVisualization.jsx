@@ -294,9 +294,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   const infoPanelCount = (cadNotifications.length > 0 ? 1 : 0) + (selectedPointStillVisible ? 1 : 0) + 1;
   const infoRailColumns = infoPanelCount <= 1
     ? 'minmax(0, 1fr)'
-    : infoPanelCount === 2
-      ? 'repeat(2, minmax(0, 1fr))'
-      : '1.15fr 0.85fr 1fr';
+    : `repeat(${infoPanelCount}, minmax(0, 1fr))`;
 
   const geoidLegendItems = [
     { color: '#0000FF', label: '< -10 m' },
@@ -1161,7 +1159,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
           display: 'grid',
           gridTemplateColumns: infoRailColumns,
           gap: '10px',
-          alignItems: 'start',
+          alignItems: 'stretch',
         }}
       >
         {cadNotifications.length > 0 && (
@@ -1171,6 +1169,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
               border: '1px solid rgba(147, 197, 253, 0.2)',
               borderRadius: '12px',
               padding: '10px 12px',
+              height: '100%',
               color: '#dbeafe',
               boxShadow: '0 10px 24px rgba(15, 23, 42, 0.12)',
               lineHeight: 1.4,
@@ -1199,6 +1198,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
               border: '1px solid rgba(255,255,255,0.10)',
               borderRadius: '12px',
               padding: '10px 12px',
+              height: '100%',
               color: '#cbd5e1',
               boxShadow: '0 10px 24px rgba(15, 23, 42, 0.12)',
               fontSize: '11px',
@@ -1226,6 +1226,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
             border: '1px solid rgba(255,255,255,0.10)',
             borderRadius: '12px',
             padding: '10px 12px',
+            height: '100%',
             color: '#cbd5e1',
             boxShadow: '0 10px 24px rgba(15, 23, 42, 0.12)',
             fontSize: '11px',
