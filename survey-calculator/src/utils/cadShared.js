@@ -1100,12 +1100,45 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
   diagnostics.extraction.textLabelAssigned = assignNearbyTextNames(rows, textLabels, drawingDiagonal);
 
   const coordinates = rows.map((row) => ({ x: row.x, y: row.y, z: row.z }));
+  const bounds = getBoundingBoxFromPoints(coordinates);
   const metadata = { projection: detectedFromCrs || null };
   const crsSuggestions = detectCRS(coordinates, metadata);
   const referenceAssessment = assessReferenceSystem(coordinates, metadata, crsSuggestions);
 
-  if (!detectedFromCrs && crsSuggestions.length > 0 && crsSuggestions[0].confidence > 0.7) {
-    detectedFromCrs = crsSuggestions[0].code;
+  const isProjectedLike = (bbox) => {
+    if (!bbox) return false;
+    const xProjected = Math.abs(bbox.minX) > 180 || Math.abs(bbox.maxX) > 180;
+    const yProjected = Math.abs(bbox.minY) > 90 || Math.abs(bbox.maxY) > 90;
+    return xProjected || yProjected;
+  };
+
+  const isFrenchCcCode = (code) => /^EPSG:39(4[2-9]|50)$/.test(String(code || ''));
+
+  const pickAutoDetectedCrs = (suggestions) => {
+    if (!Array.isArray(suggestions) || suggestions.length === 0) return null;
+    const top = suggestions[0];
+    const second = suggestions[1] || null;
+    const topConfidence = Number(top?.confidence || 0);
+    const confidenceGap = topConfidence - Number(second?.confidence || 0);
+
+    if (topConfidence < 0.8) return null;
+
+    if (isFrenchCcCode(top?.code)) {
+      const strongNonCcAlternative = suggestions.some((candidate) => (
+        candidate?.code
+        && !isFrenchCcCode(candidate.code)
+        && Number(candidate.confidence || 0) >= (topConfidence - 0.06)
+      ));
+      if (strongNonCcAlternative) return null;
+    }
+
+    if (topConfidence >= 0.88) return top.code;
+    if (topConfidence >= 0.84 && confidenceGap >= 0.08) return top.code;
+    return null;
+  };
+
+  if (!detectedFromCrs) {
+    detectedFromCrs = pickAutoDetectedCrs(crsSuggestions);
   }
 
   if (referenceAssessment.isLocal) {
@@ -1113,7 +1146,7 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
   }
 
   if (!detectedFromCrs) {
-    detectedFromCrs = 'EPSG:4326';
+    detectedFromCrs = isProjectedLike(bounds) ? 'LOCAL:ENGINEERING' : 'EPSG:4326';
   }
 
   rows.forEach((row) => {
