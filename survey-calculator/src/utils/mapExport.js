@@ -37,10 +37,26 @@ const waitForTiles = async (rootElement) => {
   await Promise.all(tilePromises);
 };
 
-const captureMapCanvas = async (mapRootElement) => {
+const normalizeScaleLabel = (value) => {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const ratioMatch = text.match(/1\s*:\s*([\d\s,._]+)/);
+  if (ratioMatch?.[1]) {
+    const digits = ratioMatch[1].replace(/[^\d]/g, '');
+    if (!digits) return null;
+    return `Scale 1:${Number(digits).toLocaleString()}`;
+  }
+  const digitsOnly = text.replace(/[^\d]/g, '');
+  if (!digitsOnly) return null;
+  return `Scale 1:${Number(digitsOnly).toLocaleString()}`;
+};
+
+const captureMapCanvas = async (mapRootElement, exportInfo = {}) => {
   if (!mapRootElement) {
     throw new Error('Map is not ready for export yet.');
   }
+
+  const overrideScaleLabel = normalizeScaleLabel(exportInfo?.mapScaleLabel);
 
   mapRootElement.classList.add('map-export-mode');
   try {
@@ -53,6 +69,13 @@ const captureMapCanvas = async (mapRootElement) => {
       scale: Math.min(Math.max(window.devicePixelRatio || 2, 2), 3),
       imageTimeout: 2500,
       logging: false,
+      onclone: (doc) => {
+        if (!overrideScaleLabel) return;
+        const controls = doc.querySelectorAll('.smart-scale-control');
+        controls.forEach((control) => {
+          control.textContent = overrideScaleLabel;
+        });
+      },
     });
   } finally {
     mapRootElement.classList.remove('map-export-mode');
@@ -169,7 +192,7 @@ const downloadBlob = (blob, fileName) => {
 };
 
 export const exportMapAsPng = async (mapRootElement, exportInfo = {}, fileName = 'survey-plan.png') => {
-  const mapCanvas = await captureMapCanvas(mapRootElement);
+  const mapCanvas = await captureMapCanvas(mapRootElement, exportInfo);
   const composedCanvas = composeExportCanvas(mapCanvas, exportInfo);
 
   await new Promise((resolve, reject) => {
@@ -185,7 +208,7 @@ export const exportMapAsPng = async (mapRootElement, exportInfo = {}, fileName =
 };
 
 export const exportMapAsPdf = async (mapRootElement, exportInfo = {}, fileName = 'survey-plan.pdf', pdfOptions = {}) => {
-  const mapCanvas = await captureMapCanvas(mapRootElement);
+  const mapCanvas = await captureMapCanvas(mapRootElement, exportInfo);
   const composedCanvas = composeExportCanvas(mapCanvas, exportInfo);
   const imageData = composedCanvas.toDataURL('image/png');
   const targetFormat = String(pdfOptions.format || 'a4').toLowerCase();

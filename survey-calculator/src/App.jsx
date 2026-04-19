@@ -266,12 +266,15 @@ function App() {
     try {
       setIsExportingMap(true);
       const info = getExportDetails();
+      const selectedScale = exportSettings.scale.trim();
+      const fallbackScale = suggestedPrintScale ? `1:${suggestedPrintScale.toLocaleString()}` : "";
       const exportInfo = {
         title: exportSettings.projectName.trim() || "Survey Plan",
         subtitle: exportSettings.surveyor.trim()
           ? `Surveyor: ${exportSettings.surveyor.trim()}`
           : "SurveyCalc Geomatics Suite",
         details: info.details,
+        mapScaleLabel: selectedScale || fallbackScale,
       };
 
       if (format === "png") {
