@@ -1062,7 +1062,7 @@ const CoordinateConverter = () => {
   const [utmZoneManual, setUtmZoneManual] = useState(31);
   const [utmHemiManual, setUtmHemiManual] = useState("N");
 
-  const [geoidMode, setGeoidMode] = useState("none"); // auto | manual | upload | none
+  const [geoidMode, setGeoidMode] = useState("auto"); // auto | manual | upload | none
   const [geoidName, setGeoidName] = useState("EGM96");
   const [availableGeoidGrids, setAvailableGeoidGrids] = useState([]);
   const [loadedGeoidGrids, setLoadedGeoidGrids] = useState([]);
@@ -1177,7 +1177,7 @@ const CoordinateConverter = () => {
     setOutputFormat(snapshot.outputFormat || "DD");
     setInputVerticalDatum(snapshot.inputVerticalDatum || "auto");
     setOutputVerticalDatum(snapshot.outputVerticalDatum || "auto");
-    setGeoidMode(snapshot.geoidMode || "none");
+    setGeoidMode(snapshot.geoidMode || "auto");
     setGeoidName(snapshot.geoidName || "EGM96");
   }, []);
 
@@ -3614,7 +3614,7 @@ const CoordinateConverter = () => {
     setOutputFormat(preset.outputFormat || "DD");
     setInputVerticalDatum(preset.inputVerticalDatum || "auto");
     setOutputVerticalDatum(preset.outputVerticalDatum || "auto");
-    setGeoidMode(preset.geoidMode || "none");
+    setGeoidMode(preset.geoidMode || "auto");
     setGeoidName(preset.geoidName || "EGM96");
   };
 
