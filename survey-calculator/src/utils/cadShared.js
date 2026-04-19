@@ -421,6 +421,7 @@ const isLikelyPointIdentifier = (value) => {
   const text = normalizeCadLabelCandidate(value);
   if (!text) return false;
   if (text.length > 40) return false;
+  if (/^[-+]?\d+(?:[.,]\d+)?$/.test(text)) return false;
   // Most point labels include at least one digit or mixed token pattern.
   if (/[0-9]/.test(text)) return true;
   if (/^[A-Za-z]+[-_][A-Za-z0-9]+$/.test(text)) return true;
@@ -435,6 +436,20 @@ const extractInsertPointName = (ent) => {
   ];
 
   return attrCandidates.find(isCadPointNameProvided) || null;
+};
+
+const extractInsertPointElevation = (ent) => {
+  const attrCandidates = [
+    ...(Array.isArray(ent?.attribs) ? ent.attribs.map((attr) => attr?.text || attr?.value) : []),
+    ent?.text,
+  ];
+
+  for (const candidate of attrCandidates) {
+    const elevation = parseCadElevationText(candidate);
+    if (Number.isFinite(elevation)) return elevation;
+  }
+
+  return null;
 };
 
 const collectTextLabels = (entities) => {
@@ -771,6 +786,24 @@ const expandCadEntities = (dxfData, options = {}) => {
           __pointName: extractInsertPointName(entity),
         };
         flattened.push(insertEntity);
+
+        // AutoCAD survey point blocks often store the visible name/elevation as INSERT attributes.
+        (Array.isArray(entity?.attribs) ? entity.attribs : []).forEach((attr, attrIndex) => {
+          const attrEntity = {
+            ...attr,
+            type: 'ATTRIB',
+            layer: attr?.layer || entity?.layer || insertEntity.layer,
+            text: attr?.text ?? attr?.value ?? attr?.tag ?? '',
+            value: attr?.value ?? attr?.text ?? attr?.tag ?? '',
+            position: attr?.position || attr?.startPoint || attr?.insertionPoint || entity?.position || entity?.insertionPoint,
+            __attrIndex: attrIndex,
+          };
+          const transformedAttr = transformCadEntity(attrEntity, insertTransform, { depth: depth + 1, sourceBlock: insertName || sourceBlock });
+          if (transformedAttr) {
+            flattened.push(transformedAttr);
+          }
+        });
+
         diagnostics.resolution.expandedInsertCount += 1;
 
         if (!block) {
@@ -1077,7 +1110,7 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
     repairs,
   };
 
-  const addRow = (x, y, z, idHint, hasExplicitName = false, source = 'unknown') => {
+  const addRow = (x, y, z, idHint, hasExplicitName = false, source = 'unknown', layer = null) => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     const coordKey = `${x.toFixed(3)},${y.toFixed(3)}`;
     const normalizedHint = normalizeCadLabelCandidate(idHint);
@@ -1102,6 +1135,7 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
       x,
       y,
       z: Number.isFinite(z) ? z : null,
+      layer,
       detectedFromCrs,
       hasExplicitName: Boolean(explicitName),
     };
@@ -1122,15 +1156,16 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
       switch (ent?.type) {
         case 'POINT': {
           const z = ent.position?.z ?? ent.z ?? ent.position?.[2] ?? ent.vertices?.[0]?.z;
-          addRow(ent.position?.x, ent.position?.y, z, null, false, 'point-entity');
+          addRow(ent.position?.x, ent.position?.y, z, null, false, 'point-entity', layer || null);
           break;
         }
         case 'INSERT': {
           const nameLooksPointLike = /(?:^|[_\-\s])(pt|point|station|survey|node|borne|bench|cross)(?:$|[_\-\s])/i.test(String(ent.name || layer || ''));
           if ((nameLooksPointLike || ent.__blockPointLike) && ent.__blockResolved) {
-            const iz = ent.position?.z ?? ent.z ?? ent.position?.[2];
+            const fallbackElevation = extractInsertPointElevation(ent);
+            const iz = ent.position?.z ?? ent.z ?? ent.position?.[2] ?? fallbackElevation;
             const pointName = ent.__pointName || extractInsertPointName(ent);
-            addRow(ent.position?.x, ent.position?.y, iz, pointName, Boolean(pointName), 'insert-symbol');
+            addRow(ent.position?.x, ent.position?.y, iz, pointName, Boolean(pointName), 'insert-symbol', layer || null);
           }
           break;
         }
@@ -1144,11 +1179,11 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
 
   const inferredCenters = inferPointCentersFromSegments(segments, drawingDiagonal);
   inferredCenters.forEach((center) => {
-    addRow(center.x, center.y, center.z, null, false, 'inferred-center');
+    addRow(center.x, center.y, center.z, null, false, 'inferred-center', null);
   });
 
   if (!rows.length && !pointsOnly) {
-    collectFallbackVertices(segments, (x, y, z, idHint) => addRow(x, y, z, idHint, false, 'fallback-vertex'));
+    collectFallbackVertices(segments, (x, y, z, idHint) => addRow(x, y, z, idHint, false, 'fallback-vertex', null));
   }
 
   diagnostics.extraction.textLabelAssigned = assignNearbyTextNames(rows, textLabels, drawingDiagonal);
