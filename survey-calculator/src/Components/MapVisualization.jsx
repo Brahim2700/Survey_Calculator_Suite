@@ -105,7 +105,6 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   const measureLayerRef = useRef({ polyline: null, markers: [] });
   const basemapLayers = useRef(null);
   const layerControl = useRef(null);
-  const scaleControl = useRef(null);
   const smartScaleControl = useRef(null);
   const smartScaleLabel = useRef(null);
   const [selectedPoint, setSelectedPoint] = useState(null);
@@ -114,7 +113,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   const [showPolylineLayer, setShowPolylineLayer] = useState(true);
   const [showTextLayer, setShowTextLayer] = useState(true);
   const [showLabels, setShowLabels] = useState(true);
-  const [legendCollapsed, setLegendCollapsed] = useState(false);
+  const [legendCollapsed, setLegendCollapsed] = useState(true);
   const [labelsTouched, setLabelsTouched] = useState(false);
   const [hiddenCadLayers, setHiddenCadLayers] = useState({});
 
@@ -293,6 +292,14 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     return point.lat === selectedPoint.lat && point.lng === selectedPoint.lng;
   });
 
+  const geoidLegendItems = [
+    { color: '#0000FF', label: '< -10 m' },
+    { color: '#00FFFF', label: '-10 to -2 m' },
+    { color: '#00FF00', label: '-2 to +2 m' },
+    { color: '#FFFF00', label: '+2 to +10 m' },
+    { color: '#FF0000', label: '> +10 m' },
+  ];
+
   const getCoordKey = (lat, lng) => `${lat.toFixed(5)}|${lng.toFixed(5)}`;
 
   const getPointLabel = (point) => {
@@ -432,21 +439,6 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       measureLayerRef.current.markers.push(marker);
     });
 
-    // Fit map to measure points
-    if (measurePoints.length >= 2 && measureLayerRef.current.polyline) {
-      const group = L.featureGroup([
-        measureLayerRef.current.polyline,
-        ...measureLayerRef.current.markers,
-      ]);
-      map.current.fitBounds(group.getBounds().pad(0.25));
-    } else if (measurePoints.length === 1) {
-      map.current.setView(
-        [measurePoints[0].lat, measurePoints[0].lng],
-        Math.max(map.current.getZoom(), 12)
-      );
-    } else if (!points || points.length === 0) {
-      map.current.setView([20, 0], 2);
-    }
   }, [measurePoints, points]);
 
   useEffect(() => {
@@ -491,8 +483,6 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
 
       basemapLayers.current[initialBasemap].addTo(map.current);
       layerControl.current = L.control.layers(basemapLayers.current, null, { position: 'topleft' }).addTo(map.current);
-      scaleControl.current = L.control.scale({ position: 'bottomleft', metric: true, imperial: false }).addTo(map.current);
-
       smartScaleControl.current = L.control({ position: 'bottomleft' });
       smartScaleControl.current.onAdd = () => {
         const div = L.DomUtil.create('div', 'leaflet-control smart-scale-control');
@@ -964,287 +954,300 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     <div
       ref={mapRootContainer}
       style={{
-        display: isVisible ? 'block' : 'none',
+        display: isVisible ? 'flex' : 'none',
+        flexDirection: 'column',
         width: '100%',
         height: '100%',
-        position: 'relative',
-        overflow: 'hidden',
-        backgroundColor: '#f5f5f5',
+        minHeight: 0,
+        gap: '10px',
         margin: 0,
         padding: 0,
-        lineHeight: 0
       }}
     >
-      {cadNotifications.length > 0 && (
+      <div
+        style={{
+          position: 'relative',
+          flex: '1 1 auto',
+          minHeight: 0,
+          overflow: 'hidden',
+          backgroundColor: '#f5f5f5',
+          borderRadius: '12px',
+          lineHeight: 0,
+        }}
+      >
         <div
+          className="map-legend-overlay"
           style={{
             position: 'absolute',
             top: '10px',
-            left: '10px',
+            right: '10px',
+            backgroundColor: 'rgba(15,32,64,0.9)',
+            backdropFilter: 'blur(8px)',
+            padding: '8px 9px',
+            borderRadius: '12px',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.24)',
             zIndex: 999,
-            display: 'grid',
-            gap: '6px',
-            maxWidth: '360px',
-          }}
-        >
-          {cadNotifications.slice(0, 4).map((notice, index) => {
-            const severity = notice?.severity || 'info';
-            const palette = severity === 'error'
-              ? { background: 'rgba(127, 29, 29, 0.94)', border: 'rgba(252, 165, 165, 0.55)', color: '#fee2e2' }
-              : severity === 'warning'
-                ? { background: 'rgba(120, 53, 15, 0.94)', border: 'rgba(253, 230, 138, 0.45)', color: '#fef3c7' }
-                : { background: 'rgba(15, 23, 42, 0.92)', border: 'rgba(147, 197, 253, 0.35)', color: '#dbeafe' };
-            return (
-              <div
-                key={`${notice?.code || notice?.title || 'cad-notice'}-${index}`}
-                style={{
-                  background: palette.background,
-                  border: `1px solid ${palette.border}`,
-                  borderRadius: '10px',
-                  padding: '8px 10px',
-                  color: palette.color,
-                  boxShadow: '0 10px 24px rgba(15, 23, 42, 0.28)',
-                  lineHeight: 1.35,
-                  fontSize: '11px',
-                }}
-              >
-                <div style={{ fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px' }}>{notice?.title || 'CAD notice'}</div>
-                <div>{notice?.message || ''}</div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Legend */}
-      <div
-        className="map-legend-overlay"
-        style={{
-          position: 'absolute',
-          top: '10px',
-          right: '10px',
-          backgroundColor: 'rgba(15,32,64,0.92)',
-          backdropFilter: 'blur(6px)',
-          padding: '8px 10px',
-          borderRadius: '10px',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.28)',
-          zIndex: 999,
-          fontSize: '10px',
-          lineHeight: '1.35',
-          border: '1px solid rgba(255,255,255,0.10)',
-          color: '#cbd5e1',
-          maxWidth: '230px',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: legendCollapsed ? 0 : '6px' }}>
-          <div style={{ fontWeight: 700, color: '#e0eaff', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Map Legend</div>
-          <button
-            onClick={() => setLegendCollapsed((v) => !v)}
-            style={{
-              border: '1px solid rgba(148,163,184,0.55)',
-              background: 'rgba(15,23,42,0.65)',
-              color: '#e2e8f0',
-              borderRadius: '999px',
-              fontSize: '10px',
-              padding: '1px 8px',
-              cursor: 'pointer'
-            }}
-          >
-            {legendCollapsed ? 'Show' : 'Hide'}
-          </button>
-        </div>
-        {!legendCollapsed && (
-          <>
-        <div style={{ marginBottom: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-          <button
-            onClick={() => setShowPointLayer((v) => !v)}
-            style={{
-              border: '1px solid rgba(148,163,184,0.55)',
-              background: showPointLayer ? 'rgba(30,64,175,0.75)' : 'rgba(15,23,42,0.65)',
-              color: '#e2e8f0',
-              borderRadius: '999px',
-              fontSize: '10px',
-              padding: '2px 8px',
-              cursor: 'pointer'
-            }}
-          >
-            Points {showPointLayer ? 'On' : 'Off'}
-          </button>
-          <button
-            onClick={() => setShowLineLayer((v) => !v)}
-            style={{
-              border: '1px solid rgba(148,163,184,0.55)',
-              background: showLineLayer ? 'rgba(14,165,233,0.75)' : 'rgba(15,23,42,0.65)',
-              color: '#e2e8f0',
-              borderRadius: '999px',
-              fontSize: '10px',
-              padding: '2px 8px',
-              cursor: 'pointer'
-            }}
-          >
-            Lines {showLineLayer ? 'On' : 'Off'}
-          </button>
-          <button
-            onClick={() => setShowPolylineLayer((v) => !v)}
-            style={{
-              border: '1px solid rgba(148,163,184,0.55)',
-              background: showPolylineLayer ? 'rgba(37,99,235,0.75)' : 'rgba(15,23,42,0.65)',
-              color: '#e2e8f0',
-              borderRadius: '999px',
-              fontSize: '10px',
-              padding: '2px 8px',
-              cursor: 'pointer'
-            }}
-          >
-            Polylines {showPolylineLayer ? 'On' : 'Off'}
-          </button>
-          <button
-            onClick={() => {
-              setLabelsTouched(true);
-              setShowLabels(!effectiveShowLabels);
-            }}
-            style={{
-              border: '1px solid rgba(148,163,184,0.55)',
-              background: effectiveShowLabels ? 'rgba(56,189,248,0.75)' : 'rgba(15,23,42,0.65)',
-              color: '#e2e8f0',
-              borderRadius: '999px',
-              fontSize: '10px',
-              padding: '2px 8px',
-              cursor: 'pointer'
-            }}
-          >
-            Labels {effectiveShowLabels ? 'On' : 'Off'}
-          </button>
-          <button
-            onClick={() => setShowTextLayer((v) => !v)}
-            style={{
-              border: '1px solid rgba(148,163,184,0.55)',
-              background: showTextLayer ? 'rgba(16,185,129,0.72)' : 'rgba(15,23,42,0.65)',
-              color: '#e2e8f0',
-              borderRadius: '999px',
-              fontSize: '10px',
-              padding: '2px 8px',
-              cursor: 'pointer'
-            }}
-          >
-            Text {showTextLayer ? 'On' : 'Off'}
-          </button>
-        </div>
-        {cadLayers.length > 0 && (
-          <div style={{ marginBottom: '8px' }}>
-            <div style={{ fontWeight: 700, color: '#e0eaff', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '5px' }}>
-              CAD Layers
-            </div>
-            <div style={{ display: 'grid', gap: '4px', maxHeight: '120px', overflowY: 'auto', paddingRight: '2px' }}>
-              {cadLayers.slice(0, 10).map((layer) => {
-                const layerKey = String(layer.standardizedName || layer.normalizedName || layer.displayName || '');
-                const visible = !hiddenCadLayers[layerKey];
-                return (
-                  <button
-                    key={layerKey}
-                    title={layer.originalNames?.join(', ') || layer.displayName}
-                    onClick={() => setHiddenCadLayers((prev) => ({ ...prev, [layerKey]: visible }))}
-                    style={{
-                      border: '1px solid rgba(148,163,184,0.45)',
-                      background: visible ? 'rgba(30,41,59,0.82)' : 'rgba(15,23,42,0.35)',
-                      color: visible ? '#f8fafc' : '#94a3b8',
-                      borderRadius: '8px',
-                      fontSize: '10px',
-                      padding: '4px 6px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: '6px',
-                    }}
-                  >
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{layer.displayName}</span>
-                    <span style={{ color: '#cbd5e1', flexShrink: 0 }}>{layer.entityCount}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '3px' }}>
-          <div style={{ width: '10px', height: '10px', backgroundColor: '#0000FF', marginRight: '6px', borderRadius: '2px', flexShrink: 0 }} />
-          &lt; −10 m
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '3px' }}>
-          <div style={{ width: '10px', height: '10px', backgroundColor: '#f59e0b', marginRight: '6px', borderRadius: '2px', flexShrink: 0 }} />
-          Zone warn
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '3px' }}>
-          <div style={{ width: '10px', height: '10px', backgroundColor: '#dc2626', marginRight: '6px', borderRadius: '2px', flexShrink: 0 }} />
-          Outlier warn
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '3px' }}>
-          <div style={{ width: '10px', height: '10px', backgroundColor: '#00FFFF', marginRight: '6px', borderRadius: '2px', flexShrink: 0 }} />
-          −10 → −2 m
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '3px' }}>
-          <div style={{ width: '10px', height: '10px', backgroundColor: '#00FF00', marginRight: '6px', borderRadius: '2px', flexShrink: 0 }} />
-          −2 → +2 m
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '3px' }}>
-          <div style={{ width: '10px', height: '10px', backgroundColor: '#FFFF00', marginRight: '6px', borderRadius: '2px', flexShrink: 0 }} />
-          +2 → +10 m
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <div style={{ width: '10px', height: '10px', backgroundColor: '#FF0000', marginRight: '6px', borderRadius: '2px', flexShrink: 0 }} />
-          &gt; +10 m
-        </div>
-          </>
-        )}
-      </div>
-
-      {/* Map container */}
-      <div
-        ref={mapContainer}
-        style={{
-          width: '100%',
-          height: '100%',
-          display: 'block',
-          margin: 0,
-          padding: 0,
-          lineHeight: 0
-        }}
-      />
-
-      {/* Selected point info */}
-      {selectedPointStillVisible && (
-        <div
-          style={{
-            position: 'absolute',
-            bottom: '10px',
-            left: '10px',
-            backgroundColor: 'rgba(15,32,64,0.92)',
-            backdropFilter: 'blur(6px)',
-            padding: '10px 13px',
-            borderRadius: '10px',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
-            zIndex: 999,
-            fontSize: '11px',
-            lineHeight: 1.55,
-            maxWidth: '200px',
+            fontSize: '10px',
+            lineHeight: '1.35',
             border: '1px solid rgba(255,255,255,0.10)',
             color: '#cbd5e1',
+            width: legendCollapsed ? '148px' : '188px',
+            maxWidth: 'calc(100% - 20px)',
           }}
         >
-          <div style={{ fontWeight: 700, marginBottom: '4px', color: '#e0eaff', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            {selectedPoint.label || 'Selected Point'}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+            <div>
+              <div style={{ fontWeight: 800, color: '#e0eaff', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Map Tools</div>
+              <div style={{ color: '#94a3b8', fontSize: '9px', marginTop: '2px' }}>{cadLayers.length} CAD layers</div>
+            </div>
+            <button
+              onClick={() => setLegendCollapsed((v) => !v)}
+              style={{
+                border: '1px solid rgba(148,163,184,0.55)',
+                background: 'rgba(15,23,42,0.65)',
+                color: '#e2e8f0',
+                borderRadius: '999px',
+                fontSize: '10px',
+                padding: '1px 8px',
+                cursor: 'pointer'
+              }}
+            >
+              {legendCollapsed ? 'Open' : 'Hide'}
+            </button>
           </div>
-          <div>Lat: {selectedPoint.lat.toFixed(6)}°</div>
-          <div>Lng: {selectedPoint.lng.toFixed(6)}°</div>
-          <div>Height: {(selectedPoint.height || 0).toFixed(3)} m</div>
-          {selectedPoint.validationMessage && (
-            <div style={{ color: '#fbbf24', fontWeight: 600, marginTop: '3px' }}>⚠ {selectedPoint.validationMessage}</div>
+          {!legendCollapsed && (
+            <>
+              <div style={{ marginTop: '8px', marginBottom: '8px', display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => setShowPointLayer((v) => !v)}
+                  style={{
+                    border: '1px solid rgba(148,163,184,0.55)',
+                    background: showPointLayer ? 'rgba(30,64,175,0.75)' : 'rgba(15,23,42,0.65)',
+                    color: '#e2e8f0',
+                    borderRadius: '999px',
+                    fontSize: '9px',
+                    padding: '2px 7px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Points
+                </button>
+                <button
+                  onClick={() => setShowLineLayer((v) => !v)}
+                  style={{
+                    border: '1px solid rgba(148,163,184,0.55)',
+                    background: showLineLayer ? 'rgba(14,165,233,0.75)' : 'rgba(15,23,42,0.65)',
+                    color: '#e2e8f0',
+                    borderRadius: '999px',
+                    fontSize: '9px',
+                    padding: '2px 7px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Lines
+                </button>
+                <button
+                  onClick={() => setShowPolylineLayer((v) => !v)}
+                  style={{
+                    border: '1px solid rgba(148,163,184,0.55)',
+                    background: showPolylineLayer ? 'rgba(37,99,235,0.75)' : 'rgba(15,23,42,0.65)',
+                    color: '#e2e8f0',
+                    borderRadius: '999px',
+                    fontSize: '9px',
+                    padding: '2px 7px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Polylines
+                </button>
+                <button
+                  onClick={() => {
+                    setLabelsTouched(true);
+                    setShowLabels(!effectiveShowLabels);
+                  }}
+                  style={{
+                    border: '1px solid rgba(148,163,184,0.55)',
+                    background: effectiveShowLabels ? 'rgba(56,189,248,0.75)' : 'rgba(15,23,42,0.65)',
+                    color: '#e2e8f0',
+                    borderRadius: '999px',
+                    fontSize: '9px',
+                    padding: '2px 7px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Labels
+                </button>
+                <button
+                  onClick={() => setShowTextLayer((v) => !v)}
+                  style={{
+                    border: '1px solid rgba(148,163,184,0.55)',
+                    background: showTextLayer ? 'rgba(16,185,129,0.72)' : 'rgba(15,23,42,0.65)',
+                    color: '#e2e8f0',
+                    borderRadius: '999px',
+                    fontSize: '9px',
+                    padding: '2px 7px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Text
+                </button>
+              </div>
+              {cadLayers.length > 0 && (
+                <div>
+                  <div style={{ fontWeight: 700, color: '#e0eaff', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '5px' }}>
+                    CAD Layers
+                  </div>
+                  <div style={{ display: 'grid', gap: '4px', maxHeight: '96px', overflowY: 'auto', paddingRight: '2px' }}>
+                    {cadLayers.slice(0, 6).map((layer) => {
+                      const layerKey = String(layer.standardizedName || layer.normalizedName || layer.displayName || '');
+                      const visible = !hiddenCadLayers[layerKey];
+                      return (
+                        <button
+                          key={layerKey}
+                          title={layer.originalNames?.join(', ') || layer.displayName}
+                          onClick={() => setHiddenCadLayers((prev) => ({ ...prev, [layerKey]: visible }))}
+                          style={{
+                            border: '1px solid rgba(148,163,184,0.45)',
+                            background: visible ? 'rgba(30,41,59,0.82)' : 'rgba(15,23,42,0.35)',
+                            color: visible ? '#f8fafc' : '#94a3b8',
+                            borderRadius: '8px',
+                            fontSize: '9px',
+                            padding: '4px 6px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '6px',
+                          }}
+                        >
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{layer.displayName}</span>
+                          <span style={{ color: '#cbd5e1', flexShrink: 0 }}>{layer.entityCount}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {cadLayers.length > 6 && (
+                    <div style={{ marginTop: '5px', color: '#94a3b8', fontSize: '9px' }}>
+                      +{cadLayers.length - 6} more layers available
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
-          <div style={{ color: getMarkerColor(selectedPoint), fontWeight: 700, marginTop: '3px' }}>
-            Geoid: {getGeoidLabel(selectedPoint.geoidUndulation)}
+        </div>
+
+        <div
+          ref={mapContainer}
+          style={{
+            width: '100%',
+            height: '100%',
+            display: 'block',
+            margin: 0,
+            padding: 0,
+            lineHeight: 0
+          }}
+        />
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: '10px',
+          alignItems: 'start',
+        }}
+      >
+        {cadNotifications.length > 0 && (
+          <div
+            style={{
+              background: 'rgba(15, 23, 42, 0.9)',
+              border: '1px solid rgba(147, 197, 253, 0.2)',
+              borderRadius: '12px',
+              padding: '10px 12px',
+              color: '#dbeafe',
+              boxShadow: '0 10px 24px rgba(15, 23, 42, 0.12)',
+              lineHeight: 1.4,
+              fontSize: '11px',
+            }}
+          >
+            <div style={{ fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px', color: '#e0eaff' }}>CAD Import Notices</div>
+            <div style={{ display: 'grid', gap: '6px' }}>
+              {cadNotifications.slice(0, 2).map((notice, index) => (
+                <div key={`${notice?.code || notice?.title || 'cad-notice'}-${index}`}>
+                  <div style={{ fontWeight: 700 }}>{notice?.title || 'CAD notice'}</div>
+                  <div style={{ color: '#cbd5e1' }}>{notice?.message || ''}</div>
+                </div>
+              ))}
+              {cadNotifications.length > 2 && (
+                <div style={{ color: '#93c5fd' }}>+{cadNotifications.length - 2} more notice(s)</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {selectedPointStillVisible && (
+          <div
+            style={{
+              background: 'rgba(15, 32, 64, 0.92)',
+              border: '1px solid rgba(255,255,255,0.10)',
+              borderRadius: '12px',
+              padding: '10px 12px',
+              color: '#cbd5e1',
+              boxShadow: '0 10px 24px rgba(15, 23, 42, 0.12)',
+              fontSize: '11px',
+              lineHeight: 1.5,
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: '4px', color: '#e0eaff', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              {selectedPoint.label || 'Selected Point'}
+            </div>
+            <div>Lat: {selectedPoint.lat.toFixed(6)}°</div>
+            <div>Lng: {selectedPoint.lng.toFixed(6)}°</div>
+            <div>Height: {(selectedPoint.height || 0).toFixed(3)} m</div>
+            {selectedPoint.validationMessage && (
+              <div style={{ color: '#fbbf24', fontWeight: 600, marginTop: '3px' }}>Validation: {selectedPoint.validationMessage}</div>
+            )}
+            <div style={{ color: getMarkerColor(selectedPoint), fontWeight: 700, marginTop: '3px' }}>
+              Geoid: {getGeoidLabel(selectedPoint.geoidUndulation)}
+            </div>
+          </div>
+        )}
+
+        <div
+          style={{
+            background: 'rgba(15, 32, 64, 0.92)',
+            border: '1px solid rgba(255,255,255,0.10)',
+            borderRadius: '12px',
+            padding: '10px 12px',
+            color: '#cbd5e1',
+            boxShadow: '0 10px 24px rgba(15, 23, 42, 0.12)',
+            fontSize: '11px',
+            lineHeight: 1.45,
+          }}
+        >
+          <div style={{ fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px', color: '#e0eaff' }}>Geoid Bands</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+            {geoidLegendItems.map((item) => (
+              <div
+                key={item.label}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '3px 8px',
+                  borderRadius: '999px',
+                  background: 'rgba(15,23,42,0.55)',
+                  border: '1px solid rgba(148,163,184,0.35)',
+                }}
+              >
+                <span style={{ width: '9px', height: '9px', backgroundColor: item.color, borderRadius: '999px', flexShrink: 0 }} />
+                <span>{item.label}</span>
+              </div>
+            ))}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 };
