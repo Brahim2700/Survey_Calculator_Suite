@@ -193,8 +193,10 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         color: #67e8f9;
       }
       .point-name-label .cad-point-elevation {
-        color: #4ade80;
-        margin-top: 1px;
+        color: #fbbf24;
+        font-weight: 600;
+        margin-top: 2px;
+        font-size: 0.95em;
       }
       .point-name-label.leaflet-tooltip-top:before {
         border-top-color: rgba(9, 17, 30, 0.86);
@@ -266,13 +268,14 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       .cad-text-label {
         display: inline-block;
         white-space: nowrap;
-        padding: 1px 4px;
-        border-radius: 4px;
-        background: rgba(255, 255, 255, 0.78);
-        border: 1px solid rgba(15, 23, 42, 0.12);
-        color: #0f172a;
+        padding: 2px 6px;
+        border-radius: 3px;
+        background: rgba(15, 23, 42, 0.88);
+        border: 1px solid rgba(229, 231, 235, 0.2);
+        color: #e5e7eb;
         font-weight: 600;
         line-height: 1.15;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
         box-shadow: 0 1px 4px rgba(15, 23, 42, 0.16);
         transform-origin: left center;
       }
