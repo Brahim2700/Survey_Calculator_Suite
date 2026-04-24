@@ -939,29 +939,46 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       markers.current.push(layer);
     });
 
-    if (showTextLayer) cadTexts.filter(isCadLayerVisible).forEach((textEntity) => {
-      const position = Array.isArray(textEntity?.position) ? textEntity.position : [];
-      if (!Number.isFinite(Number(position[0])) || !Number.isFinite(Number(position[1]))) return;
-      const fontSize = Math.round(clampNumber((Number(textEntity?.textHeight) || 2.5) * 2.6, 10, 28));
-      const rotation = Number.isFinite(Number(textEntity?.rotation)) ? Number(textEntity.rotation) : 0;
-      const color = textEntity?.colorHex || '#0f172a';
-      const fontResolution = resolveCadWebFont({
-        styleName: textEntity?.styleName,
-        fontFamily: textEntity?.fontFamily,
+    if (showTextLayer) {
+      // Collect all text assigned to points to avoid rendering duplicates
+      const usedTextValues = new Set();
+      validPoints.forEach((point) => {
+        if (String(point?.importedCadName || '').trim()) {
+          usedTextValues.add(String(point.importedCadName).trim());
+        }
+        if (String(point?.importedCadElevationText || '').trim()) {
+          usedTextValues.add(String(point.importedCadElevationText).trim());
+        }
       });
-      const fontFamily = escapeHtml(fontResolution.cssFamily);
-      const html = `<div class="cad-text-label" style="font-family:${fontFamily};font-size:${fontSize}px;color:${color};transform:rotate(${rotation}deg);">${escapeHtml(textEntity?.text || '')}</div>`;
-      const marker = L.marker([position[0], position[1]], {
-        icon: L.divIcon({ html, className: 'cad-text-icon', iconAnchor: [0, 0] }),
-        keyboard: false,
-      })
-        .bindPopup(
-          `<div style="font-size:12px;min-width:180px;"><b>${escapeHtml(textEntity?.text || 'CAD text')}</b><br/>Layer: ${escapeHtml(textEntity?.layer || 'Annotation')}<br/>Style: ${escapeHtml(textEntity?.styleName || 'STANDARD')}<br/>CAD font: ${escapeHtml(textEntity?.fontFamily || 'Default')}<br/>Web font: ${escapeHtml(fontResolution.bundledName)}</div>`
-        )
-        .addTo(map.current);
-      geometryLayersRef.current.push(marker);
-      markers.current.push(marker);
-    });
+
+      cadTexts.filter(isCadLayerVisible).forEach((textEntity) => {
+        // Skip CAD text that has been assigned to a point (avoid duplication)
+        const textContent = String(textEntity?.text || '').trim();
+        if (textContent && usedTextValues.has(textContent)) return;
+
+        const position = Array.isArray(textEntity?.position) ? textEntity.position : [];
+        if (!Number.isFinite(Number(position[0])) || !Number.isFinite(Number(position[1]))) return;
+        const fontSize = Math.round(clampNumber((Number(textEntity?.textHeight) || 2.5) * 2.6, 10, 28));
+        const rotation = Number.isFinite(Number(textEntity?.rotation)) ? Number(textEntity.rotation) : 0;
+        const color = textEntity?.colorHex || '#0f172a';
+        const fontResolution = resolveCadWebFont({
+          styleName: textEntity?.styleName,
+          fontFamily: textEntity?.fontFamily,
+        });
+        const fontFamily = escapeHtml(fontResolution.cssFamily);
+        const html = `<div class="cad-text-label" style="font-family:${fontFamily};font-size:${fontSize}px;color:${color};transform:rotate(${rotation}deg);">${escapeHtml(textEntity?.text || '')}</div>`;
+        const marker = L.marker([position[0], position[1]], {
+          icon: L.divIcon({ html, className: 'cad-text-icon', iconAnchor: [0, 0] }),
+          keyboard: false,
+        })
+          .bindPopup(
+            `<div style="font-size:12px;min-width:180px;"><b>${escapeHtml(textEntity?.text || 'CAD text')}</b><br/>Layer: ${escapeHtml(textEntity?.layer || 'Annotation')}<br/>Style: ${escapeHtml(textEntity?.styleName || 'STANDARD')}<br/>CAD font: ${escapeHtml(textEntity?.fontFamily || 'Default')}<br/>Web font: ${escapeHtml(fontResolution.bundledName)}</div>`
+          )
+          .addTo(map.current);
+        geometryLayersRef.current.push(marker);
+        markers.current.push(marker);
+      });
+    }
 
     // Fit map only when point data changes; do not fight user zoom/pan interactions.
     const pointsSignature = validPoints.map((p) => `${p.id ?? ''}:${p.lat.toFixed(6)}:${p.lng.toFixed(6)}`).join('|');
