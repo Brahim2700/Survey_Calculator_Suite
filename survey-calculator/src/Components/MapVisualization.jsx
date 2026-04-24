@@ -27,6 +27,15 @@ const escapeHtml = (value) => String(value ?? '')
   .replace(/'/g, '&#39;');
 const clampNumber = (value, min, max) => Math.min(max, Math.max(min, value));
 
+const getZoomBasedMarkerRadius = (zoom) => {
+  if (zoom <= 10) return 3;
+  if (zoom <= 12) return 4;
+  if (zoom <= 14) return 5;
+  if (zoom <= 16) return 6;
+  if (zoom <= 18) return 7;
+  return 8;
+};
+
 const getCadPolylineDecimationStep = (zoom, totalVertices, featureVertices) => {
   if (totalVertices >= CAD_EXTREME_VERTEX_THRESHOLD || featureVertices >= 12000) {
     if (zoom <= 10) return 6;
@@ -773,7 +782,8 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
 
       const color = getMarkerColor(point);
       const undulationLabel = getGeoidLabel(point.geoidUndulation);
-      const markerRadius = isSelectableConverted ? 10 : 8;
+      const baseRadius = getZoomBasedMarkerRadius(map.current.getZoom());
+      const markerRadius = isSelectableConverted ? baseRadius + 2 : baseRadius;
       const markerStroke = isSelectableConverted ? '#f97316' : '#fff';
       const markerWeight = isSelectableConverted ? 4 : 2;
       const markerFillOpacity = isSelectableConverted ? 0.95 : 0.8;
