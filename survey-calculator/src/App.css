@@ -23,8 +23,8 @@
   z-index: -2;
   background-image: url("/backgrounds/survey-bg.png?v=2");
   background-repeat: no-repeat;
-  background-size: cover;
-  background-position: center -80px;
+  background-size: 140% 140%;
+  background-position: center -220px;
   filter: saturate(1.05) brightness(1.05);
   opacity: 1;
   transform: none;
