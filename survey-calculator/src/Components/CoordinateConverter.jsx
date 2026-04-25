@@ -3956,6 +3956,13 @@ const CoordinateConverter = () => {
     return Array.from(sourceMap.entries()).map(([key, label]) => ({ key, label }));
   }, [conversionHistoryRows]);
 
+  const hasImportedFileData = useMemo(() => {
+    return conversionHistoryRows.some((row) => {
+      const sourceName = String(row?.sourceFileName || "").trim();
+      return sourceName.length > 0 && sourceName !== "Manual Input";
+    });
+  }, [conversionHistoryRows]);
+
   const filteredBulkResults = useMemo(() => {
     let rows = conversionHistoryRows;
     if (bulkFilterMode === "failed") rows = rows.filter((r) => String(r.outputX) === "ERROR");
@@ -4820,20 +4827,22 @@ const CoordinateConverter = () => {
 
       <div ref={bulkSectionRef} style={{ marginTop: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
         <label style={{ fontWeight: 700 }}>Upload bulk file (CSV/TXT/GeoJSON/GPX/KML/ZIP/XLSX)</label>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.55rem", flexWrap: "wrap" }}>
-          <label style={{ fontSize: "0.84rem", fontWeight: 700, color: "#334155" }}>Import mode</label>
-          <select
-            value={fileImportMode}
-            onChange={(e) => setFileImportMode(e.target.value === "replace" ? "replace" : "append")}
-            style={{ padding: "0.35rem 0.55rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", fontWeight: 600 }}
-          >
-            <option value="append">Append to existing map</option>
-            <option value="replace">Replace existing map data</option>
-          </select>
-          <span style={{ fontSize: "0.8rem", color: "#64748b" }}>
-            Use append for multi-file project stacking.
-          </span>
-        </div>
+        {(bulkUploadFile || hasImportedFileData) && (
+          <div style={{ display: "flex", alignItems: "center", gap: "0.55rem", flexWrap: "wrap" }}>
+            <label style={{ fontSize: "0.84rem", fontWeight: 700, color: "#334155" }}>Import mode</label>
+            <select
+              value={fileImportMode}
+              onChange={(e) => setFileImportMode(e.target.value === "replace" ? "replace" : "append")}
+              style={{ padding: "0.35rem 0.55rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", fontWeight: 600 }}
+            >
+              <option value="append">Append to existing map</option>
+              <option value="replace">Replace existing map data</option>
+            </select>
+            <span style={{ fontSize: "0.8rem", color: "#64748b" }}>
+              Use append for multi-file project stacking.
+            </span>
+          </div>
+        )}
         <div style={{ fontSize: "0.85rem", color: "#475569" }}>
           Supports files with optional point names/IDs in first column. Header keywords: X/Easting/Lon/Longitude, Y/Northing/Lat/Latitude, 
           Z/Height/Elevation/Hgt (orthometric), h/Ellipsoidal/GeodeticHeight (ellipsoidal), EPSG codes. Add <strong>h</strong> to force ellipsoidal or <strong>H</strong>/Height/Elevation to force orthometric.
