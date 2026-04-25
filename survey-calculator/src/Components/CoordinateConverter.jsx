@@ -2703,6 +2703,7 @@ const CoordinateConverter = () => {
 
   // ---- Bulk conversion ----
   const handleBulkConvert = async () => {
+    setPanelOpen((prev) => ({ ...prev, cad: false }));
     // Check if file is uploaded, use file conversion, otherwise use text
     if (bulkUploadFile) {
       await handleBulkFileConvert(bulkUploadFile);
@@ -3292,6 +3293,7 @@ const CoordinateConverter = () => {
   };
 
   const handleBulkFileConvert = async (fileArg) => {
+    setPanelOpen((prev) => ({ ...prev, cad: false }));
     setBulkIsConverting(true);
     bulkCancelRef.current = false;
     setBulkUploadError("");
