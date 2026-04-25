@@ -149,7 +149,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   useEffect(() => {
     const style = document.createElement('style');
     style.innerHTML = `
-      .detection-label .leaflet-tooltip-content {
+      .leaflet-tooltip.detection-label {
         background-color: rgba(255, 255, 255, 0.95);
         border-radius: 4px;
         padding: 4px 8px;
@@ -162,7 +162,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       .detection-label.leaflet-tooltip-top:before {
         border-top-color: rgba(255, 255, 255, 0.95);
       }
-      .detection-cluster-label .leaflet-tooltip-content {
+      .leaflet-tooltip.detection-cluster-label {
         background-color: rgba(30, 58, 138, 0.92);
         border-radius: 4px;
         padding: 4px 8px;
@@ -175,14 +175,14 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       .detection-cluster-label.leaflet-tooltip-top:before {
         border-top-color: rgba(30, 58, 138, 0.92);
       }
-      .point-name-label .leaflet-tooltip-content {
+      .leaflet-tooltip.point-name-label {
         background: rgba(9, 17, 30, 0.86);
         color: #e6edf7;
         border: 1px solid rgba(147, 197, 253, 0.48);
         border-radius: 7px;
-        padding: 3px 8px 4px;
-        font-size: 11px;
-        font-weight: 650;
+        padding: 2px 6px 3px;
+        font-size: 10px;
+        font-weight: 600;
         line-height: 1.2;
         letter-spacing: 0.01em;
         font-family: 'Avenir Next', 'Segoe UI Variable Text', 'Trebuchet MS', sans-serif;
@@ -192,8 +192,8 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       }
       .point-name-label .point-label-stack {
         display: grid;
-        gap: 3px;
-        min-width: 74px;
+        gap: 2px;
+        min-width: 64px;
       }
       .point-name-label .point-main-label {
         font-weight: 700;
@@ -208,13 +208,13 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       .point-name-label .cad-point-elevation {
         display: inline-flex;
         align-items: center;
-        gap: 5px;
+        gap: 4px;
         color: #fbbf24;
         font-weight: 650;
         margin-top: 0;
-        padding-top: 2px;
+        padding-top: 1px;
         border-top: 1px solid rgba(148, 163, 184, 0.34);
-        font-size: 0.92em;
+        font-size: 0.88em;
         line-height: 1.15;
       }
       .point-name-label .cad-point-elevation-key {
@@ -243,9 +243,9 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       .point-name-label.leaflet-tooltip-bottom:before {
         border-bottom-color: rgba(9, 17, 30, 0.86);
       }
-      .point-name-label.dense .leaflet-tooltip-content {
-        font-size: 10px;
-        padding: 2px 7px 3px;
+      .leaflet-tooltip.point-name-label.dense {
+        font-size: 9px;
+        padding: 1px 6px 2px;
         background: rgba(7, 13, 24, 0.9);
       }
       .point-name-label.dense .point-label-stack {
@@ -254,14 +254,14 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       .point-name-label.dense .cad-point-elevation {
         gap: 4px;
       }
-      .point-cluster-label .leaflet-tooltip-content {
+      .leaflet-tooltip.point-cluster-label {
         background: rgba(30, 41, 59, 0.92);
         color: #f8fafc;
         border: 1px solid rgba(148, 163, 184, 0.58);
         border-radius: 999px;
-        font-size: 10px;
+        font-size: 9px;
         font-weight: 700;
-        padding: 2px 8px;
+        padding: 1px 7px;
         box-shadow: 0 2px 6px rgba(2, 6, 23, 0.4);
         font-family: 'Avenir Next', 'Segoe UI Variable Text', 'Trebuchet MS', sans-serif;
       }
@@ -275,19 +275,19 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       .map-export-mode .map-legend-overlay {
         display: none !important;
       }
-      .map-export-mode .point-name-label .leaflet-tooltip-content {
+      .map-export-mode .leaflet-tooltip.point-name-label {
         font-size: 12px;
         padding: 4px 10px 5px;
         background: rgba(9, 17, 30, 0.92);
         border-width: 1.2px;
       }
-      .map-export-mode .point-name-label.dense .leaflet-tooltip-content {
+      .map-export-mode .leaflet-tooltip.point-name-label.dense {
         font-size: 11px;
         padding: 3px 8px 4px;
       }
-      .map-export-mode .detection-label .leaflet-tooltip-content,
-      .map-export-mode .detection-cluster-label .leaflet-tooltip-content,
-      .map-export-mode .point-cluster-label .leaflet-tooltip-content {
+      .map-export-mode .leaflet-tooltip.detection-label,
+      .map-export-mode .leaflet-tooltip.detection-cluster-label,
+      .map-export-mode .leaflet-tooltip.point-cluster-label {
         font-size: 11px;
       }
       .leaflet-control.smart-scale-control {
