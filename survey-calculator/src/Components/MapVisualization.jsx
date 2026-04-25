@@ -27,6 +27,20 @@ const escapeHtml = (value) => String(value ?? '')
   .replace(/'/g, '&#39;');
 const clampNumber = (value, min, max) => Math.min(max, Math.max(min, value));
 
+const rectanglesOverlap = (a, b, padding = 0) => (
+  a.x - padding < b.x + b.w
+  && a.x + a.w + padding > b.x
+  && a.y - padding < b.y + b.h
+  && a.y + a.h + padding > b.y
+);
+
+const pointInsideRect = (point, rect, padding = 0) => (
+  point.x >= rect.x - padding
+  && point.x <= rect.x + rect.w + padding
+  && point.y >= rect.y - padding
+  && point.y <= rect.y + rect.h + padding
+);
+
 const getZoomBasedMarkerRadius = (zoom) => {
   if (zoom <= 10) return 2;
   if (zoom <= 12) return 2.5;
@@ -134,6 +148,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       : (!labelsTouched && Array.isArray(points) && points.length > LABEL_AUTO_HIDE_THRESHOLD)
         ? false
         : showLabels;
+  const annotationsVisible = effectiveShowLabels || showTextLayer;
   const cadNotifications = Array.isArray(cadGeometry?.notifications)
     ? cadGeometry.notifications
     : (Array.isArray(cadGeometry?.validation?.notifications) ? cadGeometry.validation.notifications : []);
@@ -309,18 +324,35 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         border: none;
       }
       .cad-text-label {
-        display: inline-block;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
         white-space: nowrap;
         padding: 2px 6px;
-        border-radius: 3px;
-        background: rgba(15, 23, 42, 0.88);
-        border: 1px solid rgba(229, 231, 235, 0.2);
-        color: #e5e7eb;
-        font-weight: 600;
-        line-height: 1.15;
+        border-radius: 6px;
+        background: rgba(8, 15, 28, 0.9);
+        border: 1px solid rgba(148, 163, 184, 0.32);
+        color: #e2e8f0;
+        font-weight: 650;
+        font-size: 10px;
+        line-height: 1.1;
         text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
-        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.16);
+        box-shadow: 0 2px 7px rgba(2, 6, 23, 0.38);
         transform-origin: left center;
+      }
+      .cad-text-label .cad-text-badge {
+        display: inline-block;
+        padding: 1px 4px;
+        border-radius: 999px;
+        background: rgba(56, 189, 248, 0.22);
+        color: #bae6fd;
+        letter-spacing: 0.03em;
+        font-size: 0.72em;
+        font-weight: 700;
+      }
+      .cad-text-label .cad-text-value {
+        color: var(--cad-text-color, #e2e8f0);
+        font-weight: 700;
       }
     `;
     document.head.appendChild(style);
@@ -463,29 +495,105 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     return 48;
   };
 
-  const getSmartLabelLayout = (index, total) => {
-    if (total <= 1) {
-      return { direction: 'top', offset: [0, -17], isDense: false };
-    }
+  const estimateLabelDimensions = useCallback((point, isDense) => {
+    const labelText = String(point?.importedCadName || point?.label || point?.id || 'Point');
+    const elevationText = String(point?.importedCadElevationText || '').trim();
+    const hasElevation = elevationText.length > 0 || Number.isFinite(Number(point?.height));
+    const width = clampNumber(Math.round(labelText.length * (isDense ? 5.1 : 5.8) + (hasElevation ? 32 : 20)), 62, 170);
+    const height = hasElevation ? (isDense ? 25 : 30) : (isDense ? 14 : 18);
+    return { width, height };
+  }, []);
 
-    const ring = total <= 4 ? 22 : total <= 9 ? 30 : 36;
-    const angle = ((2 * Math.PI * index) / total) - Math.PI / 2;
+  const getTooltipRect = useCallback((pointPixel, direction, offset, width, height) => {
+    const anchorX = pointPixel.x + offset[0];
+    const anchorY = pointPixel.y + offset[1];
+
+    if (direction === 'right') {
+      return { x: anchorX, y: anchorY - (height / 2), w: width, h: height };
+    }
+    if (direction === 'left') {
+      return { x: anchorX - width, y: anchorY - (height / 2), w: width, h: height };
+    }
+    if (direction === 'bottom') {
+      return { x: anchorX - (width / 2), y: anchorY, w: width, h: height };
+    }
+    return { x: anchorX - (width / 2), y: anchorY - height, w: width, h: height };
+  }, []);
+
+  const chooseSmartLabelLayout = useCallback((point, index, total, pointPixel, allPointPixels, occupiedLabelRects, mapSize) => {
+    const isDense = total >= 8;
+    const ring = total <= 1 ? 20 : total <= 4 ? 24 : total <= 9 ? 31 : 38;
+    const { width, height } = estimateLabelDimensions(point, isDense);
+
+    let preferredDirection = null;
+    let nearestDist = Number.POSITIVE_INFINITY;
+    allPointPixels.forEach((entry) => {
+      if (!entry || String(entry.id) === String(point?.id)) return;
+      const dx = entry.x - pointPixel.x;
+      const dy = entry.y - pointPixel.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        if (Math.abs(dx) > Math.abs(dy)) {
+          preferredDirection = dx >= 0 ? 'left' : 'right';
+        } else {
+          preferredDirection = dy >= 0 ? 'top' : 'bottom';
+        }
+      }
+    });
+
+    const angle = ((2 * Math.PI * index) / Math.max(total, 1)) - Math.PI / 2;
     const ox = Math.round(Math.cos(angle) * ring);
     const oy = Math.round(Math.sin(angle) * ring);
+    const overlapDirection = Math.abs(ox) > Math.abs(oy)
+      ? (ox >= 0 ? 'right' : 'left')
+      : (oy >= 0 ? 'bottom' : 'top');
 
-    let direction = 'top';
-    if (Math.abs(ox) > Math.abs(oy)) {
-      direction = ox >= 0 ? 'right' : 'left';
-    } else {
-      direction = oy >= 0 ? 'bottom' : 'top';
-    }
+    const directionPriority = [preferredDirection, overlapDirection, 'top', 'right', 'left', 'bottom']
+      .filter((value, idx, arr) => value && arr.indexOf(value) === idx);
 
-    return {
-      direction,
-      offset: [ox, oy],
-      isDense: total >= 8,
-    };
-  };
+    let best = null;
+    directionPriority.forEach((direction, candidateIndex) => {
+      const dirOffset = direction === 'top'
+        ? [0, -ring]
+        : direction === 'right'
+          ? [ring, -6]
+          : direction === 'left'
+            ? [-ring, -6]
+            : [0, ring - 8];
+      const rect = getTooltipRect(pointPixel, direction, dirOffset, width, height);
+
+      let score = candidateIndex * 8;
+      if (rect.x < 4 || rect.y < 4 || rect.x + rect.w > mapSize.x - 4 || rect.y + rect.h > mapSize.y - 4) {
+        score += 35;
+      }
+
+      allPointPixels.forEach((entry) => {
+        if (!entry || String(entry.id) === String(point?.id)) return;
+        if (pointInsideRect(entry, rect, 8)) {
+          score += 45;
+        }
+      });
+
+      occupiedLabelRects.forEach((existing) => {
+        if (rectanglesOverlap(rect, existing, 3)) {
+          score += 55;
+        }
+      });
+
+      if (!best || score < best.score) {
+        best = {
+          score,
+          direction,
+          offset: dirOffset,
+          isDense,
+          rect,
+        };
+      }
+    });
+
+    return best || { direction: 'top', offset: [0, -20], isDense, rect: getTooltipRect(pointPixel, 'top', [0, -20], width, height) };
+  }, [estimateLabelDimensions, getTooltipRect]);
 
   const createPointSymbolLayer = (lat, lng, style) => {
     if (style.symbol === 'circle') {
@@ -800,7 +908,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     });
 
     // Add cluster labels for superposed detections (same position, multiple CRS).
-    if (effectiveShowLabels) detectionGroups.forEach((group) => {
+    if (annotationsVisible) detectionGroups.forEach((group) => {
       if (group.points.length < 2) return;
       const ranked = [...group.points].sort((a, b) => getPointConfidence(b) - getPointConfidence(a));
       const topTwoCodes = ranked.slice(0, 2).map((p) => extractCrsCode(p)).filter(Boolean);
@@ -826,6 +934,12 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     const cellSize = getDeclutterCellSize(map.current.getZoom());
     const occupiedCells = new Set();
     const visibleConvertedLabelIds = new Set();
+    const occupiedLabelRects = [];
+    const inViewPointPixels = inViewConvertedPoints.map((p) => {
+      const px = map.current.latLngToContainerPoint([p.lat, p.lng]);
+      return { id: p.id, x: px.x, y: px.y };
+    });
+    const mapSize = map.current.getSize();
 
     const representativePoints = [];
     const secondaryPoints = [];
@@ -926,7 +1040,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         .addTo(map.current);
 
       // Add permanent label for detection markers
-      if (effectiveShowLabels && point.detectionMarker && point.label && visibleDetectionLabelIds.has(point.id)) {
+      if (annotationsVisible && point.detectionMarker && point.label && visibleDetectionLabelIds.has(point.id)) {
         const markerTooltip = L.tooltip({
           permanent: true,
           direction: 'top',
@@ -943,7 +1057,16 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         const overlapGroup = overlapGroups.get(getCoordKey(point.lat, point.lng));
         const overlapSize = overlapGroup ? overlapGroup.points.length : 1;
         const overlapIndex = overlapGroup ? overlapGroup.points.findIndex((p) => String(p.id) === String(point.id) && p.label === point.label) : 0;
-        const labelLayout = getSmartLabelLayout(Math.max(overlapIndex, 0), overlapSize);
+        const pointPixel = map.current.latLngToContainerPoint([displayLat, displayLng]);
+        const labelLayout = chooseSmartLabelLayout(
+          point,
+          Math.max(overlapIndex, 0),
+          overlapSize,
+          { x: pointPixel.x, y: pointPixel.y },
+          inViewPointPixels,
+          occupiedLabelRects,
+          mapSize,
+        );
         const pointId = point.id !== undefined ? String(point.id) : null;
         const hasImportedCadLabel = Boolean(
           String(point?.importedCadName || '').trim()
@@ -955,7 +1078,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
           ? visibleConvertedLabelIds.has(pointId)
           : false;
 
-        if (effectiveShowLabels && shouldShowConvertedLabel && (point.sourceType !== 'cad-point' || hasImportedCadLabel)) {
+        if (annotationsVisible && shouldShowConvertedLabel && (point.sourceType !== 'cad-point' || hasImportedCadLabel)) {
           const nameTooltip = L.tooltip({
             permanent: true,
             direction: labelLayout.direction,
@@ -966,6 +1089,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
             .setContent(getPointLabelMarkup(point))
             .setLatLng([displayLat, displayLng])
             .addTo(map.current);
+          occupiedLabelRects.push(labelLayout.rect);
           markers.current.push(nameTooltip);
         }
       }
@@ -980,7 +1104,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       markers.current.push(pointLayer);
     });
 
-    if (effectiveShowLabels) hiddenCountByCoordKey.forEach((hiddenCount, key) => {
+    if (annotationsVisible) hiddenCountByCoordKey.forEach((hiddenCount, key) => {
       const group = overlapGroups.get(key);
       if (!group || !viewportBounds.contains([group.lat, group.lng])) return;
       const hiddenTooltip = L.tooltip({
@@ -1052,7 +1176,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       markers.current.push(layer);
     });
 
-    if (showTextLayer) {
+    if (annotationsVisible) {
       // Collect all text assigned to points to avoid rendering duplicates
       const usedTextValues = new Set();
       validPoints.forEach((point) => {
@@ -1071,7 +1195,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
 
         const position = Array.isArray(textEntity?.position) ? textEntity.position : [];
         if (!Number.isFinite(Number(position[0])) || !Number.isFinite(Number(position[1]))) return;
-        const fontSize = Math.round(clampNumber((Number(textEntity?.textHeight) || 2.5) * 2.6, 10, 28));
+        const fontSize = Math.round(clampNumber((Number(textEntity?.textHeight) || 2.5) * 2.2, 9, 18));
         const rotation = Number.isFinite(Number(textEntity?.rotation)) ? Number(textEntity.rotation) : 0;
         const color = textEntity?.colorHex || '#0f172a';
         const fontResolution = resolveCadWebFont({
@@ -1079,7 +1203,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
           fontFamily: textEntity?.fontFamily,
         });
         const fontFamily = escapeHtml(fontResolution.cssFamily);
-        const html = `<div class="cad-text-label" style="font-family:${fontFamily};font-size:${fontSize}px;color:${color};transform:rotate(${rotation}deg);">${escapeHtml(textEntity?.text || '')}</div>`;
+        const html = `<div class="cad-text-label" style="font-family:${fontFamily};font-size:${fontSize}px;--cad-text-color:${escapeHtml(color)};transform:rotate(${rotation}deg);"><span class="cad-text-badge">TXT</span><span class="cad-text-value">${escapeHtml(textEntity?.text || '')}</span></div>`;
         const marker = L.marker([position[0], position[1]], {
           icon: L.divIcon({ html, className: 'cad-text-icon', iconAnchor: [0, 0] }),
           keyboard: false,
@@ -1129,7 +1253,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         map.current.off('moveend', handleViewChange);
       }
     };
-  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, onMapInstanceReady, getMarkerColor, getPointLabelMarkup, isCadLayerVisible, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showTextLayer, showLabels, effectiveShowLabels, hiddenCadLayers, pointSymbol, pointSizeScale]);
+  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, onMapInstanceReady, getMarkerColor, getPointLabelMarkup, chooseSmartLabelLayout, isCadLayerVisible, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showTextLayer, showLabels, effectiveShowLabels, annotationsVisible, hiddenCadLayers, pointSymbol, pointSizeScale]);
 
   return (
     <div
@@ -1243,12 +1367,14 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
                 </button>
                 <button
                   onClick={() => {
+                    const nextVisibility = !annotationsVisible;
                     setLabelsTouched(true);
-                    setShowLabels(!effectiveShowLabels);
+                    setShowLabels(nextVisibility);
+                    setShowTextLayer(nextVisibility);
                   }}
                   style={{
                     border: '1px solid rgba(148,163,184,0.55)',
-                    background: effectiveShowLabels ? 'rgba(56,189,248,0.75)' : 'rgba(15,23,42,0.65)',
+                    background: annotationsVisible ? 'rgba(56,189,248,0.75)' : 'rgba(15,23,42,0.65)',
                     color: '#e2e8f0',
                     borderRadius: '999px',
                     fontSize: '9px',
@@ -1256,21 +1382,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
                     cursor: 'pointer'
                   }}
                 >
-                  Labels
-                </button>
-                <button
-                  onClick={() => setShowTextLayer((v) => !v)}
-                  style={{
-                    border: '1px solid rgba(148,163,184,0.55)',
-                    background: showTextLayer ? 'rgba(16,185,129,0.72)' : 'rgba(15,23,42,0.65)',
-                    color: '#e2e8f0',
-                    borderRadius: '999px',
-                    fontSize: '9px',
-                    padding: '2px 7px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Text
+                  Labels & Text
                 </button>
               </div>
               <div style={{ display: 'grid', gap: '6px', marginBottom: '9px' }}>
