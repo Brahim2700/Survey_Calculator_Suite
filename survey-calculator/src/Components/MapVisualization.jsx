@@ -843,32 +843,61 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       const { lat, lng } = e.latlng || {};
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-      if (!snapMode || !map.current || !Array.isArray(snapCandidatesRef.current) || snapCandidatesRef.current.length === 0) {
-        emit('map:click', { lat, lon: lng, lng });
-        return;
+      const hasCandidates = Array.isArray(snapCandidatesRef.current) && snapCandidatesRef.current.length > 0;
+
+      // In measure mode: always try to snap to nearest converted point (auto-snap, no toggle needed)
+      if (measureMode && hasCandidates) {
+        const clickPoint = map.current.latLngToContainerPoint([lat, lng]);
+        // Use snapRadiusPx when snap mode is on, otherwise use a generous 30px default
+        const measureSnapPx = snapMode ? clampNumber(snapRadiusPx, 6, 24) : 30;
+        const measureSnapSq = measureSnapPx * measureSnapPx;
+        let bestPoint = null;
+        let bestPointDistSq = Number.POSITIVE_INFINITY;
+
+        snapCandidatesRef.current.forEach((candidate) => {
+          if (candidate.type !== 'point') return;
+          if (!Number.isFinite(candidate?.lat) || !Number.isFinite(candidate?.lng)) return;
+          const cp = map.current.latLngToContainerPoint([candidate.lat, candidate.lng]);
+          const dx = clickPoint.x - cp.x;
+          const dy = clickPoint.y - cp.y;
+          const distSq = (dx * dx) + (dy * dy);
+          if (distSq < bestPointDistSq) {
+            bestPointDistSq = distSq;
+            bestPoint = candidate;
+          }
+        });
+
+        if (bestPoint && bestPointDistSq <= measureSnapSq && bestPoint.pointRef) {
+          setSelectedPoint(bestPoint.pointRef);
+          if (onPointSelect) onPointSelect(bestPoint.pointRef);
+          return;
+        }
       }
 
-      const clickPoint = map.current.latLngToContainerPoint([lat, lng]);
-      let best = null;
-      let bestDistSq = Number.POSITIVE_INFINITY;
-      const maxSnapPx = clampNumber(snapRadiusPx, 6, 24);
-      const maxSnapSq = maxSnapPx * maxSnapPx;
+      // Regular snap mode for non-measure clicks (CAD vertices, line ends, etc.)
+      if (snapMode && hasCandidates) {
+        const clickPoint = map.current.latLngToContainerPoint([lat, lng]);
+        let best = null;
+        let bestDistSq = Number.POSITIVE_INFINITY;
+        const maxSnapPx = clampNumber(snapRadiusPx, 6, 24);
+        const maxSnapSq = maxSnapPx * maxSnapPx;
 
-      snapCandidatesRef.current.forEach((candidate) => {
-        if (!Number.isFinite(candidate?.lat) || !Number.isFinite(candidate?.lng)) return;
-        const candidatePoint = map.current.latLngToContainerPoint([candidate.lat, candidate.lng]);
-        const dx = clickPoint.x - candidatePoint.x;
-        const dy = clickPoint.y - candidatePoint.y;
-        const distSq = (dx * dx) + (dy * dy);
-        if (distSq < bestDistSq) {
-          bestDistSq = distSq;
-          best = candidate;
+        snapCandidatesRef.current.forEach((candidate) => {
+          if (!Number.isFinite(candidate?.lat) || !Number.isFinite(candidate?.lng)) return;
+          const cp = map.current.latLngToContainerPoint([candidate.lat, candidate.lng]);
+          const dx = clickPoint.x - cp.x;
+          const dy = clickPoint.y - cp.y;
+          const distSq = (dx * dx) + (dy * dy);
+          if (distSq < bestDistSq) {
+            bestDistSq = distSq;
+            best = candidate;
+          }
+        });
+
+        if (best && bestDistSq <= maxSnapSq) {
+          emit('map:click', { lat: best.lat, lon: best.lng, lng: best.lng, snapped: true, snapType: best.type || 'vertex' });
+          return;
         }
-      });
-
-      if (best && bestDistSq <= maxSnapSq) {
-        emit('map:click', { lat: best.lat, lon: best.lng, lng: best.lng, snapped: true, snapType: best.type || 'vertex' });
-        return;
       }
 
       emit('map:click', { lat, lon: lng, lng });
@@ -1083,7 +1112,8 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       const group = point.detectionMarker ? detectionGroups.get(coordKey) : null;
       const groupSize = group ? group.points.length : 1;
       const groupIndex = group ? group.points.indexOf(point) : -1;
-      const isSelectableConverted = measureMode && point.sourceType === 'converted';
+      // In measure mode, all points are selectable (snap handles selection via map click)
+      const isSelectableConverted = measureMode && (point.sourceType === 'converted' || point.sourceType === 'cad-point');
 
       const displayLat = point.lat;
       const displayLng = point.lng;
@@ -1097,9 +1127,10 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       const undulationLabel = getGeoidLabel(point.geoidUndulation);
       const baseRadius = getZoomBasedMarkerRadius(map.current.getZoom());
       const scaledRadius = clampNumber(baseRadius * pointSizeScale, 1, 12);
-      const markerRadius = isSelectableConverted ? scaledRadius + 0.8 : scaledRadius;
+      // In measure mode: make selectable points significantly larger for easier clicking
+      const markerRadius = isSelectableConverted ? Math.max(scaledRadius + 3, 7) : scaledRadius;
       const markerStroke = isSelectableConverted ? '#f97316' : '#fff';
-      const markerWeight = isSelectableConverted ? 4 : 2;
+      const markerWeight = isSelectableConverted ? 3 : 2;
       const markerFillOpacity = isSelectableConverted ? 0.95 : 0.8;
 
       const pointLayer = createPointSymbolLayer(displayLat, displayLng, {
@@ -1116,7 +1147,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
             Lat: ${point.lat.toFixed(4)}°<br/>
             Lng: ${point.lng.toFixed(4)}°<br/>
             Height: ${(point.height || 0).toFixed(2)} m<br/>
-            ${isSelectableConverted ? `<span style="color:#ea580c"><b>Measure:</b> Click to select this converted point</span><br/>` : ''}
+            ${isSelectableConverted ? `<span style="color:#ea580c"><b>Measure:</b> Click or snap to select this point</span><br/>` : ''}
             ${groupSize > 1 ? `<span style="color:#1e3a8a"><b>Note:</b> ${groupSize} points overlap at this location (${groupIndex + 1}/${groupSize}).</span><br/>` : ''}
             ${point.validationMessage ? `<span style="color:#b45309"><b>Validation:</b> ${point.validationMessage}</span><br/>` : ''}
             <b style="color: ${color}">Geoid: ${undulationLabel}</b>
@@ -1206,27 +1237,32 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       return sum + pts.length;
     }, 0);
 
-    // Only build snap candidates when snap mode is active (performance optimization)
-    if (snapMode) {
+    // Build snap candidates when snap mode or measure mode is active
+    if (snapMode || measureMode) {
       const snapCandidates = [];
+      // Always include converted points with full reference (needed for measure mode snap)
       validPoints.forEach((point) => {
         if (Number.isFinite(point?.lat) && Number.isFinite(point?.lng)) {
-          snapCandidates.push({ lat: point.lat, lng: point.lng, type: 'point' });
+          // Store pointRef so measure-mode map clicks can call onPointSelect
+          snapCandidates.push({ lat: point.lat, lng: point.lng, type: 'point', pointRef: point });
         }
       });
-      cadLines.forEach((line) => {
-        const start = Array.isArray(line?.start) ? line.start : null;
-        const end = Array.isArray(line?.end) ? line.end : null;
-        if (start && Number.isFinite(start[0]) && Number.isFinite(start[1])) snapCandidates.push({ lat: start[0], lng: start[1], type: 'line-end' });
-        if (end && Number.isFinite(end[0]) && Number.isFinite(end[1])) snapCandidates.push({ lat: end[0], lng: end[1], type: 'line-end' });
-      });
-      cadPolylines.forEach((polyline) => {
-        (Array.isArray(polyline?.points) ? polyline.points : []).forEach((pt) => {
-          if (Array.isArray(pt) && Number.isFinite(pt[0]) && Number.isFinite(pt[1])) {
-            snapCandidates.push({ lat: pt[0], lng: pt[1], type: 'poly-vertex' });
-          }
+      // Add CAD geometry candidates only when snap mode toggle is on
+      if (snapMode) {
+        cadLines.forEach((line) => {
+          const start = Array.isArray(line?.start) ? line.start : null;
+          const end = Array.isArray(line?.end) ? line.end : null;
+          if (start && Number.isFinite(start[0]) && Number.isFinite(start[1])) snapCandidates.push({ lat: start[0], lng: start[1], type: 'line-end' });
+          if (end && Number.isFinite(end[0]) && Number.isFinite(end[1])) snapCandidates.push({ lat: end[0], lng: end[1], type: 'line-end' });
         });
-      });
+        cadPolylines.forEach((polyline) => {
+          (Array.isArray(polyline?.points) ? polyline.points : []).forEach((pt) => {
+            if (Array.isArray(pt) && Number.isFinite(pt[0]) && Number.isFinite(pt[1])) {
+              snapCandidates.push({ lat: pt[0], lng: pt[1], type: 'poly-vertex' });
+            }
+          });
+        });
+      }
 
       const snapSeen = new Set();
       const dedupedSnapCandidates = [];

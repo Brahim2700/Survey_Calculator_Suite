@@ -127,14 +127,13 @@ function App() {
   // Simple UX: while measure mode is ON, click converted markers to choose P1 and P2.
   const handleMapPointSelect = (point) => {
     if (!measureMode) return;
-    if (point?.sourceType !== "converted") return;
     if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return;
 
     const selected = {
       lat: point.lat,
       lng: point.lng,
-      source: "converted",
-      sourceLabel: point.label || point.id || "Converted point",
+        source: point.sourceType || "point",
+        sourceLabel: point.label || (point.id !== undefined ? String(point.id) : "Point"),
     };
 
     setMeasurePoints((prev) => {
