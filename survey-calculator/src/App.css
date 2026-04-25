@@ -23,8 +23,8 @@
   z-index: -2;
   background-image: url("/backgrounds/survey-bg.png?v=2");
   background-repeat: no-repeat;
-  background-size: 140% 140%;
-  background-position: center -220px;
+  background-size: 140% 185%;
+  background-position: center center;
   filter: saturate(1.05) brightness(1.05);
   opacity: 1;
   transform: none;
@@ -708,8 +708,8 @@
 /* ── Responsive ── */
 @media (max-width: 1100px) {
   .app-shell::before {
-    background-size: 170% 160%;
-    background-position: center -180px;
+    background-size: 180% 220%;
+    background-position: center center;
   }
 
   .app-columns { flex-direction: column; }
@@ -723,8 +723,8 @@
 
 @media (max-width: 760px) {
   .app-shell::before {
-    background-size: 230% 190%;
-    background-position: center -120px;
+    background-size: 240% 250%;
+    background-position: center center;
   }
 
   .export-panel-grid {
