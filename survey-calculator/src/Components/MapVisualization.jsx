@@ -5,6 +5,7 @@ import { emit } from '../utils/eventBus';
 import { resolveCadWebFont } from '../utils/cadFontMap';
 
 const BASEMAP_STORAGE_KEY = 'survey_calc_basemap';
+const IGN_FRANCE_BOUNDS = L.latLngBounds([41.0, -5.8], [51.5, 9.8]);
 const LABEL_AUTO_HIDE_THRESHOLD = 300;
 const CAD_HEAVY_VERTEX_THRESHOLD = 90000;
 const CAD_EXTREME_VERTEX_THRESHOLD = 180000;
@@ -795,23 +796,25 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
           maxZoom: 23,
         }),
         'IGN Plan (France)': L.tileLayer(
-          'https://wmts.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
+          'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
           '&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&FORMAT=image/png' +
           '&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',
           {
             attribution: '© IGN Géoplateforme',
             maxNativeZoom: 19,
             maxZoom: 23,
+            crossOrigin: true,
           }
         ),
         'IGN Ortho (France)': L.tileLayer(
-          'https://wmts.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
+          'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
           '&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&FORMAT=image/jpeg' +
           '&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',
           {
             attribution: '© IGN Géoplateforme',
             maxNativeZoom: 20,
             maxZoom: 23,
+            crossOrigin: true,
           }
         ),
         'CartoDB Light': L.tileLayer(
@@ -954,6 +957,15 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     const handleBasemapChange = (e) => {
       if (e?.name) {
         localStorage.setItem(BASEMAP_STORAGE_KEY, e.name);
+
+        if (e.name === 'IGN Plan (France)' || e.name === 'IGN Ortho (France)') {
+          const currentCenter = map.current?.getCenter?.();
+          const insideFrance = currentCenter ? IGN_FRANCE_BOUNDS.contains(currentCenter) : false;
+          const currentZoom = map.current?.getZoom?.() ?? 2;
+          if (!insideFrance || currentZoom < 5) {
+            map.current.fitBounds(IGN_FRANCE_BOUNDS, { padding: [24, 24], maxZoom: 12 });
+          }
+        }
       }
     };
 
