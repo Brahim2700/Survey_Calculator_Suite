@@ -186,7 +186,7 @@ const getMapScaleDenominator = (zoom, latitudeDeg) => {
   return getRoundedScaleDenominator(denominator);
 };
 
-const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible, onPointSelect, measureMode = false, measurePoints = [], onMapContainerReady = null, onMapMetricsChange = null, onMapInstanceReady = null }) => {
+const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible, onPointSelect, measureMode = false, measurePoints = [], onMapContainerReady = null, onMapMetricsChange = null, onMapInstanceReady = null, markerStyleConfig = null }) => {
   const mapContainer = useRef(null);
   const mapRootContainer = useRef(null);
   const map = useRef(null);
@@ -463,8 +463,18 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   const getMarkerColor = useCallback((point) => {
     if (point?.markerColor) return point.markerColor;
     if (point?.color) return point.color;
+    // Apply elevation-based color rules from markerStyleConfig
+    if (markerStyleConfig?.elevationRules?.length > 0) {
+      const h = Number(point?.height) || 0;
+      const matched = markerStyleConfig.elevationRules.find((rule) => {
+        const min = rule.minElev === '' || rule.minElev === null || rule.minElev === undefined ? -Infinity : Number(rule.minElev);
+        const max = rule.maxElev === '' || rule.maxElev === null || rule.maxElev === undefined ? Infinity : Number(rule.maxElev);
+        return h >= min && h < max;
+      });
+      if (matched) return matched.color;
+    }
     return getGeoidColor(point?.geoidUndulation);
-  }, [getGeoidColor]);
+  }, [getGeoidColor, markerStyleConfig]);
 
   const selectedPointStillVisible = selectedPoint && Array.isArray(points) && points.some((point) => {
     if (selectedPoint.id !== undefined && point.id !== undefined) {
@@ -1164,21 +1174,39 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       const color = getMarkerColor(point);
       const undulationLabel = getGeoidLabel(point.geoidUndulation);
       const baseRadius = getZoomBasedMarkerRadius(map.current.getZoom());
-      const scaledRadius = clampNumber(baseRadius * pointSizeScale, 1, 12);
+      const externalScale = Number(markerStyleConfig?.pointSizeScale) || 1.0;
+      const scaledRadius = clampNumber(baseRadius * pointSizeScale * externalScale, 1, 18);
       // In measure mode: make selectable points significantly larger for easier clicking
       const markerRadius = isSelectableConverted ? Math.max(scaledRadius + 3, 7) : scaledRadius;
       const markerStroke = isSelectableConverted ? '#f97316' : '#fff';
       const markerWeight = isSelectableConverted ? 3 : 2;
       const markerFillOpacity = isSelectableConverted ? 0.95 : 0.8;
 
-      const pointLayer = createPointSymbolLayer(displayLat, displayLng, {
-        symbol: pointSymbol,
-        size: markerRadius,
-        fillColor: color,
-        strokeColor: markerStroke,
-        strokeWidth: markerWeight,
-        fillOpacity: markerFillOpacity,
-      })
+      // Check for custom uploaded icon
+      const customIcon = markerStyleConfig?.customIcons?.[point.sourceType];
+      let pointLayer;
+      if (customIcon?.url) {
+        const iconSize = Math.round(markerRadius * 2.5);
+        pointLayer = L.marker([displayLat, displayLng], {
+          icon: L.icon({
+            iconUrl: customIcon.url,
+            iconSize: [iconSize, iconSize],
+            iconAnchor: [Math.round(iconSize / 2), Math.round(iconSize / 2)],
+            popupAnchor: [0, -Math.round(iconSize / 2)],
+          }),
+          keyboard: false,
+        });
+      } else {
+        pointLayer = createPointSymbolLayer(displayLat, displayLng, {
+          symbol: pointSymbol,
+          size: markerRadius,
+          fillColor: color,
+          strokeColor: markerStroke,
+          strokeWidth: markerWeight,
+          fillOpacity: markerFillOpacity,
+        });
+      }
+      pointLayer
         .bindPopup(
           `<div style="font-size: 12px; min-width: 180px;">
             <b>${escapeHtml(getPointPopupTitle(point))}</b><br/>
@@ -1450,7 +1478,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         map.current.off('moveend', handleViewChange);
       }
     };
-  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, onMapInstanceReady, getMarkerColor, getPointLabelMarkup, isCadLayerVisible, isGeometryInBounds, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showLabels, effectiveShowLabels, annotationsVisible, hiddenCadLayers, pointSymbol, pointSizeScale, removeDuplicates, snapMode, snapRadiusPx]);
+  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, onMapInstanceReady, getMarkerColor, getPointLabelMarkup, isCadLayerVisible, isGeometryInBounds, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showLabels, effectiveShowLabels, annotationsVisible, hiddenCadLayers, pointSymbol, pointSizeScale, removeDuplicates, snapMode, snapRadiusPx, markerStyleConfig]);
 
   return (
     <div

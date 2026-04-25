@@ -8,6 +8,7 @@ import PerformanceDiagnostics from "./Components/PerformanceDiagnostics";
 import MultiPointMeasurements from "./Components/MultiPointMeasurements";
 import ElevationProfile from "./Components/ElevationProfile";
 import BatchOperations from "./Components/BatchOperations";
+import MarkerStyleManager from "./Components/MarkerStyleManager";
 import proj4 from "proj4";
 import { calculateAllDistances, calculateGeodesicDistance, getUTMZone } from "./utils/calculations";
 import { on } from "./utils/eventBus";
@@ -74,6 +75,8 @@ function App() {
   const [showMeasurementsPanel, setShowMeasurementsPanel] = useState(true);
   const [showElevationProfilePanel, setShowElevationProfilePanel] = useState(true);
   const [showBatchOpsPanel, setShowBatchOpsPanel] = useState(true);
+  const [showMarkerStylePanel, setShowMarkerStylePanel] = useState(false);
+  const [markerStyleConfig, setMarkerStyleConfig] = useState({ elevationRules: [], pointSizeScale: 1.0, customIcons: {}, showLegend: true });
 
   const resetAppWorkspace = ({ remountConverter = false } = {}) => {
     setConverterPoints([]);
@@ -140,18 +143,30 @@ function App() {
     };
 
     setMeasurePoints((prev) => {
-      if (prev.length === 0) {
-        return [{ id: 1, ...selected }];
-      }
-      if (prev.length === 1) {
-        const sameAsFirst =
-          Math.abs(prev[0].lat - selected.lat) < 1e-10 &&
-          Math.abs(prev[0].lng - selected.lng) < 1e-10;
-        if (sameAsFirst) return prev;
-        return [prev[0], { id: 2, ...selected }];
-      }
-      // If two points already selected, start a new measurement with this point.
-      return [{ id: 1, ...selected }];
+      // Skip duplicates (but allow closing polygon — first point may equal last)
+      const isDupe = prev.length > 0 && prev.some(
+        (p) => Math.abs(p.lat - selected.lat) < 1e-10 && Math.abs(p.lng - selected.lng) < 1e-10
+      );
+      if (isDupe) return prev;
+      const nextId = prev.length > 0 ? (prev[prev.length - 1].id || prev.length) + 1 : 1;
+      return [...prev, { id: nextId, ...selected }];
+    });
+  };
+
+  const handleUndoLastMeasurePoint = () => {
+    setMeasurePoints((prev) => prev.slice(0, -1));
+  };
+
+  const handleCloseMeasurePolygon = () => {
+    setMeasurePoints((prev) => {
+      if (prev.length < 3) return prev;
+      const first = prev[0];
+      const last = prev[prev.length - 1];
+      const alreadyClosed =
+        Math.abs(first.lat - last.lat) < 1e-10 && Math.abs(first.lng - last.lng) < 1e-10;
+      if (alreadyClosed) return prev;
+      const nextId = (last.id || prev.length) + 1;
+      return [...prev, { id: nextId, lat: first.lat, lng: first.lng, height: first.height, label: first.label, source: first.source, sourceLabel: first.sourceLabel }];
     });
   };
 
@@ -369,7 +384,7 @@ function App() {
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(5, 1fr)',
+                gridTemplateColumns: 'repeat(6, 1fr)',
                 gap: '6px',
               }}
             >
@@ -453,6 +468,22 @@ function App() {
               >
                 ⚙️ Batch
               </button>
+              <button
+                onClick={() => setShowMarkerStylePanel(!showMarkerStylePanel)}
+                title="Marker styles and legend"
+                style={{
+                  border: '1px solid rgba(148,163,184,0.55)',
+                  background: showMarkerStylePanel ? 'rgba(59,130,246,0.75)' : 'rgba(15,23,42,0.65)',
+                  color: '#e2e8f0',
+                  borderRadius: '6px',
+                  fontSize: '9px',
+                  padding: '6px 4px',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+              >
+                🎨 Styles
+              </button>
             </div>
 
             {/* Feature panels */}
@@ -476,6 +507,8 @@ function App() {
               <MultiPointMeasurements
                 measurePoints={measurePoints}
                 onClearMeasurements={() => setMeasurePoints([])}
+                onUndoLastPoint={handleUndoLastMeasurePoint}
+                onClosePolygon={handleCloseMeasurePolygon}
               />
             )}
 
@@ -487,6 +520,10 @@ function App() {
                 filteredPoints={filteredPoints}
                 onBatchOperation={handleBatchOperation}
               />
+            )}
+
+            {showMarkerStylePanel && (
+              <MarkerStyleManager onChange={setMarkerStyleConfig} />
             )}
           </div>
         </div>
@@ -522,6 +559,24 @@ function App() {
                   >
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
                     Clear
+                  </button>
+                )}
+                {measurePoints.length > 0 && (
+                  <button
+                    className="btn btn-ghost"
+                    onClick={handleUndoLastMeasurePoint}
+                    title="Remove last measured point"
+                  >
+                    ↩ Undo
+                  </button>
+                )}
+                {measurePoints.length >= 3 && (
+                  <button
+                    className="btn btn-ghost"
+                    onClick={handleCloseMeasurePolygon}
+                    title="Close polygon — connect last point back to first"
+                  >
+                    🔷 Close
                   </button>
                 )}
                 <button
@@ -655,6 +710,7 @@ function App() {
                 onMapContainerReady={setMapExportRoot}
                 onMapMetricsChange={setMapMetrics}
                 onMapInstanceReady={setMapInstance}
+                              markerStyleConfig={markerStyleConfig}
               />
             </div>
 
@@ -686,7 +742,7 @@ function App() {
                     </label>
                     {measureMode && (
                       <span className="measure-hint">
-                        ↑ Click converted map points to set P1 then P2
+                        ↑ Click converted map points to add measure points (3+ for polygon area)
                       </span>
                     )}
                   </div>
