@@ -46,8 +46,17 @@ const pickNiceScale = (requiredDenominator) => {
 };
 
 function App() {
+  const BASE_LAYER_KEY = "__base__";
+  const getLayerKey = (sourceFileKey) => sourceFileKey || BASE_LAYER_KEY;
+  const getLayerLabel = (sourceFileKey) => {
+    if (!sourceFileKey) return "Current Session";
+    const m = String(sourceFileKey).match(/^(.*)-\d{13}$/);
+    return (m?.[1] || sourceFileKey).trim();
+  };
+
   const [converterPoints, setConverterPoints] = useState([]);
   const [cadGeometry, setCadGeometry] = useState(EMPTY_CAD_GEOMETRY);
+  const [hiddenLayerKeys, setHiddenLayerKeys] = useState([]);
   const [measureMode, setMeasureMode] = useState(false);
   const [measurePoints, setMeasurePoints] = useState([]);
   const [distanceDisplayUnit, setDistanceDisplayUnit] = useState("m"); // m | km
@@ -81,6 +90,7 @@ function App() {
   const resetAppWorkspace = ({ remountConverter = false } = {}) => {
     setConverterPoints([]);
     setCadGeometry(EMPTY_CAD_GEOMETRY);
+    setHiddenLayerKeys([]);
     setMeasureMode(false);
     setMeasurePoints([]);
     setDistanceDisplayUnit("m");
@@ -116,30 +126,32 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const off = on("converter:cadGeometryForMap", ({ geometry, append = false }) => {
+    const off = on("converter:cadGeometryForMap", ({ geometry, append = false, sourceKey = null }) => {
       if (geometry && (Array.isArray(geometry.lines) || Array.isArray(geometry.polylines) || Array.isArray(geometry.texts))) {
+        const normalizedGeometry = {
+          lines: (Array.isArray(geometry.lines) ? geometry.lines : []).map((line) => ({ ...line, sourceFileKey: sourceKey || line?.sourceFileKey || null })),
+          polylines: (Array.isArray(geometry.polylines) ? geometry.polylines : []).map((polyline) => ({ ...polyline, sourceFileKey: sourceKey || polyline?.sourceFileKey || null })),
+          texts: (Array.isArray(geometry.texts) ? geometry.texts : []).map((text) => ({ ...text, sourceFileKey: sourceKey || text?.sourceFileKey || null })),
+          layerSummary: geometry.layerSummary || null,
+          validation: geometry.validation || null,
+          notifications: Array.isArray(geometry.notifications) ? geometry.notifications : [],
+          repairs: geometry.repairs || null,
+          localPreview: Boolean(geometry.localPreview),
+        };
+
         if (append) {
           setCadGeometry((prev) => ({
-            lines: [...(Array.isArray(prev?.lines) ? prev.lines : []), ...(Array.isArray(geometry.lines) ? geometry.lines : [])],
-            polylines: [...(Array.isArray(prev?.polylines) ? prev.polylines : []), ...(Array.isArray(geometry.polylines) ? geometry.polylines : [])],
-            texts: [...(Array.isArray(prev?.texts) ? prev.texts : []), ...(Array.isArray(geometry.texts) ? geometry.texts : [])],
-            layerSummary: geometry.layerSummary || prev?.layerSummary || null,
-            validation: geometry.validation || prev?.validation || null,
-            notifications: [...(Array.isArray(prev?.notifications) ? prev.notifications : []), ...(Array.isArray(geometry.notifications) ? geometry.notifications : [])],
-            repairs: geometry.repairs || prev?.repairs || null,
-            localPreview: Boolean(prev?.localPreview || geometry.localPreview),
+            lines: [...(Array.isArray(prev?.lines) ? prev.lines : []), ...normalizedGeometry.lines],
+            polylines: [...(Array.isArray(prev?.polylines) ? prev.polylines : []), ...normalizedGeometry.polylines],
+            texts: [...(Array.isArray(prev?.texts) ? prev.texts : []), ...normalizedGeometry.texts],
+            layerSummary: normalizedGeometry.layerSummary || prev?.layerSummary || null,
+            validation: normalizedGeometry.validation || prev?.validation || null,
+            notifications: [...(Array.isArray(prev?.notifications) ? prev.notifications : []), ...normalizedGeometry.notifications],
+            repairs: normalizedGeometry.repairs || prev?.repairs || null,
+            localPreview: Boolean(prev?.localPreview || normalizedGeometry.localPreview),
           }));
         } else {
-          setCadGeometry({
-            lines: Array.isArray(geometry.lines) ? geometry.lines : [],
-            polylines: Array.isArray(geometry.polylines) ? geometry.polylines : [],
-            texts: Array.isArray(geometry.texts) ? geometry.texts : [],
-            layerSummary: geometry.layerSummary || null,
-            validation: geometry.validation || null,
-            notifications: Array.isArray(geometry.notifications) ? geometry.notifications : [],
-            repairs: geometry.repairs || null,
-            localPreview: Boolean(geometry.localPreview),
-          });
+          setCadGeometry(normalizedGeometry);
         }
         return;
       }
@@ -242,6 +254,68 @@ function App() {
   const totalGroundDistance = measureLegs.reduce((s, l) => s + l.groundDistance, 0);
   const totalGeodesicDistance = measureLegs.reduce((s, l) => s + l.geodesicDistance, 0);
 
+  const layerEntries = useMemo(() => {
+    const stats = new Map();
+    const touchLayer = (sourceFileKey) => {
+      const key = getLayerKey(sourceFileKey);
+      if (!stats.has(key)) {
+        stats.set(key, {
+          key,
+          label: getLayerLabel(sourceFileKey),
+          sourceFileKey: sourceFileKey || null,
+          pointCount: 0,
+          lineCount: 0,
+          polylineCount: 0,
+          textCount: 0,
+        });
+      }
+      return stats.get(key);
+    };
+
+    converterPoints.forEach((point) => {
+      const layer = touchLayer(point?.sourceFileKey || null);
+      layer.pointCount += 1;
+    });
+    (Array.isArray(cadGeometry?.lines) ? cadGeometry.lines : []).forEach((line) => {
+      const layer = touchLayer(line?.sourceFileKey || null);
+      layer.lineCount += 1;
+    });
+    (Array.isArray(cadGeometry?.polylines) ? cadGeometry.polylines : []).forEach((polyline) => {
+      const layer = touchLayer(polyline?.sourceFileKey || null);
+      layer.polylineCount += 1;
+    });
+    (Array.isArray(cadGeometry?.texts) ? cadGeometry.texts : []).forEach((text) => {
+      const layer = touchLayer(text?.sourceFileKey || null);
+      layer.textCount += 1;
+    });
+
+    return Array.from(stats.values()).map((entry) => ({
+      ...entry,
+      visible: !hiddenLayerKeys.includes(entry.key),
+    }));
+  }, [cadGeometry, converterPoints, hiddenLayerKeys]);
+
+  const visibleConverterPoints = useMemo(
+    () => converterPoints.filter((point) => !hiddenLayerKeys.includes(getLayerKey(point?.sourceFileKey))),
+    [converterPoints, hiddenLayerKeys]
+  );
+
+  const visibleCadGeometry = useMemo(() => {
+    const isVisible = (sourceFileKey) => !hiddenLayerKeys.includes(getLayerKey(sourceFileKey));
+    return {
+      ...cadGeometry,
+      lines: (Array.isArray(cadGeometry?.lines) ? cadGeometry.lines : []).filter((line) => isVisible(line?.sourceFileKey)),
+      polylines: (Array.isArray(cadGeometry?.polylines) ? cadGeometry.polylines : []).filter((polyline) => isVisible(polyline?.sourceFileKey)),
+      texts: (Array.isArray(cadGeometry?.texts) ? cadGeometry.texts : []).filter((text) => isVisible(text?.sourceFileKey)),
+    };
+  }, [cadGeometry, hiddenLayerKeys]);
+
+  const toggleLayerVisibility = (layerKey) => {
+    setHiddenLayerKeys((prev) => (
+      prev.includes(layerKey) ? prev.filter((key) => key !== layerKey) : [...prev, layerKey]
+    ));
+  };
+
   const formatDistance = (meters) => {
     if (distanceDisplayUnit === "km") {
       return `${(meters / 1000).toFixed(6)} km`;
@@ -256,7 +330,7 @@ function App() {
     return `${degrees.toFixed(2)}°`;
   };
 
-  const allPoints = [...converterPoints];
+  const allPoints = [...visibleConverterPoints];
 
   const suggestedPrintScale = useMemo(() => {
     if (!mapMetrics) return null;
@@ -623,7 +697,7 @@ function App() {
             <div style={{ width: "100%", height: mapFocusMode ? "72vh" : "520px", flexShrink: 0 }}>
               <MapVisualization
                 points={allPoints}
-                cadGeometry={cadGeometry}
+                cadGeometry={visibleCadGeometry}
                 isVisible={true}
                 measureMode={measureMode}
                 measurePoints={measurePoints}
@@ -634,6 +708,45 @@ function App() {
                               markerStyleConfig={markerStyleConfig}
               />
             </div>
+
+            {layerEntries.length > 0 && (
+              <div className="map-layers-panel fade-slide-in">
+                <div className="map-layers-header">
+                  <span className="map-layers-title">Project Layers</span>
+                  <div style={{ display: "flex", gap: "0.4rem" }}>
+                    <button
+                      type="button"
+                      className="map-layers-action"
+                      onClick={() => setHiddenLayerKeys([])}
+                    >
+                      Show all
+                    </button>
+                    <button
+                      type="button"
+                      className="map-layers-action"
+                      onClick={() => setHiddenLayerKeys(layerEntries.map((entry) => entry.key))}
+                    >
+                      Hide all
+                    </button>
+                  </div>
+                </div>
+                <div className="map-layers-list">
+                  {layerEntries.map((layer) => (
+                    <label key={layer.key} className="map-layer-row">
+                      <input
+                        type="checkbox"
+                        checked={layer.visible}
+                        onChange={() => toggleLayerVisibility(layer.key)}
+                      />
+                      <span className="map-layer-name" title={layer.label}>{layer.label}</span>
+                      <span className="map-layer-stats">
+                        P{layer.pointCount} · L{layer.lineCount + layer.polylineCount} · T{layer.textCount}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Measure results panel */}
             {(measureMode || measurePoints.length > 0) && (
@@ -784,7 +897,7 @@ function App() {
               <div className="map-results-panels fade-slide-in">
                 {showSearchPanel && (
                   <PointSearchFilter
-                    points={converterPoints}
+                    points={visibleConverterPoints}
                     onFilter={(filtered) => setFilteredPoints(filtered)}
                     onClearFilter={() => setFilteredPoints(null)}
                   />
@@ -792,8 +905,8 @@ function App() {
 
                 {showDiagnosticsPanel && (
                   <PerformanceDiagnostics
-                    points={converterPoints}
-                    cadGeometry={cadGeometry}
+                    points={visibleConverterPoints}
+                    cadGeometry={visibleCadGeometry}
                     mapMetrics={mapMetrics}
                   />
                 )}
@@ -811,7 +924,7 @@ function App() {
 
                 {showBatchOpsPanel && (
                   <BatchOperations
-                    points={converterPoints}
+                    points={visibleConverterPoints}
                     filteredPoints={filteredPoints}
                     onBatchOperation={handleBatchOperation}
                   />

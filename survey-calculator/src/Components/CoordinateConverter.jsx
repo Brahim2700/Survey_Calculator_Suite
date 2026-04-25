@@ -3176,6 +3176,7 @@ const CoordinateConverter = () => {
       emit("converter:cadGeometryForMap", {
         geometry: projectedGeometry,
         append: fileImportMode === "append",
+        sourceKey: importSourceKey,
       });
 
       setBulkProgress(null);
@@ -3335,6 +3336,7 @@ const CoordinateConverter = () => {
           emit("converter:cadGeometryForMap", {
             geometry: projectedGeometry,
             append: fileImportMode === "append",
+            sourceKey: importSourceKey,
           });
         } else {
           setCadSourceGeometry(null);

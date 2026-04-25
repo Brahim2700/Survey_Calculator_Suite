@@ -468,6 +468,75 @@
   border-top: 1px solid rgba(148, 163, 184, 0.35);
 }
 
+.map-layers-panel {
+  border-top: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(248, 250, 252, 0.85);
+  padding: 0.7rem 0.9rem 0.75rem;
+}
+
+.map-layers-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
+}
+
+.map-layers-title {
+  font-size: 0.73rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #1e3a8a;
+}
+
+.map-layers-action {
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  color: #334155;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.16rem 0.5rem;
+  cursor: pointer;
+}
+
+.map-layers-list {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.map-layer-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+}
+
+.map-layer-row input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+}
+
+.map-layer-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-layer-stats {
+  font-size: 0.72rem;
+  color: #64748b;
+  white-space: nowrap;
+}
+
 /* ── Geoid bar ── */
 .geoid-bar {
   padding: 0.5rem 1rem;
