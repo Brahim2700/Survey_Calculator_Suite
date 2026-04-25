@@ -190,15 +190,46 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         box-shadow: 0 2px 8px rgba(2, 6, 23, 0.45);
         white-space: normal;
       }
+      .point-name-label .point-label-stack {
+        display: grid;
+        gap: 3px;
+        min-width: 74px;
+      }
+      .point-name-label .point-main-label {
+        font-weight: 700;
+        color: #e6edf7;
+        white-space: nowrap;
+      }
       .point-name-label .cad-point-name {
         font-weight: 700;
         color: #67e8f9;
+        white-space: nowrap;
       }
       .point-name-label .cad-point-elevation {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
         color: #fbbf24;
-        font-weight: 600;
-        margin-top: 2px;
-        font-size: 0.95em;
+        font-weight: 650;
+        margin-top: 0;
+        padding-top: 2px;
+        border-top: 1px solid rgba(148, 163, 184, 0.34);
+        font-size: 0.92em;
+        line-height: 1.15;
+      }
+      .point-name-label .cad-point-elevation-key {
+        display: inline-block;
+        padding: 1px 4px;
+        border-radius: 999px;
+        background: rgba(251, 191, 36, 0.2);
+        color: #fde68a;
+        font-size: 0.78em;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .point-name-label .cad-point-elevation-value {
+        white-space: nowrap;
       }
       .point-name-label.leaflet-tooltip-top:before {
         border-top-color: rgba(9, 17, 30, 0.86);
@@ -216,6 +247,12 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         font-size: 10px;
         padding: 2px 7px 3px;
         background: rgba(7, 13, 24, 0.9);
+      }
+      .point-name-label.dense .point-label-stack {
+        gap: 2px;
+      }
+      .point-name-label.dense .cad-point-elevation {
+        gap: 4px;
       }
       .point-cluster-label .leaflet-tooltip-content {
         background: rgba(30, 41, 59, 0.92);
@@ -338,26 +375,39 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     return raw.length > 42 ? `${raw.slice(0, 39)}...` : raw;
   }, []);
 
+  const formatPointElevation = (value) => {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    if (/[a-zA-Z]/.test(text)) return text;
+    const numeric = Number(text.replace(',', '.'));
+    if (Number.isFinite(numeric)) return `${numeric.toFixed(3)} m`;
+    return text;
+  };
+
+  const buildPointAltitudeMarkup = (elevationText) => {
+    if (!elevationText) return '';
+    return `<div class="cad-point-elevation"><span class="cad-point-elevation-key">Z</span><span class="cad-point-elevation-value">${escapeHtml(elevationText)}</span></div>`;
+  };
+
   const getPointLabelMarkup = useCallback((point) => {
     const importedName = String(point?.importedCadName || '').trim();
     const importedElevationText = String(point?.importedCadElevationText || '').trim();
-    const fallbackName = escapeHtml(getPointLabel(point));
+    const fallbackName = getPointLabel(point);
     const hasHeight = Number.isFinite(Number(point?.height));
     const fallbackElevation = hasHeight ? `${Number(point.height).toFixed(2)} m` : '';
     const pointName = importedName || fallbackName;
-    const pointElevation = importedElevationText || fallbackElevation;
+    const pointElevation = formatPointElevation(importedElevationText || fallbackElevation);
 
     if (point?.sourceType === 'cad-point' && (pointName || pointElevation)) {
       const nameHtml = pointName ? `<div class="cad-point-name">${escapeHtml(pointName)}</div>` : '';
-      const elevationHtml = pointElevation ? `<div class="cad-point-elevation">${escapeHtml(pointElevation)}</div>` : '';
-      return `${nameHtml}${elevationHtml}`;
+      return `<div class="point-label-stack">${nameHtml}${buildPointAltitudeMarkup(pointElevation)}</div>`;
     }
 
     if (pointElevation) {
-      return `${escapeHtml(getPointLabel(point))}<div class="cad-point-elevation">${escapeHtml(pointElevation)}</div>`;
+      return `<div class="point-label-stack"><div class="point-main-label">${escapeHtml(getPointLabel(point))}</div>${buildPointAltitudeMarkup(pointElevation)}</div>`;
     }
 
-    return escapeHtml(getPointLabel(point));
+    return `<div class="point-label-stack"><div class="point-main-label">${escapeHtml(getPointLabel(point))}</div></div>`;
   }, [getPointLabel]);
 
   const getPointPopupTitle = (point) => {
