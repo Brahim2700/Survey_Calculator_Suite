@@ -783,7 +783,45 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
           attribution: '© OpenTopoMap contributors',
           maxNativeZoom: 17,
           maxZoom: 23,
-        })
+        }),
+        'IGN Plan (France)': L.tileLayer(
+          'https://wmts.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
+          '&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&FORMAT=image/png' +
+          '&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',
+          {
+            attribution: '© IGN Géoplateforme',
+            maxNativeZoom: 19,
+            maxZoom: 23,
+          }
+        ),
+        'IGN Ortho (France)': L.tileLayer(
+          'https://wmts.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
+          '&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&FORMAT=image/jpeg' +
+          '&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',
+          {
+            attribution: '© IGN Géoplateforme',
+            maxNativeZoom: 20,
+            maxZoom: 23,
+          }
+        ),
+        'CartoDB Light': L.tileLayer(
+          'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+          {
+            attribution: '© OpenStreetMap contributors © CARTO',
+            subdomains: 'abcd',
+            maxNativeZoom: 20,
+            maxZoom: 23,
+          }
+        ),
+        'CartoDB Dark': L.tileLayer(
+          'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+          {
+            attribution: '© OpenStreetMap contributors © CARTO',
+            subdomains: 'abcd',
+            maxNativeZoom: 20,
+            maxZoom: 23,
+          }
+        ),
       };
 
       const savedBasemap = localStorage.getItem(BASEMAP_STORAGE_KEY);
