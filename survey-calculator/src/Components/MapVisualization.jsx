@@ -209,6 +209,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   const [showLabels, setShowLabels] = useState(true);
   const [removeDuplicates, setRemoveDuplicates] = useState(false);
   const [snapMode, setSnapMode] = useState(false);
+  const [snapRadiusPx, setSnapRadiusPx] = useState(14);
   const [pointSymbol, setPointSymbol] = useState('circle');
   const [pointSizeScale, setPointSizeScale] = useState(0.7);
   const [legendCollapsed, setLegendCollapsed] = useState(true);
@@ -815,7 +816,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       const clickPoint = map.current.latLngToContainerPoint([lat, lng]);
       let best = null;
       let bestDistSq = Number.POSITIVE_INFINITY;
-      const maxSnapPx = 14;
+      const maxSnapPx = clampNumber(snapRadiusPx, 6, 24);
       const maxSnapSq = maxSnapPx * maxSnapPx;
 
       snapCandidatesRef.current.forEach((candidate) => {
@@ -1327,7 +1328,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         map.current.off('moveend', handleViewChange);
       }
     };
-  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, onMapInstanceReady, getMarkerColor, getPointLabelMarkup, isCadLayerVisible, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showLabels, effectiveShowLabels, annotationsVisible, hiddenCadLayers, pointSymbol, pointSizeScale, removeDuplicates, snapMode]);
+  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, onMapInstanceReady, getMarkerColor, getPointLabelMarkup, isCadLayerVisible, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showLabels, effectiveShowLabels, annotationsVisible, hiddenCadLayers, pointSymbol, pointSizeScale, removeDuplicates, snapMode, snapRadiusPx]);
 
   return (
     <div
@@ -1502,6 +1503,19 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
               {removeDuplicates && (
                 <div style={{ marginBottom: '8px', fontSize: '9px', color: '#a7f3d0', lineHeight: 1.35 }}>
                   Removed: P {dedupePreviewStats.pointsRemoved} · L {dedupePreviewStats.linesRemoved} · PL {dedupePreviewStats.polylinesRemoved} · V {dedupePreviewStats.verticesRemoved}
+                </div>
+              )}
+              {snapMode && (
+                <div style={{ marginBottom: '8px', display: 'grid', gap: '3px', fontSize: '9px', color: '#bfdbfe' }}>
+                  <div>Snap Radius ({snapRadiusPx}px)</div>
+                  <input
+                    type="range"
+                    min="6"
+                    max="24"
+                    step="1"
+                    value={snapRadiusPx}
+                    onChange={(e) => setSnapRadiusPx(Number(e.target.value))}
+                  />
                 </div>
               )}
               <div style={{ display: 'grid', gap: '6px', marginBottom: '9px' }}>
