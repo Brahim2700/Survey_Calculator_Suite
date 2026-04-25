@@ -1009,6 +1009,8 @@ const CoordinateConverter = () => {
 
   const [bulkText, setBulkText] = useState("");
   const [bulkResults, setBulkResults] = useState([]);
+  const [conversionHistoryRows, setConversionHistoryRows] = useState([]);
+  const [historySourceFilter, setHistorySourceFilter] = useState("all");
   const [bulkProgress, setBulkProgress] = useState(null);
   const [bulkUploadFile, setBulkUploadFile] = useState(null);
   const [fileImportMode, setFileImportMode] = useState("append"); // append | replace
@@ -1038,6 +1040,7 @@ const CoordinateConverter = () => {
   const [bulkIsConverting, setBulkIsConverting] = useState(false);
   const bulkEmitModeRef = useRef("replace");
   const bulkSourceKeyRef = useRef(null);
+  const historyRowSeqRef = useRef(1);
   const [presets, setPresets] = useState([]);
   const [selectedPresetId, setSelectedPresetId] = useState("");
   const [presetScope, setPresetScope] = useState("project"); // project | global
@@ -1125,6 +1128,40 @@ const CoordinateConverter = () => {
   const togglePanel = useCallback((key) => {
     setPanelOpen((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
+
+  const annotateRowsWithHistoryMetadata = useCallback((rows, options = {}) => {
+    const sourceFileName = options.sourceFileName || "Manual Input";
+    const sourceKey = options.sourceKey || sourceFileName;
+    const appliedFrom = options.appliedFromCrs || fromCrs;
+    const appliedTo = options.appliedToCrs || toCrs;
+    const convertedAt = new Date().toISOString();
+
+    return (rows || []).map((row) => {
+      const seq = historyRowSeqRef.current;
+      historyRowSeqRef.current += 1;
+      return {
+        ...row,
+        historyRowId: `hist-${seq}`,
+        sourceFileName,
+        sourceKey,
+        appliedFromCrs: row.appliedFromCrs || appliedFrom,
+        appliedToCrs: row.appliedToCrs || appliedTo,
+        convertedAt,
+      };
+    });
+  }, [fromCrs, toCrs]);
+
+  const commitBulkRunResults = (rows, options = {}) => {
+    const historyMode = options.historyMode === "append" ? "append" : "replace";
+    const annotatedRows = annotateRowsWithHistoryMetadata(rows, options);
+
+    setBulkResults(annotatedRows);
+    setBulkSummary(summarizeBulkResults(annotatedRows));
+    setPoints3DData(prepare3DVisualizationData(annotatedRows));
+    setConversionHistoryRows((prev) => (historyMode === "append" ? [...prev, ...annotatedRows] : annotatedRows));
+
+    return annotatedRows;
+  };
 
   const refreshCadStatus = useCallback(async () => {
     try {
@@ -2679,6 +2716,7 @@ const CoordinateConverter = () => {
     bulkCancelRef.current = false;
     setBulkProgress("Parsing input...");
     setBulkResults([]);
+    setConversionHistoryRows([]);
     setBulkSummary(null);
     setError(null);
 
@@ -2696,9 +2734,13 @@ const CoordinateConverter = () => {
       try {
         setBulkProgress(`Dispatching ${parsed.length} rows to worker...`);
         const workerRows = await runWorkerBulkConversion(parsed);
-        setBulkResults(workerRows);
-        setBulkSummary(summarizeBulkResults(workerRows));
-        setPoints3DData(prepare3DVisualizationData(workerRows));
+        commitBulkRunResults(workerRows, {
+          historyMode: "replace",
+          sourceFileName: "Manual Input",
+          sourceKey: "manual-input",
+          appliedFromCrs: fromCrs,
+          appliedToCrs: toCrs,
+        });
         setBulkProgress(null);
         setBulkIsConverting(false);
         return;
@@ -2976,18 +3018,20 @@ const CoordinateConverter = () => {
     }
 
     // Update bulk results table
-    setBulkResults(results);
-    setBulkSummary(summarizeBulkResults(results));
-    // Prepare 3D visualization data from the conversion results
-    const visualData = prepare3DVisualizationData(results);
-    setPoints3DData(visualData);
+    commitBulkRunResults(results, {
+      historyMode: "replace",
+      sourceFileName: "Manual Input",
+      sourceKey: "manual-input",
+      appliedFromCrs: fromCrs,
+      appliedToCrs: toCrs,
+    });
     setBulkProgress(null);
     setBulkIsConverting(false);
   };
 
   const hasDataToClear = () => Boolean(
       x || y || z || bulkText || result || error || bulkUploadFile || bulkUploadError || importCrsNotice ||
-      bulkResults.length > 0 || points3DData.length > 0 || bulkProgress ||
+      bulkResults.length > 0 || conversionHistoryRows.length > 0 || points3DData.length > 0 || bulkProgress ||
       crsSuggestions.length > 0 || showCrsSuggestions || detectSuggestions.length > 0 || showDetectSuggestions ||
       benchmarkFile || benchmarkSummary || benchmarkRows.length > 0 || selectedBulkRows.length > 0 ||
       showBulkTextInput || show3DViewer
@@ -3039,6 +3083,8 @@ const CoordinateConverter = () => {
 
     // Clear bulk results and 3D map points
     setBulkResults([]);
+    setConversionHistoryRows([]);
+    setHistorySourceFilter("all");
     setBulkSummary(null);
     setPoints3DData([]);
     setShow3DViewer(false);
@@ -3453,9 +3499,13 @@ const CoordinateConverter = () => {
       if (parsed.length >= 5000 && geoidMode === "none") {
         setBulkProgress(`Dispatching ${parsed.length} rows to worker...`);
         const workerRows = await runWorkerBulkConversion(parsed);
-        setBulkResults(workerRows);
-        setBulkSummary(summarizeBulkResults(workerRows));
-        setPoints3DData(prepare3DVisualizationData(workerRows));
+        commitBulkRunResults(workerRows, {
+          historyMode: fileImportMode === "append" ? "append" : "replace",
+          sourceFileName: file.name,
+          sourceKey: importSourceKey,
+          appliedFromCrs: fromCrs,
+          appliedToCrs: toCrs,
+        });
         setBulkProgress(null);
         setBulkIsConverting(false);
         return;
@@ -3728,11 +3778,13 @@ const CoordinateConverter = () => {
       }
 
       // Update bulk results table
-      setBulkResults(results);
-      setBulkSummary(summarizeBulkResults(results));
-      // Prepare 3D visualization data from the conversion results
-      const visualData = prepare3DVisualizationData(results);
-      setPoints3DData(visualData);
+      commitBulkRunResults(results, {
+        historyMode: fileImportMode === "append" ? "append" : "replace",
+        sourceFileName: file.name,
+        sourceKey: importSourceKey,
+        appliedFromCrs: fromCrs,
+        appliedToCrs: toCrs,
+      });
       setBulkProgress(null);
       setBulkIsConverting(false);
     } catch (err) {
@@ -3852,6 +3904,8 @@ const CoordinateConverter = () => {
   };
 
   const convertSingleBulkRow = async (row) => {
+    const rowFromCrs = row.appliedFromCrs || fromCrs;
+    const rowToCrs = row.appliedToCrs || toCrs;
     const xIn = parseFloat(normalizeNumericToken(row.inputX));
     const yIn = parseFloat(normalizeNumericToken(row.inputY));
     const zIn = row.inputZ !== undefined && row.inputZ !== null && row.inputZ !== "" ? parseFloat(normalizeNumericToken(row.inputZ)) : null;
@@ -3865,9 +3919,9 @@ const CoordinateConverter = () => {
       };
     }
     try {
-      const [xOut, yOut] = projectWithNormalizedSourceAxes(fromCrs, toCrs, xIn, yIn);
-      const outPrec = toCrs === "EPSG:4326" ? 8 : 4;
-      const toIsGeo = CRS_LIST.find((c) => c.code === toCrs)?.type === "geographic";
+      const [xOut, yOut] = projectWithNormalizedSourceAxes(rowFromCrs, rowToCrs, xIn, yIn);
+      const outPrec = rowToCrs === "EPSG:4326" ? 8 : 4;
+      const toIsGeo = CRS_LIST.find((c) => c.code === rowToCrs)?.type === "geographic";
       const outX = toIsGeo && outputFormat === "DMS" ? ddToDMS(xOut, "lon") : fmtNum(xOut, outPrec);
       const outY = toIsGeo && outputFormat === "DMS" ? ddToDMS(yOut, "lat") : fmtNum(yOut, outPrec);
       return {
@@ -3891,22 +3945,37 @@ const CoordinateConverter = () => {
     }
   };
 
+  const historySourceOptions = useMemo(() => {
+    const sourceMap = new Map();
+    conversionHistoryRows.forEach((row) => {
+      const key = row.sourceKey || row.sourceFileName || "unknown-source";
+      if (!sourceMap.has(key)) {
+        sourceMap.set(key, row.sourceFileName || key);
+      }
+    });
+    return Array.from(sourceMap.entries()).map(([key, label]) => ({ key, label }));
+  }, [conversionHistoryRows]);
+
   const filteredBulkResults = useMemo(() => {
-    if (bulkFilterMode === "failed") return bulkResults.filter((r) => String(r.outputX) === "ERROR");
-    if (bulkFilterMode === "warned") return bulkResults.filter((r) => r.utmWarning || r.ccWarning || r.otherZoneWarning || r.outlierWarning);
-    if (bulkFilterMode === "selected") return bulkResults.filter((r) => selectedBulkRows.includes(String(r.id)));
-    return bulkResults;
-  }, [bulkResults, bulkFilterMode, selectedBulkRows]);
+    let rows = conversionHistoryRows;
+    if (bulkFilterMode === "failed") rows = rows.filter((r) => String(r.outputX) === "ERROR");
+    if (bulkFilterMode === "warned") rows = rows.filter((r) => r.utmWarning || r.ccWarning || r.otherZoneWarning || r.outlierWarning);
+    if (bulkFilterMode === "selected") rows = rows.filter((r) => selectedBulkRows.includes(String(r.historyRowId || r.id)));
+    if (historySourceFilter !== "all") rows = rows.filter((r) => (r.sourceKey || "") === historySourceFilter);
+    return rows;
+  }, [conversionHistoryRows, bulkFilterMode, selectedBulkRows, historySourceFilter]);
 
   const updateBulkRowInput = (rowId, field, value) => {
-    setBulkResults((prev) => prev.map((r) => (String(r.id) === String(rowId) ? { ...r, [field]: value } : r)));
+    setConversionHistoryRows((prev) => prev.map((r) => (String(r.historyRowId || r.id) === String(rowId) ? { ...r, [field]: value } : r)));
+    setBulkResults((prev) => prev.map((r) => (String(r.historyRowId || r.id) === String(rowId) ? { ...r, [field]: value } : r)));
   };
 
   const rerunBulkRow = async (rowId) => {
-    const target = bulkResults.find((r) => String(r.id) === String(rowId));
+    const target = conversionHistoryRows.find((r) => String(r.historyRowId || r.id) === String(rowId));
     if (!target) return;
     const rerun = await convertSingleBulkRow(target);
-    setBulkResults((prev) => prev.map((r) => (String(r.id) === String(rowId) ? rerun : r)));
+    setConversionHistoryRows((prev) => prev.map((r) => (String(r.historyRowId || r.id) === String(rowId) ? rerun : r)));
+    setBulkResults((prev) => prev.map((r) => (String(r.historyRowId || r.id) === String(rowId) ? rerun : r)));
   };
 
   const runBenchmarkValidation = async (fileArg) => {
@@ -5211,11 +5280,11 @@ const CoordinateConverter = () => {
       </div>
       )}
 
-      {bulkResults.length > 0 && (
+      {conversionHistoryRows.length > 0 && (
         <div style={{ marginTop: "0.75rem" }}>
           {(() => {
             // Determine height types from results
-            const sampleRow = bulkResults.find((r) => r.inputZType);
+            const sampleRow = conversionHistoryRows.find((r) => r.inputZType);
             const inputZType = sampleRow?.inputZType || "orthometric";
             const outputZType = sampleRow?.outputZType || "ellipsoidal";
             
@@ -5447,6 +5516,25 @@ const CoordinateConverter = () => {
                   );
                 })()}
 
+                <div style={{ marginTop: "0.75rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.7rem", flexWrap: "wrap" }}>
+                  <div style={{ fontSize: "0.82rem", color: "#334155" }}>
+                    Showing {filteredBulkResults.length} of {conversionHistoryRows.length} converted rows
+                  </div>
+                  <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.82rem", color: "#334155" }}>
+                    Source file
+                    <select
+                      value={historySourceFilter}
+                      onChange={(e) => setHistorySourceFilter(e.target.value)}
+                      style={{ padding: "0.3rem 0.45rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff" }}
+                    >
+                      <option value="all">All sources</option>
+                      {historySourceOptions.map((option) => (
+                        <option key={option.key} value={option.key}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
                 {/* Results table */}
                 <div style={{ overflowX: "auto", overflowY: "hidden", marginTop: "1rem", maxWidth: "100%" }}>
                 <table style={{ width: "max-content", minWidth: "100%", borderCollapse: "collapse", tableLayout: "auto", whiteSpace: "nowrap" }}>
@@ -5454,9 +5542,12 @@ const CoordinateConverter = () => {
                   <tr style={{ background: "#f8fafc" }}>
                     <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>Select</th>
                     <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>#</th>
+                    <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>Source File</th>
+                    <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>Input CRS</th>
+                    <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>Output CRS</th>
                     <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>{labels.inputXLabel}</th>
                     <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>{labels.inputYLabel}</th>
-                    {parsedHasZ(bulkResults) && <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>{inputHeightLabel}</th>}
+                    {parsedHasZ(conversionHistoryRows) && <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>{inputHeightLabel}</th>}
                     {toIsGeoForTable && outputFormat === "BOTH" ? (
                       <>
                         <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>{labels.outputXLabel} (DD)</th>
@@ -5470,12 +5561,12 @@ const CoordinateConverter = () => {
                         <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>{labels.outputYLabel}</th>
                       </>
                     )}
-                    {parsedHasZ(bulkResults) && <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>{outputHeightLabel}</th>}
-                    {parsedHasN(bulkResults) && <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>N (geoid ondulation)</th>}
+                    {parsedHasZ(conversionHistoryRows) && <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>{outputHeightLabel}</th>}
+                    {parsedHasN(conversionHistoryRows) && <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>N (geoid ondulation)</th>}
                     {isUtmCode(toCrs) && <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>Zone</th>}
                     {isCcCode(toCrs) && <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>Zone</th>}
                     {(isGkCode(toCrs) || isSpainCode(toCrs) || isMgaCode(toCrs) || isJgdCode(toCrs) || isBngCode(toCrs) || isIgCode(toCrs) || isSaGaussCode(toCrs) || isEgyptCode(toCrs) || isMoroccoCode(toCrs) || isAlgeriaCode(toCrs) || isTunisiaCode(toCrs)) && <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>Zone</th>}
-                    {bulkResults.some((r) => r.outlierWarning) && <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>Validation</th>}
+                    {conversionHistoryRows.some((r) => r.outlierWarning) && <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>Validation</th>}
                     <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>Status</th>
                     <th style={{ textAlign: "left", padding: "0.4rem", borderBottom: "1px solid #e2e8f0" }}>Action</th>
                   </tr>
@@ -5507,25 +5598,28 @@ const CoordinateConverter = () => {
                       : { text: "OK", bg: "#ecfdf5", color: "#166534", border: "#bbf7d0" };
 
                     return (
-                      <tr key={row.id} style={{ background: row.outlierWarning ? "#fee2e2" : (row.utmWarning || row.ccWarning || row.otherZoneWarning ? "#fef3c7" : "transparent") }}>
+                      <tr key={row.historyRowId || row.id} style={{ background: row.outlierWarning ? "#fee2e2" : (row.utmWarning || row.ccWarning || row.otherZoneWarning ? "#fef3c7" : "transparent") }}>
                         <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0" }}>
                           <input
                             type="checkbox"
-                            checked={selectedBulkRows.includes(String(row.id))}
+                            checked={selectedBulkRows.includes(String(row.historyRowId || row.id))}
                             onChange={(e) => {
-                              const key = String(row.id);
+                              const key = String(row.historyRowId || row.id);
                               setSelectedBulkRows((prev) => e.target.checked ? Array.from(new Set([...prev, key])) : prev.filter((x) => x !== key));
                             }}
                           />
                         </td>
                         <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0" }}>{row.id}</td>
+                        <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0", fontWeight: 600, color: "#334155" }}>{row.sourceFileName || "-"}</td>
+                        <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0", color: "#0f172a" }}>{row.appliedFromCrs || "-"}</td>
+                        <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0", color: "#0f172a" }}>{row.appliedToCrs || "-"}</td>
                         <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0" }}>
-                          <input value={row.inputX ?? ""} onChange={(e) => updateBulkRowInput(row.id, "inputX", e.target.value)} style={{ width: "120px", padding: "0.25rem", border: "1px solid #cbd5e1", borderRadius: "4px" }} />
+                          <input value={row.inputX ?? ""} onChange={(e) => updateBulkRowInput(row.historyRowId || row.id, "inputX", e.target.value)} style={{ width: "120px", padding: "0.25rem", border: "1px solid #cbd5e1", borderRadius: "4px" }} />
                         </td>
                         <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0" }}>
-                          <input value={row.inputY ?? ""} onChange={(e) => updateBulkRowInput(row.id, "inputY", e.target.value)} style={{ width: "120px", padding: "0.25rem", border: "1px solid #cbd5e1", borderRadius: "4px" }} />
+                          <input value={row.inputY ?? ""} onChange={(e) => updateBulkRowInput(row.historyRowId || row.id, "inputY", e.target.value)} style={{ width: "120px", padding: "0.25rem", border: "1px solid #cbd5e1", borderRadius: "4px" }} />
                         </td>
-                        {parsedHasZ(bulkResults) && <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0" }}><input value={row.inputZ ?? ""} onChange={(e) => updateBulkRowInput(row.id, "inputZ", e.target.value)} style={{ width: "90px", padding: "0.25rem", border: "1px solid #cbd5e1", borderRadius: "4px" }} /></td>}
+                        {parsedHasZ(conversionHistoryRows) && <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0" }}><input value={row.inputZ ?? ""} onChange={(e) => updateBulkRowInput(row.historyRowId || row.id, "inputZ", e.target.value)} style={{ width: "90px", padding: "0.25rem", border: "1px solid #cbd5e1", borderRadius: "4px" }} /></td>}
                         {toIsGeoForTable && outputFormat === "BOTH" ? (
                           <>
                             <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0" }}>{ddX}</td>
@@ -5539,17 +5633,17 @@ const CoordinateConverter = () => {
                             <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0" }}>{outputFormat === "DMS" && toIsGeoForTable ? dmsY : ddY}</td>
                           </>
                         )}
-                        {parsedHasZ(bulkResults) && <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0" }}>{row.outputZ ?? ""}</td>}
-                        {parsedHasN(bulkResults) && <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0" }}>{row.N ?? ""}</td>}
+                        {parsedHasZ(conversionHistoryRows) && <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0" }}>{row.outputZ ?? ""}</td>}
+                        {parsedHasN(conversionHistoryRows) && <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0" }}>{row.N ?? ""}</td>}
                         {isUtmCode(toCrs) && <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0", color: row.utmWarning ? "#b45309" : "#16a34a", fontWeight: row.utmWarning ? 600 : 400 }}>{row.utmWarning || "✓"}</td>}
                         {isCcCode(toCrs) && <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0", color: row.ccWarning ? "#b45309" : "#16a34a", fontWeight: row.ccWarning ? 600 : 400 }}>{row.ccWarning || "✓"}</td>}
                         {(isGkCode(toCrs) || isSpainCode(toCrs) || isMgaCode(toCrs) || isJgdCode(toCrs) || isBngCode(toCrs) || isIgCode(toCrs) || isSaGaussCode(toCrs) || isEgyptCode(toCrs) || isMoroccoCode(toCrs) || isAlgeriaCode(toCrs) || isTunisiaCode(toCrs)) && <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0", color: row.otherZoneWarning ? "#b45309" : "#16a34a", fontWeight: row.otherZoneWarning ? 600 : 400 }}>{row.otherZoneWarning || "✓"}</td>}
-                        {bulkResults.some((r) => r.outlierWarning) && <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0", color: row.outlierWarning ? "#b91c1c" : "#16a34a", fontWeight: row.outlierWarning ? 600 : 400 }}>{row.outlierWarning || "OK"}</td>}
+                        {conversionHistoryRows.some((r) => r.outlierWarning) && <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0", color: row.outlierWarning ? "#b91c1c" : "#16a34a", fontWeight: row.outlierWarning ? 600 : 400 }}>{row.outlierWarning || "OK"}</td>}
                         <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0" }}>
                           <span style={{ display: "inline-block", padding: "0.12rem 0.45rem", borderRadius: "999px", background: status.bg, color: status.color, border: `1px solid ${status.border}`, fontSize: "0.75rem", fontWeight: 700 }}>{status.text}</span>
                         </td>
                         <td style={{ padding: "0.35rem", borderBottom: "1px solid #e2e8f0" }}>
-                          <button onClick={() => rerunBulkRow(row.id)} style={{ padding: "0.2rem 0.45rem", borderRadius: "4px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 600, fontSize: "0.78rem" }}>Re-run</button>
+                          <button onClick={() => rerunBulkRow(row.historyRowId || row.id)} style={{ padding: "0.2rem 0.45rem", borderRadius: "4px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 600, fontSize: "0.78rem" }}>Re-run</button>
                         </td>
                       </tr>
                     );
