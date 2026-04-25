@@ -19,16 +19,15 @@
 .app-shell::before {
   content: "";
   position: fixed;
-  inset: -9vh -9vw;
+  inset: 0;
   z-index: -2;
   background-image: url("/backgrounds/survey-bg.png?v=2");
   background-repeat: no-repeat;
   background-size: cover;
-  background-position: center center;
+  background-position: center top;
   filter: saturate(1.05) brightness(1.05);
   opacity: 1;
-  transform: scale(1.14);
-  transform-origin: center center;
+  transform: none;
 }
 
 .app-shell::after {
