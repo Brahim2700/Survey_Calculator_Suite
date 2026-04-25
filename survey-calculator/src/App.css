@@ -707,6 +707,11 @@
 
 /* ── Responsive ── */
 @media (max-width: 1100px) {
+  .app-shell::before {
+    background-size: 170% 160%;
+    background-position: center -180px;
+  }
+
   .app-columns { flex-direction: column; }
   .app-col-right { position: static; }
   .app-col-left {
@@ -717,6 +722,11 @@
 }
 
 @media (max-width: 760px) {
+  .app-shell::before {
+    background-size: 230% 190%;
+    background-position: center -120px;
+  }
+
   .export-panel-grid {
     grid-template-columns: 1fr;
   }
