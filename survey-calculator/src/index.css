@@ -65,10 +65,14 @@
 }
 
 html, body {
+  height: 100%;
   width: 100%;
   min-height: 100%;
   overflow-x: hidden;
   overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  background: #0b1729;
   font-family: var(--font-sans);
   font-size: 15px;
   line-height: 1.45;
@@ -88,8 +92,10 @@ label {
 }
 
 #root {
+  height: 100%;
   width: 100%;
   min-height: 100%;
+  background: #0b1729;
 }
 
 /* ── Scrollbar ── */

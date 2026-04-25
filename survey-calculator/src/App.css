@@ -12,7 +12,7 @@
   flex-direction: column;
   align-items: center;
   padding: 1.75rem 1.5rem 3rem;
-  background: transparent;
+  background: #0b1729;
   box-sizing: border-box;
 }
 
@@ -24,7 +24,7 @@
   background-image: url("/backgrounds/survey-bg.png?v=2");
   background-repeat: no-repeat;
   background-size: cover;
-  background-position: center top;
+  background-position: center -80px;
   filter: saturate(1.05) brightness(1.05);
   opacity: 1;
   transform: none;
