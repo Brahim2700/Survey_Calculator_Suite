@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { emit } from '../utils/eventBus';
@@ -29,6 +29,87 @@ const escapeHtml = (value) => String(value ?? '')
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&#39;');
 const clampNumber = (value, min, max) => Math.min(max, Math.max(min, value));
+
+const toCoordKey = (lat, lng, precision = 7) => `${Number(lat).toFixed(precision)}|${Number(lng).toFixed(precision)}`;
+
+const normalizePolylineVertices = (points, precision = 7) => {
+  const normalized = [];
+  let removedVertices = 0;
+  let prevKey = null;
+
+  (Array.isArray(points) ? points : []).forEach((pt) => {
+    if (!Array.isArray(pt) || !Number.isFinite(pt[0]) || !Number.isFinite(pt[1])) return;
+    const key = toCoordKey(pt[0], pt[1], precision);
+    if (key === prevKey) {
+      removedVertices += 1;
+      return;
+    }
+    normalized.push([pt[0], pt[1]]);
+    prevKey = key;
+  });
+
+  return { vertices: normalized, removedVertices };
+};
+
+const dedupeGeometryPayload = ({ points, lines, polylines }) => {
+  const seenPoints = new Set();
+  const dedupedPoints = [];
+
+  (Array.isArray(points) ? points : []).forEach((point) => {
+    if (!Number.isFinite(point?.lat) || !Number.isFinite(point?.lng)) return;
+    const labelKey = String(point?.importedCadName || point?.label || point?.id || '').trim();
+    const heightKey = Number.isFinite(Number(point?.height)) ? Number(point.height).toFixed(3) : '';
+    const key = `${toCoordKey(point.lat, point.lng)}|${labelKey}|${heightKey}|${String(point?.sourceType || '')}`;
+    if (seenPoints.has(key)) return;
+    seenPoints.add(key);
+    dedupedPoints.push(point);
+  });
+
+  const seenLines = new Set();
+  const dedupedLines = [];
+  (Array.isArray(lines) ? lines : []).forEach((line) => {
+    const start = Array.isArray(line?.start) ? line.start : null;
+    const end = Array.isArray(line?.end) ? line.end : null;
+    if (!start || !end || !Number.isFinite(start[0]) || !Number.isFinite(start[1]) || !Number.isFinite(end[0]) || !Number.isFinite(end[1])) return;
+    const a = toCoordKey(start[0], start[1]);
+    const b = toCoordKey(end[0], end[1]);
+    const ordered = a < b ? `${a}|${b}` : `${b}|${a}`;
+    const layerKey = String(line?.layerStandardized || line?.layerNormalized || line?.layer || '').trim();
+    const key = `${ordered}|${layerKey}|${String(line?.sourceType || 'LINE')}`;
+    if (seenLines.has(key)) return;
+    seenLines.add(key);
+    dedupedLines.push(line);
+  });
+
+  const seenPolylines = new Set();
+  const dedupedPolylines = [];
+  let removedVertices = 0;
+  (Array.isArray(polylines) ? polylines : []).forEach((polyline) => {
+    const { vertices, removedVertices: rv } = normalizePolylineVertices(polyline?.points);
+    removedVertices += rv;
+    if (vertices.length < 2) return;
+    const forward = vertices.map((pt) => toCoordKey(pt[0], pt[1])).join(';');
+    const reverse = [...vertices].reverse().map((pt) => toCoordKey(pt[0], pt[1])).join(';');
+    const pathKey = forward < reverse ? forward : reverse;
+    const layerKey = String(polyline?.layerStandardized || polyline?.layerNormalized || polyline?.layer || '').trim();
+    const key = `${pathKey}|${layerKey}|${String(polyline?.sourceType || 'POLYLINE')}`;
+    if (seenPolylines.has(key)) return;
+    seenPolylines.add(key);
+    dedupedPolylines.push({ ...polyline, points: vertices });
+  });
+
+  return {
+    points: dedupedPoints,
+    lines: dedupedLines,
+    polylines: dedupedPolylines,
+    stats: {
+      pointsRemoved: Math.max(0, (Array.isArray(points) ? points.length : 0) - dedupedPoints.length),
+      linesRemoved: Math.max(0, (Array.isArray(lines) ? lines.length : 0) - dedupedLines.length),
+      polylinesRemoved: Math.max(0, (Array.isArray(polylines) ? polylines.length : 0) - dedupedPolylines.length),
+      verticesRemoved: Math.max(0, removedVertices),
+    },
+  };
+};
 
 const getZoomBasedMarkerRadius = (zoom) => {
   if (zoom <= 10) return 2;
@@ -114,6 +195,8 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   const geometryLayersRef = useRef([]);
   const canvasRendererRef = useRef(null);
   const fittedPointsSignatureRef = useRef('');
+  const dataExtentBoundsRef = useRef(null);
+  const snapCandidatesRef = useRef([]);
   const measureLayerRef = useRef({ polyline: null, markers: [] });
   const basemapLayers = useRef(null);
   const layerControl = useRef(null);
@@ -124,6 +207,8 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   const [showLineLayer, setShowLineLayer] = useState(true);
   const [showPolylineLayer, setShowPolylineLayer] = useState(true);
   const [showLabels, setShowLabels] = useState(true);
+  const [removeDuplicates, setRemoveDuplicates] = useState(false);
+  const [snapMode, setSnapMode] = useState(false);
   const [pointSymbol, setPointSymbol] = useState('circle');
   const [pointSizeScale, setPointSizeScale] = useState(0.7);
   const [legendCollapsed, setLegendCollapsed] = useState(true);
@@ -141,6 +226,17 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     ? cadGeometry.notifications
     : (Array.isArray(cadGeometry?.validation?.notifications) ? cadGeometry.validation.notifications : []);
   const cadLayers = Array.isArray(cadGeometry?.layerSummary?.layers) ? cadGeometry.layerSummary.layers : [];
+
+  const dedupePreviewStats = useMemo(() => {
+    if (!removeDuplicates) {
+      return { pointsRemoved: 0, linesRemoved: 0, polylinesRemoved: 0, verticesRemoved: 0 };
+    }
+
+    const rawPoints = (showPointLayer ? points : []).filter((point) => Number.isFinite(point?.lat) && Number.isFinite(point?.lng));
+    const rawLines = Array.isArray(cadGeometry?.lines) ? cadGeometry.lines : [];
+    const rawPolylines = Array.isArray(cadGeometry?.polylines) ? cadGeometry.polylines : [];
+    return dedupeGeometryPayload({ points: rawPoints, lines: rawLines, polylines: rawPolylines }).stats;
+  }, [removeDuplicates, showPointLayer, points, cadGeometry]);
 
   useEffect(() => {
     if (typeof onMapContainerReady !== 'function') return;
@@ -562,6 +658,12 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   const getCadLayerKey = useCallback((feature) => String(feature?.layerStandardized || feature?.layerNormalized || feature?.layer || 'UNASSIGNED'), []);
   const isCadLayerVisible = useCallback((feature) => !hiddenCadLayers[getCadLayerKey(feature)], [getCadLayerKey, hiddenCadLayers]);
 
+  const handleZoomToExtent = useCallback(() => {
+    if (!map.current || !dataExtentBoundsRef.current) return;
+    if (typeof dataExtentBoundsRef.current.isValid === 'function' && !dataExtentBoundsRef.current.isValid()) return;
+    map.current.fitBounds(dataExtentBoundsRef.current.pad(0.1));
+  }, []);
+
   // ── Cursor: crosshair when measure mode is active ──
   useEffect(() => {
     if (map.current?.getContainer()) {
@@ -703,9 +805,37 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     // Attach a single click handler to publish raw map clicks
     const handleMapClick = (e) => {
       const { lat, lng } = e.latlng || {};
-      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+      if (!snapMode || !map.current || !Array.isArray(snapCandidatesRef.current) || snapCandidatesRef.current.length === 0) {
         emit('map:click', { lat, lon: lng, lng });
+        return;
       }
+
+      const clickPoint = map.current.latLngToContainerPoint([lat, lng]);
+      let best = null;
+      let bestDistSq = Number.POSITIVE_INFINITY;
+      const maxSnapPx = 14;
+      const maxSnapSq = maxSnapPx * maxSnapPx;
+
+      snapCandidatesRef.current.forEach((candidate) => {
+        if (!Number.isFinite(candidate?.lat) || !Number.isFinite(candidate?.lng)) return;
+        const candidatePoint = map.current.latLngToContainerPoint([candidate.lat, candidate.lng]);
+        const dx = clickPoint.x - candidatePoint.x;
+        const dy = clickPoint.y - candidatePoint.y;
+        const distSq = (dx * dx) + (dy * dy);
+        if (distSq < bestDistSq) {
+          bestDistSq = distSq;
+          best = candidate;
+        }
+      });
+
+      if (best && bestDistSq <= maxSnapSq) {
+        emit('map:click', { lat: best.lat, lon: best.lng, lng: best.lng, snapped: true, snapType: best.type || 'vertex' });
+        return;
+      }
+
+      emit('map:click', { lat, lon: lng, lng });
     };
 
     const handleBasemapChange = (e) => {
@@ -750,7 +880,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     geometryLayersRef.current = [];
 
     const inputPoints = showPointLayer ? points : [];
-    const validPoints = inputPoints.filter((point, idx) => {
+    const rawPoints = inputPoints.filter((point, idx) => {
       if (!point || typeof point !== 'object') {
         console.warn(`[MapViz] Point ${idx} is not an object:`, point);
         return false;
@@ -767,6 +897,23 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       }
       return true;
     });
+
+    const rawCadLines = Array.isArray(cadGeometry?.lines) ? cadGeometry.lines : [];
+    const rawCadPolylines = Array.isArray(cadGeometry?.polylines) ? cadGeometry.polylines : [];
+    const cadTexts = Array.isArray(cadGeometry?.texts) ? cadGeometry.texts : [];
+
+    const dedupeResult = removeDuplicates
+      ? dedupeGeometryPayload({ points: rawPoints, lines: rawCadLines, polylines: rawCadPolylines })
+      : {
+          points: rawPoints,
+          lines: rawCadLines,
+          polylines: rawCadPolylines,
+          stats: { pointsRemoved: 0, linesRemoved: 0, polylinesRemoved: 0, verticesRemoved: 0 },
+        };
+
+    const validPoints = dedupeResult.points;
+    const cadLines = dedupeResult.lines;
+    const cadPolylines = dedupeResult.polylines;
 
     const overlapGroups = new Map();
     validPoints.forEach((point) => {
@@ -1017,14 +1164,43 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     });
 
     // Render CAD geometry overlays (already projected to WGS84 by converter).
-    const cadLines = Array.isArray(cadGeometry?.lines) ? cadGeometry.lines : [];
-    const cadPolylines = Array.isArray(cadGeometry?.polylines) ? cadGeometry.polylines : [];
-    const cadTexts = Array.isArray(cadGeometry?.texts) ? cadGeometry.texts : [];
     const currentZoom = map.current.getZoom();
     const totalCadPolylineVertices = cadPolylines.reduce((sum, poly) => {
       const pts = Array.isArray(poly?.points) ? poly.points : [];
       return sum + pts.length;
     }, 0);
+
+    const snapCandidates = [];
+    validPoints.forEach((point) => {
+      if (Number.isFinite(point?.lat) && Number.isFinite(point?.lng)) {
+        snapCandidates.push({ lat: point.lat, lng: point.lng, type: 'point' });
+      }
+    });
+    cadLines.forEach((line) => {
+      const start = Array.isArray(line?.start) ? line.start : null;
+      const end = Array.isArray(line?.end) ? line.end : null;
+      if (start && Number.isFinite(start[0]) && Number.isFinite(start[1])) snapCandidates.push({ lat: start[0], lng: start[1], type: 'line-end' });
+      if (end && Number.isFinite(end[0]) && Number.isFinite(end[1])) snapCandidates.push({ lat: end[0], lng: end[1], type: 'line-end' });
+    });
+    cadPolylines.forEach((polyline) => {
+      (Array.isArray(polyline?.points) ? polyline.points : []).forEach((pt) => {
+        if (Array.isArray(pt) && Number.isFinite(pt[0]) && Number.isFinite(pt[1])) {
+          snapCandidates.push({ lat: pt[0], lng: pt[1], type: 'poly-vertex' });
+        }
+      });
+    });
+
+    const snapSeen = new Set();
+    const dedupedSnapCandidates = [];
+    for (let i = 0; i < snapCandidates.length; i += 1) {
+      const candidate = snapCandidates[i];
+      const key = toCoordKey(candidate.lat, candidate.lng, 7);
+      if (snapSeen.has(key)) continue;
+      snapSeen.add(key);
+      dedupedSnapCandidates.push(candidate);
+      if (dedupedSnapCandidates.length >= 12000) break;
+    }
+    snapCandidatesRef.current = dedupedSnapCandidates;
 
     if (showLineLayer) cadLines.filter(isCadLayerVisible).forEach((line) => {
       const start = line?.start;
@@ -1125,6 +1301,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     if (pointLayersRef.current.length > 0 || geometryLayersRef.current.length > 0) {
       const fitLayers = [...pointLayersRef.current, ...geometryLayersRef.current];
       const group = new L.featureGroup(fitLayers);
+      dataExtentBoundsRef.current = group.getBounds();
       if (fittedPointsSignatureRef.current !== fitSignature) {
         map.current.fitBounds(group.getBounds().pad(0.1));
         fittedPointsSignatureRef.current = fitSignature;
@@ -1135,6 +1312,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         map.current.setView([20, 0], 2);
         fittedPointsSignatureRef.current = '';
       }
+      dataExtentBoundsRef.current = null;
     }
     return () => {
       if (map.current) {
@@ -1149,7 +1327,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         map.current.off('moveend', handleViewChange);
       }
     };
-  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, onMapInstanceReady, getMarkerColor, getPointLabelMarkup, isCadLayerVisible, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showLabels, effectiveShowLabels, annotationsVisible, hiddenCadLayers, pointSymbol, pointSizeScale]);
+  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, onMapInstanceReady, getMarkerColor, getPointLabelMarkup, isCadLayerVisible, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showLabels, effectiveShowLabels, annotationsVisible, hiddenCadLayers, pointSymbol, pointSizeScale, removeDuplicates, snapMode]);
 
   return (
     <div
@@ -1220,6 +1398,20 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
             <>
               <div style={{ marginTop: '8px', marginBottom: '8px', display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
                 <button
+                  onClick={handleZoomToExtent}
+                  style={{
+                    border: '1px solid rgba(148,163,184,0.55)',
+                    background: 'rgba(15,23,42,0.65)',
+                    color: '#e2e8f0',
+                    borderRadius: '999px',
+                    fontSize: '9px',
+                    padding: '2px 7px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Zoom Extent
+                </button>
+                <button
                   onClick={() => setShowPointLayer((v) => !v)}
                   style={{
                     border: '1px solid rgba(148,163,184,0.55)',
@@ -1278,7 +1470,40 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
                 >
                   Names + Altitude
                 </button>
+                <button
+                  onClick={() => setRemoveDuplicates((v) => !v)}
+                  style={{
+                    border: '1px solid rgba(148,163,184,0.55)',
+                    background: removeDuplicates ? 'rgba(34,197,94,0.72)' : 'rgba(15,23,42,0.65)',
+                    color: '#e2e8f0',
+                    borderRadius: '999px',
+                    fontSize: '9px',
+                    padding: '2px 7px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Duplicate Remover
+                </button>
+                <button
+                  onClick={() => setSnapMode((v) => !v)}
+                  style={{
+                    border: '1px solid rgba(148,163,184,0.55)',
+                    background: snapMode ? 'rgba(59,130,246,0.75)' : 'rgba(15,23,42,0.65)',
+                    color: '#e2e8f0',
+                    borderRadius: '999px',
+                    fontSize: '9px',
+                    padding: '2px 7px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Snap Mode
+                </button>
               </div>
+              {removeDuplicates && (
+                <div style={{ marginBottom: '8px', fontSize: '9px', color: '#a7f3d0', lineHeight: 1.35 }}>
+                  Removed: P {dedupePreviewStats.pointsRemoved} · L {dedupePreviewStats.linesRemoved} · PL {dedupePreviewStats.polylinesRemoved} · V {dedupePreviewStats.verticesRemoved}
+                </div>
+              )}
               <div style={{ display: 'grid', gap: '6px', marginBottom: '9px' }}>
                 <label style={{ display: 'grid', gap: '3px', fontSize: '9px', color: '#cbd5e1' }}>
                   Point Symbol
