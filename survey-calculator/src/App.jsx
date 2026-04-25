@@ -3,6 +3,11 @@ import { useEffect, useMemo, useState } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import CoordinateConverter from "./Components/CoordinateConverter";
 import MapVisualization from "./Components/MapVisualization";
+import PointSearchFilter from "./Components/PointSearchFilter";
+import PerformanceDiagnostics from "./Components/PerformanceDiagnostics";
+import MultiPointMeasurements from "./Components/MultiPointMeasurements";
+import ElevationProfile from "./Components/ElevationProfile";
+import BatchOperations from "./Components/BatchOperations";
 import proj4 from "proj4";
 import { calculateAllDistances, calculateGeodesicDistance, getUTMZone } from "./utils/calculations";
 import { on } from "./utils/eventBus";
@@ -61,6 +66,14 @@ function App() {
     pdfPageSize: "a4",
     pdfOrientation: "landscape",
   });
+  
+  // New features state
+  const [filteredPoints, setFilteredPoints] = useState(null);
+  const [showSearchPanel, setShowSearchPanel] = useState(true);
+  const [showDiagnosticsPanel, setShowDiagnosticsPanel] = useState(false);
+  const [showMeasurementsPanel, setShowMeasurementsPanel] = useState(true);
+  const [showElevationProfilePanel, setShowElevationProfilePanel] = useState(true);
+  const [showBatchOpsPanel, setShowBatchOpsPanel] = useState(true);
 
   const resetAppWorkspace = ({ remountConverter = false } = {}) => {
     setConverterPoints([]);
@@ -305,6 +318,31 @@ function App() {
     setExportSettings((prev) => ({ ...prev, [key]: value }));
   };
 
+  const handleBatchOperation = (operationData) => {
+    const { operation, points, offset } = operationData;
+
+    if (operation === 'delete') {
+      // Remove deleted points from converter points
+      const deletedIds = new Set(points.map((p) => p.id));
+      setConverterPoints((prev) => prev.filter((p) => !deletedIds.has(p.id)));
+      setFilteredPoints(null);
+    } else if (operation === 'elevationOffset') {
+      // Apply elevation offset to points
+      const modifiedPoints = points.map((p) => ({
+        ...p,
+        height: (Number(p?.height) || 0) + offset,
+      }));
+      const modifiedIds = new Set(modifiedPoints.map((p) => p.id));
+
+      setConverterPoints((prev) =>
+        prev.map((p) =>
+          modifiedIds.has(p.id) ? modifiedPoints.find((mp) => mp.id === p.id) : p
+        )
+      );
+      setFilteredPoints(null);
+    }
+  };
+
   return (
     <div className="app-shell">
       {/* ── Header ── */}
@@ -322,6 +360,133 @@ function App() {
         {/* Left column: tools */}
         <div className="app-col-left">
           <CoordinateConverter key={converterSessionKey} />
+
+          {/* Feature panels with tab-like navigation */}
+          <div style={{ display: 'grid', gap: '10px', marginTop: '12px' }}>
+            {/* Feature tabs */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(5, 1fr)',
+                gap: '6px',
+              }}
+            >
+              <button
+                onClick={() => setShowSearchPanel(!showSearchPanel)}
+                title="Search and filter points"
+                style={{
+                  border: '1px solid rgba(148,163,184,0.55)',
+                  background: showSearchPanel ? 'rgba(59,130,246,0.75)' : 'rgba(15,23,42,0.65)',
+                  color: '#e2e8f0',
+                  borderRadius: '6px',
+                  fontSize: '9px',
+                  padding: '6px 4px',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+              >
+                🔍 Search
+              </button>
+              <button
+                onClick={() => setShowDiagnosticsPanel(!showDiagnosticsPanel)}
+                title="Performance diagnostics"
+                style={{
+                  border: '1px solid rgba(148,163,184,0.55)',
+                  background: showDiagnosticsPanel ? 'rgba(59,130,246,0.75)' : 'rgba(15,23,42,0.65)',
+                  color: '#e2e8f0',
+                  borderRadius: '6px',
+                  fontSize: '9px',
+                  padding: '6px 4px',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+              >
+                📊 Perf
+              </button>
+              <button
+                onClick={() => setShowMeasurementsPanel(!showMeasurementsPanel)}
+                title="Multi-point measurements"
+                style={{
+                  border: '1px solid rgba(148,163,184,0.55)',
+                  background: showMeasurementsPanel ? 'rgba(59,130,246,0.75)' : 'rgba(15,23,42,0.65)',
+                  color: '#e2e8f0',
+                  borderRadius: '6px',
+                  fontSize: '9px',
+                  padding: '6px 4px',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+              >
+                📏 Measure
+              </button>
+              <button
+                onClick={() => setShowElevationProfilePanel(!showElevationProfilePanel)}
+                title="Elevation profile"
+                style={{
+                  border: '1px solid rgba(148,163,184,0.55)',
+                  background: showElevationProfilePanel ? 'rgba(59,130,246,0.75)' : 'rgba(15,23,42,0.65)',
+                  color: '#e2e8f0',
+                  borderRadius: '6px',
+                  fontSize: '9px',
+                  padding: '6px 4px',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+              >
+                📈 Profile
+              </button>
+              <button
+                onClick={() => setShowBatchOpsPanel(!showBatchOpsPanel)}
+                title="Batch operations"
+                style={{
+                  border: '1px solid rgba(148,163,184,0.55)',
+                  background: showBatchOpsPanel ? 'rgba(59,130,246,0.75)' : 'rgba(15,23,42,0.65)',
+                  color: '#e2e8f0',
+                  borderRadius: '6px',
+                  fontSize: '9px',
+                  padding: '6px 4px',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+              >
+                ⚙️ Batch
+              </button>
+            </div>
+
+            {/* Feature panels */}
+            {showSearchPanel && (
+              <PointSearchFilter
+                points={converterPoints}
+                onFilter={(filtered) => setFilteredPoints(filtered)}
+                onClearFilter={() => setFilteredPoints(null)}
+              />
+            )}
+
+            {showDiagnosticsPanel && (
+              <PerformanceDiagnostics
+                points={converterPoints}
+                cadGeometry={cadGeometry}
+                mapMetrics={mapMetrics}
+              />
+            )}
+
+            {showMeasurementsPanel && (
+              <MultiPointMeasurements
+                measurePoints={measurePoints}
+                onClearMeasurements={() => setMeasurePoints([])}
+              />
+            )}
+
+            {showElevationProfilePanel && <ElevationProfile measurePoints={measurePoints} />}
+
+            {showBatchOpsPanel && (
+              <BatchOperations
+                points={converterPoints}
+                filteredPoints={filteredPoints}
+                onBatchOperation={handleBatchOperation}
+              />
+            )}
+          </div>
         </div>
 
         {/* Right column: sticky map + measure panel */}
