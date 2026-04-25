@@ -1052,7 +1052,7 @@ const CoordinateConverter = () => {
   const [showBulkTextInput, setShowBulkTextInput] = useState(false);
   const [panelOpen, setPanelOpen] = useState({
     import: true,
-    cad: true,
+    cad: false,
     benchmark: false,
     export: true,
   });
