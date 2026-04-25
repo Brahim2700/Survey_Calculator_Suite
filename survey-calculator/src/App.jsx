@@ -1,5 +1,5 @@
 // src/App.jsx
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import CoordinateConverter from "./Components/CoordinateConverter";
 import MapVisualization from "./Components/MapVisualization";
@@ -168,7 +168,7 @@ function App() {
   }, []);
 
   // Simple UX: while measure mode is ON, click converted markers to choose P1 and P2.
-  const handleMapPointSelect = (point) => {
+  const handleMapPointSelect = useCallback((point) => {
     if (!measureMode) return;
     if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return;
 
@@ -191,7 +191,7 @@ function App() {
       const nextId = prev.length > 0 ? (prev[prev.length - 1].id || prev.length) + 1 : 1;
       return [...prev, { id: nextId, ...selected }];
     });
-  };
+  }, [measureMode]);
 
   const handleUndoLastMeasurePoint = () => {
     setMeasurePoints((prev) => prev.slice(0, -1));
@@ -330,7 +330,7 @@ function App() {
     return `${degrees.toFixed(2)}°`;
   };
 
-  const allPoints = [...visibleConverterPoints];
+  const allPoints = useMemo(() => visibleConverterPoints, [visibleConverterPoints]);
 
   const suggestedPrintScale = useMemo(() => {
     if (!mapMetrics) return null;
