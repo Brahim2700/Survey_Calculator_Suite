@@ -377,155 +377,6 @@ function App() {
         {/* Left column: tools */}
         <div className="app-col-left">
           <CoordinateConverter key={converterSessionKey} />
-
-          {/* Feature panels with tab-like navigation */}
-          <div style={{ display: 'grid', gap: '10px', marginTop: '12px' }}>
-            {/* Feature tabs */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(6, 1fr)',
-                gap: '6px',
-              }}
-            >
-              <button
-                onClick={() => setShowSearchPanel(!showSearchPanel)}
-                title="Search and filter points"
-                style={{
-                  border: '1px solid rgba(148,163,184,0.55)',
-                  background: showSearchPanel ? 'rgba(59,130,246,0.75)' : 'rgba(15,23,42,0.65)',
-                  color: '#e2e8f0',
-                  borderRadius: '6px',
-                  fontSize: '9px',
-                  padding: '6px 4px',
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                }}
-              >
-                🔍 Search
-              </button>
-              <button
-                onClick={() => setShowDiagnosticsPanel(!showDiagnosticsPanel)}
-                title="Performance diagnostics"
-                style={{
-                  border: '1px solid rgba(148,163,184,0.55)',
-                  background: showDiagnosticsPanel ? 'rgba(59,130,246,0.75)' : 'rgba(15,23,42,0.65)',
-                  color: '#e2e8f0',
-                  borderRadius: '6px',
-                  fontSize: '9px',
-                  padding: '6px 4px',
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                }}
-              >
-                📊 Perf
-              </button>
-              <button
-                onClick={() => setShowMeasurementsPanel(!showMeasurementsPanel)}
-                title="Multi-point measurements"
-                style={{
-                  border: '1px solid rgba(148,163,184,0.55)',
-                  background: showMeasurementsPanel ? 'rgba(59,130,246,0.75)' : 'rgba(15,23,42,0.65)',
-                  color: '#e2e8f0',
-                  borderRadius: '6px',
-                  fontSize: '9px',
-                  padding: '6px 4px',
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                }}
-              >
-                📏 Measure
-              </button>
-              <button
-                onClick={() => setShowElevationProfilePanel(!showElevationProfilePanel)}
-                title="Elevation profile"
-                style={{
-                  border: '1px solid rgba(148,163,184,0.55)',
-                  background: showElevationProfilePanel ? 'rgba(59,130,246,0.75)' : 'rgba(15,23,42,0.65)',
-                  color: '#e2e8f0',
-                  borderRadius: '6px',
-                  fontSize: '9px',
-                  padding: '6px 4px',
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                }}
-              >
-                📈 Profile
-              </button>
-              <button
-                onClick={() => setShowBatchOpsPanel(!showBatchOpsPanel)}
-                title="Batch operations"
-                style={{
-                  border: '1px solid rgba(148,163,184,0.55)',
-                  background: showBatchOpsPanel ? 'rgba(59,130,246,0.75)' : 'rgba(15,23,42,0.65)',
-                  color: '#e2e8f0',
-                  borderRadius: '6px',
-                  fontSize: '9px',
-                  padding: '6px 4px',
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                }}
-              >
-                ⚙️ Batch
-              </button>
-              <button
-                onClick={() => setShowMarkerStylePanel(!showMarkerStylePanel)}
-                title="Marker styles and legend"
-                style={{
-                  border: '1px solid rgba(148,163,184,0.55)',
-                  background: showMarkerStylePanel ? 'rgba(59,130,246,0.75)' : 'rgba(15,23,42,0.65)',
-                  color: '#e2e8f0',
-                  borderRadius: '6px',
-                  fontSize: '9px',
-                  padding: '6px 4px',
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                }}
-              >
-                🎨 Styles
-              </button>
-            </div>
-
-            {/* Feature panels */}
-            {showSearchPanel && (
-              <PointSearchFilter
-                points={converterPoints}
-                onFilter={(filtered) => setFilteredPoints(filtered)}
-                onClearFilter={() => setFilteredPoints(null)}
-              />
-            )}
-
-            {showDiagnosticsPanel && (
-              <PerformanceDiagnostics
-                points={converterPoints}
-                cadGeometry={cadGeometry}
-                mapMetrics={mapMetrics}
-              />
-            )}
-
-            {showMeasurementsPanel && (
-              <MultiPointMeasurements
-                measurePoints={measurePoints}
-                onClearMeasurements={() => setMeasurePoints([])}
-                onUndoLastPoint={handleUndoLastMeasurePoint}
-                onClosePolygon={handleCloseMeasurePolygon}
-              />
-            )}
-
-            {showElevationProfilePanel && <ElevationProfile measurePoints={measurePoints} />}
-
-            {showBatchOpsPanel && (
-              <BatchOperations
-                points={converterPoints}
-                filteredPoints={filteredPoints}
-                onBatchOperation={handleBatchOperation}
-              />
-            )}
-
-            {showMarkerStylePanel && (
-              <MarkerStyleManager onChange={setMarkerStyleConfig} />
-            )}
-          </div>
         </div>
 
         {/* Right column: sticky map + measure panel */}
@@ -586,6 +437,48 @@ function App() {
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 6H3"/><path d="M21 12H3"/><path d="M21 18H3"/></svg>
                   {measureMode ? "Measuring…" : "Measure"}
+                </button>
+                <button
+                  className={`btn btn-tool-toggle${showSearchPanel ? " active" : ""}`}
+                  onClick={() => setShowSearchPanel((v) => !v)}
+                  title="Search and filter points"
+                >
+                  🔍
+                </button>
+                <button
+                  className={`btn btn-tool-toggle${showDiagnosticsPanel ? " active" : ""}`}
+                  onClick={() => setShowDiagnosticsPanel((v) => !v)}
+                  title="Performance diagnostics"
+                >
+                  📊
+                </button>
+                <button
+                  className={`btn btn-tool-toggle${showMeasurementsPanel ? " active" : ""}`}
+                  onClick={() => setShowMeasurementsPanel((v) => !v)}
+                  title="Multi-point measurements"
+                >
+                  📏
+                </button>
+                <button
+                  className={`btn btn-tool-toggle${showElevationProfilePanel ? " active" : ""}`}
+                  onClick={() => setShowElevationProfilePanel((v) => !v)}
+                  title="Elevation profile"
+                >
+                  📈
+                </button>
+                <button
+                  className={`btn btn-tool-toggle${showBatchOpsPanel ? " active" : ""}`}
+                  onClick={() => setShowBatchOpsPanel((v) => !v)}
+                  title="Batch operations"
+                >
+                  ⚙️
+                </button>
+                <button
+                  className={`btn btn-tool-toggle${showMarkerStylePanel ? " active" : ""}`}
+                  onClick={() => setShowMarkerStylePanel((v) => !v)}
+                  title="Marker styles and legend"
+                >
+                  🎨
                 </button>
                 <button
                   className={`btn btn-ghost${mapFocusMode ? " btn-mapfocus-active" : ""}`}
@@ -854,6 +747,50 @@ function App() {
                       <div><strong>Geodesic:</strong> Ellipsoidal arc on WGS-84 — most accurate over long distances</div>
                     </div>
                   </>
+                )}
+              </div>
+            )}
+
+            {/* Added tool panels now appear below the map area */}
+            {(showSearchPanel || showDiagnosticsPanel || showMeasurementsPanel || showElevationProfilePanel || showBatchOpsPanel || showMarkerStylePanel) && (
+              <div className="map-results-panels fade-slide-in">
+                {showSearchPanel && (
+                  <PointSearchFilter
+                    points={converterPoints}
+                    onFilter={(filtered) => setFilteredPoints(filtered)}
+                    onClearFilter={() => setFilteredPoints(null)}
+                  />
+                )}
+
+                {showDiagnosticsPanel && (
+                  <PerformanceDiagnostics
+                    points={converterPoints}
+                    cadGeometry={cadGeometry}
+                    mapMetrics={mapMetrics}
+                  />
+                )}
+
+                {showMeasurementsPanel && (
+                  <MultiPointMeasurements
+                    measurePoints={measurePoints}
+                    onClearMeasurements={() => setMeasurePoints([])}
+                    onUndoLastPoint={handleUndoLastMeasurePoint}
+                    onClosePolygon={handleCloseMeasurePolygon}
+                  />
+                )}
+
+                {showElevationProfilePanel && <ElevationProfile measurePoints={measurePoints} />}
+
+                {showBatchOpsPanel && (
+                  <BatchOperations
+                    points={converterPoints}
+                    filteredPoints={filteredPoints}
+                    onBatchOperation={handleBatchOperation}
+                  />
+                )}
+
+                {showMarkerStylePanel && (
+                  <MarkerStyleManager onChange={setMarkerStyleConfig} />
                 )}
               </div>
             )}

@@ -202,6 +202,23 @@
 .btn-measure:hover { background: rgba(255,255,255,.20); }
 .btn-measure.active:hover { background: linear-gradient(135deg, #fb923c, #f97316); }
 
+.btn-tool-toggle {
+  min-width: 34px;
+  padding: 0.32rem 0.48rem;
+  font-size: 0.88rem;
+  background: rgba(255, 255, 255, 0.1);
+  color: #e2e8f0;
+}
+
+.btn-tool-toggle:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.btn-tool-toggle.active {
+  background: rgba(59, 130, 246, 0.75);
+  box-shadow: 0 0 0 1px rgba(147, 197, 253, 0.45);
+}
+
 .export-panel {
   padding: 0.72rem 1rem 0.75rem;
   background: linear-gradient(180deg, #12284d, #0f2040);
@@ -442,6 +459,14 @@
   gap: 0.22rem;
 }
 .measure-legend strong { color: var(--c-text); }
+
+.map-results-panels {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.8rem 0.9rem 1rem;
+  background: rgba(241, 245, 249, 0.7);
+  border-top: 1px solid rgba(148, 163, 184, 0.35);
+}
 
 /* ── Geoid bar ── */
 .geoid-bar {
