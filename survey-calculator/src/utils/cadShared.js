@@ -1231,7 +1231,9 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
     detectedFromCrs = pickAutoDetectedCrs(crsSuggestions);
   }
 
-  if (referenceAssessment.isLocal) {
+  // Preserve any explicit or confidently detected CRS. Only fall back to LOCAL
+  // when we still do not have a referenced CRS candidate.
+  if (referenceAssessment.isLocal && !detectedFromCrs) {
     detectedFromCrs = 'LOCAL:ENGINEERING';
   }
 
