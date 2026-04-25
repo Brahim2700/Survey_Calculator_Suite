@@ -130,8 +130,11 @@ function App() {
     if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return;
 
     const selected = {
+      id: point.id,
       lat: point.lat,
       lng: point.lng,
+      height: Number.isFinite(Number(point.height)) ? Number(point.height) : 0,
+      label: point.label || (point.id !== undefined ? String(point.id) : "Point"),
         source: point.sourceType || "point",
         sourceLabel: point.label || (point.id !== undefined ? String(point.id) : "Point"),
     };

@@ -19,7 +19,8 @@ const MultiPointMeasurements = ({ measurePoints = [] }) => {
     for (let i = 0; i < pts.length - 1; i += 1) {
       const p1 = pts[i];
       const p2 = pts[i + 1];
-      const dist = calculateGeodesicDistance(p1.lat, p1.lng, p2.lat, p2.lng);
+      const distResult = calculateGeodesicDistance(p1.lat, p1.lng, p2.lat, p2.lng);
+      const dist = Number(distResult?.distance) || 0;
       segments.push({ from: i, to: i + 1, distance: dist });
       totalDistance += dist;
     }

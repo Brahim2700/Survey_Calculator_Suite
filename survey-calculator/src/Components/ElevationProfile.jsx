@@ -22,7 +22,8 @@ const ElevationProfile = ({ measurePoints = [] }) => {
 
       if (i > 0) {
         const prevP = pts[i - 1];
-        const distance = calculateGeodesicDistance(prevP.lat, prevP.lng, p.lat, p.lng);
+        const distanceResult = calculateGeodesicDistance(prevP.lat, prevP.lng, p.lat, p.lng);
+        const distance = Number(distanceResult?.distance) || 0;
         cumulativeDistance += distance;
       }
 
@@ -76,7 +77,9 @@ const ElevationProfile = ({ measurePoints = [] }) => {
   const chart = Array(chartHeight).fill('').map(() => Array(chartWidth).fill(' '));
 
   profileData.points.forEach((p) => {
-    const x = Math.floor((p.distance / profileData.totalDistance) * (chartWidth - 1));
+    const x = profileData.totalDistance > 0
+      ? Math.floor((p.distance / profileData.totalDistance) * (chartWidth - 1))
+      : 0;
     const normalizedElev = (p.elevation - profileData.minElev) / profileData.elevRange;
     const y = Math.floor((1 - normalizedElev) * (chartHeight - 1));
 
