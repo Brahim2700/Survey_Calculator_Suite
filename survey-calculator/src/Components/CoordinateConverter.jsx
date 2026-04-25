@@ -4838,34 +4838,17 @@ const CoordinateConverter = () => {
               <option value="append">Append to existing map</option>
               <option value="replace">Replace existing map data</option>
             </select>
-            <span style={{ fontSize: "0.8rem", color: "#64748b" }}>
-              Use append for multi-file project stacking.
-            </span>
           </div>
         )}
-        <div style={{ fontSize: "0.85rem", color: "#475569" }}>
-          Supports files with optional point names/IDs in first column. Header keywords: X/Easting/Lon/Longitude, Y/Northing/Lat/Latitude, 
-          Z/Height/Elevation/Hgt (orthometric), h/Ellipsoidal/GeodeticHeight (ellipsoidal), EPSG codes. Add <strong>h</strong> to force ellipsoidal or <strong>H</strong>/Height/Elevation to force orthometric.
-        </div>
-        <div style={{ fontSize: "0.85rem", color: "#334155", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "6px", padding: "0.6rem" }}>
-          <strong>Format tips:</strong>
-          <ul style={{ margin: "0.5rem 0 0 1rem" }}>
-            <li>WKT/EWKT: <em>POINT(lon lat [h])</em> or <em>SRID=4326;POINT(...)</em></li>
-            <li>UTM: <em>55S 334368.6336 6250948.3454 [H]</em> or <em>32756, X, Y, H</em></li>
-            <li>DD with hemispheres: <em>48.8566N, 2.3522E, 35</em> or DMS <em>48°51'24"N, 2°21'08"E</em></li>
-            <li>Files: .csv/.txt, .geojson/.json, .gpx, .kml, .zip (shapefile), .xlsx/.xls, .dxf, .dwg (native DWG via backend)</li>
-          </ul>
-          <div style={{ marginTop: "0.5rem" }}>
-            Quick samples: 
-            <a href="/samples/sample.csv" target="_blank" rel="noreferrer">CSV</a> · 
-            <a href="/samples/sample.geojson" target="_blank" rel="noreferrer">GeoJSON</a> · 
-            <a href="/samples/sample.gpx" target="_blank" rel="noreferrer">GPX</a> · 
-              <a href="/samples/sample.kml" target="_blank" rel="noreferrer">KML</a> · 
-            <a href="/samples/sample_test_text.dwg" target="_blank" rel="noreferrer">DWG test</a> · 
-            <a href="/samples/sample_l93_complex_with_crs.dxf" target="_blank" rel="noreferrer">DXF L93 (complex + CRS)</a> · 
-            <a href="/samples/sample_urban_plan_l93.dxf" target="_blank" rel="noreferrer">DXF Urban Plan (Saint-Denis)</a> · 
-            <a href="/samples/sample_l93_complex_expected_wgs84.csv" target="_blank" rel="noreferrer">Expected WGS84</a>
-          </div>
+        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "0.4rem", padding: "0.55rem 0.6rem", borderRadius: "8px", border: "1px solid #e2e8f0", background: "#f8fafc" }}>
+          <a href="/samples/sample.csv" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", padding: "0.2rem 0.5rem", borderRadius: "999px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", textDecoration: "none", fontSize: "0.78rem", fontWeight: 600 }}>CSV</a>
+          <a href="/samples/sample.geojson" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", padding: "0.2rem 0.5rem", borderRadius: "999px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", textDecoration: "none", fontSize: "0.78rem", fontWeight: 600 }}>GeoJSON</a>
+          <a href="/samples/sample.gpx" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", padding: "0.2rem 0.5rem", borderRadius: "999px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", textDecoration: "none", fontSize: "0.78rem", fontWeight: 600 }}>GPX</a>
+          <a href="/samples/sample.kml" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", padding: "0.2rem 0.5rem", borderRadius: "999px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", textDecoration: "none", fontSize: "0.78rem", fontWeight: 600 }}>KML</a>
+          <a href="/samples/sample_test_text.dwg" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", padding: "0.2rem 0.5rem", borderRadius: "999px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", textDecoration: "none", fontSize: "0.78rem", fontWeight: 600 }}>DWG</a>
+          <a href="/samples/sample_l93_complex_with_crs.dxf" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", padding: "0.2rem 0.5rem", borderRadius: "999px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", textDecoration: "none", fontSize: "0.78rem", fontWeight: 600 }}>DXF L93</a>
+          <a href="/samples/sample_urban_plan_l93.dxf" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", padding: "0.2rem 0.5rem", borderRadius: "999px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", textDecoration: "none", fontSize: "0.78rem", fontWeight: 600 }}>DXF Urban</a>
+          <a href="/samples/sample_l93_complex_expected_wgs84.csv" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", padding: "0.2rem 0.5rem", borderRadius: "999px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", textDecoration: "none", fontSize: "0.78rem", fontWeight: 600 }}>Expected WGS84</a>
         </div>
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
           <input ref={bulkFileInputRef} type="file" accept=".csv,.txt,.geojson,.json,.gpx,.kml,.zip,.xlsx,.xls,.dxf,.dwg" onChange={(e) => { 
