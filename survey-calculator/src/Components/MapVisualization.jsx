@@ -487,6 +487,28 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
 
   const getCoordKey = (lat, lng) => `${lat.toFixed(5)}|${lng.toFixed(5)}`;
 
+  const isGeometryInBounds = useCallback((geometry, bounds) => {
+    if (!bounds) return false;
+    if (geometry.start && geometry.end) {
+      // Line: check if either endpoint is visible
+      return bounds.contains(geometry.start) || bounds.contains(geometry.end);
+    }
+    if (Array.isArray(geometry.points) && geometry.points.length > 0) {
+      // Polyline: check if any vertex is visible (sample for perf at very high vertex counts)
+      const step = Math.max(1, Math.floor(geometry.points.length / 100));
+      for (let i = 0; i < geometry.points.length; i += step) {
+        const pt = geometry.points[i];
+        if (Array.isArray(pt) && bounds.contains(pt)) return true;
+      }
+      // Also check first and last point to catch long lines
+      const firstPt = geometry.points[0];
+      const lastPt = geometry.points[geometry.points.length - 1];
+      return (Array.isArray(firstPt) && bounds.contains(firstPt)) 
+        || (Array.isArray(lastPt) && bounds.contains(lastPt));
+    }
+    return false;
+  }, []);
+
   const getPointLabel = useCallback((point) => {
     const raw = String(point?.label || point?.id || 'Point');
     return raw.length > 42 ? `${raw.slice(0, 39)}...` : raw;
@@ -538,6 +560,12 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   };
 
   const getLabelBudget = (zoom, totalPoints) => {
+    // Aggressive label reduction for very large datasets (performance optimization)
+    if (totalPoints >= 15000) {
+      if (zoom >= 18) return 8;
+      if (zoom >= 16) return 4;
+      return 2;
+    }
     if (totalPoints >= 8000) {
       if (zoom >= 18) return 24;
       if (zoom >= 16) return 16;
@@ -560,6 +588,13 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   };
 
   const getDetectionLabelBudget = (zoom, totalPoints) => {
+    // Aggressive label reduction for very large datasets (performance optimization)
+    if (totalPoints >= 3000) {
+      if (zoom >= 18) return 24;
+      if (zoom >= 16) return 16;
+      if (zoom >= 14) return 8;
+      return 4;
+    }
     if (totalPoints >= 1200) {
       if (zoom >= 18) return 100;
       if (zoom >= 16) return 72;
@@ -988,7 +1023,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
 
     // Add new markers for each point
     const convertedPoints = validPoints.filter((p) => !p.detectionMarker);
-    const viewportBounds = map.current.getBounds().pad(0.08);
+    const viewportBounds = map.current.getBounds().pad(0.02);
     const inViewConvertedPoints = convertedPoints.filter((p) => viewportBounds.contains([p.lat, p.lng]));
     const labelBudget = getLabelBudget(map.current.getZoom(), inViewConvertedPoints.length);
     const cellSize = getDeclutterCellSize(map.current.getZoom());
@@ -1171,83 +1206,96 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       return sum + pts.length;
     }, 0);
 
-    const snapCandidates = [];
-    validPoints.forEach((point) => {
-      if (Number.isFinite(point?.lat) && Number.isFinite(point?.lng)) {
-        snapCandidates.push({ lat: point.lat, lng: point.lng, type: 'point' });
-      }
-    });
-    cadLines.forEach((line) => {
-      const start = Array.isArray(line?.start) ? line.start : null;
-      const end = Array.isArray(line?.end) ? line.end : null;
-      if (start && Number.isFinite(start[0]) && Number.isFinite(start[1])) snapCandidates.push({ lat: start[0], lng: start[1], type: 'line-end' });
-      if (end && Number.isFinite(end[0]) && Number.isFinite(end[1])) snapCandidates.push({ lat: end[0], lng: end[1], type: 'line-end' });
-    });
-    cadPolylines.forEach((polyline) => {
-      (Array.isArray(polyline?.points) ? polyline.points : []).forEach((pt) => {
-        if (Array.isArray(pt) && Number.isFinite(pt[0]) && Number.isFinite(pt[1])) {
-          snapCandidates.push({ lat: pt[0], lng: pt[1], type: 'poly-vertex' });
+    // Only build snap candidates when snap mode is active (performance optimization)
+    if (snapMode) {
+      const snapCandidates = [];
+      validPoints.forEach((point) => {
+        if (Number.isFinite(point?.lat) && Number.isFinite(point?.lng)) {
+          snapCandidates.push({ lat: point.lat, lng: point.lng, type: 'point' });
         }
       });
-    });
+      cadLines.forEach((line) => {
+        const start = Array.isArray(line?.start) ? line.start : null;
+        const end = Array.isArray(line?.end) ? line.end : null;
+        if (start && Number.isFinite(start[0]) && Number.isFinite(start[1])) snapCandidates.push({ lat: start[0], lng: start[1], type: 'line-end' });
+        if (end && Number.isFinite(end[0]) && Number.isFinite(end[1])) snapCandidates.push({ lat: end[0], lng: end[1], type: 'line-end' });
+      });
+      cadPolylines.forEach((polyline) => {
+        (Array.isArray(polyline?.points) ? polyline.points : []).forEach((pt) => {
+          if (Array.isArray(pt) && Number.isFinite(pt[0]) && Number.isFinite(pt[1])) {
+            snapCandidates.push({ lat: pt[0], lng: pt[1], type: 'poly-vertex' });
+          }
+        });
+      });
 
-    const snapSeen = new Set();
-    const dedupedSnapCandidates = [];
-    for (let i = 0; i < snapCandidates.length; i += 1) {
-      const candidate = snapCandidates[i];
-      const key = toCoordKey(candidate.lat, candidate.lng, 7);
-      if (snapSeen.has(key)) continue;
-      snapSeen.add(key);
-      dedupedSnapCandidates.push(candidate);
-      if (dedupedSnapCandidates.length >= 12000) break;
+      const snapSeen = new Set();
+      const dedupedSnapCandidates = [];
+      for (let i = 0; i < snapCandidates.length; i += 1) {
+        const candidate = snapCandidates[i];
+        const key = toCoordKey(candidate.lat, candidate.lng, 7);
+        if (snapSeen.has(key)) continue;
+        snapSeen.add(key);
+        dedupedSnapCandidates.push(candidate);
+        if (dedupedSnapCandidates.length >= 12000) break;
+      }
+      snapCandidatesRef.current = dedupedSnapCandidates;
+    } else {
+      snapCandidatesRef.current = [];
     }
-    snapCandidatesRef.current = dedupedSnapCandidates;
 
-    if (showLineLayer) cadLines.filter(isCadLayerVisible).forEach((line) => {
-      const start = line?.start;
-      const end = line?.end;
-      if (!Array.isArray(start) || !Array.isArray(end)) return;
-      if (!Number.isFinite(start[0]) || !Number.isFinite(start[1]) || !Number.isFinite(end[0]) || !Number.isFinite(end[1])) return;
-      const layer = L.polyline(
-        [
-          [start[0], start[1]],
-          [end[0], end[1]],
-        ],
-        {
+    // Render CAD lines with viewport culling (performance optimization)
+    if (showLineLayer) {
+      const visibleCadLines = cadLines.filter((line) => isCadLayerVisible(line) && isGeometryInBounds(line, viewportBounds));
+      visibleCadLines.forEach((line) => {
+        const start = line?.start;
+        const end = line?.end;
+        if (!Array.isArray(start) || !Array.isArray(end)) return;
+        if (!Number.isFinite(start[0]) || !Number.isFinite(start[1]) || !Number.isFinite(end[0]) || !Number.isFinite(end[1])) return;
+        const layer = L.polyline(
+          [
+            [start[0], start[1]],
+            [end[0], end[1]],
+          ],
+          {
+            renderer: canvasRendererRef.current || undefined,
+            color: '#0ea5e9',
+            weight: 2.5,
+            opacity: 0.85,
+          }
+        )
+          .bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(line.layer || 'CAD line')}</b><br/>Type: ${escapeHtml(line.sourceType || 'LINE')}</div>`)
+          .addTo(map.current);
+        geometryLayersRef.current.push(layer);
+        markers.current.push(layer);
+      });
+    }
+
+    // Render CAD polylines with viewport culling (performance optimization)
+    if (showPolylineLayer) {
+      const visibleCadPolylines = cadPolylines.filter((poly) => isCadLayerVisible(poly) && isGeometryInBounds(poly, viewportBounds));
+      visibleCadPolylines.forEach((poly) => {
+        const pts = Array.isArray(poly?.points) ? poly.points : [];
+        const latlngs = pts
+          .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+          .map((p) => [p[0], p[1]]);
+        if (latlngs.length < 2) return;
+        const decimationStep = getCadPolylineDecimationStep(currentZoom, totalCadPolylineVertices, latlngs.length);
+        const renderLatLngs = decimateLatLngs(latlngs, decimationStep);
+        if (renderLatLngs.length < 2) return;
+        const smoothFactor = getCadPolylineSmoothFactor(currentZoom, totalCadPolylineVertices, latlngs.length);
+        const layer = L.polyline(renderLatLngs, {
           renderer: canvasRendererRef.current || undefined,
-          color: '#0ea5e9',
-          weight: 2.5,
-          opacity: 0.85,
-        }
-      )
-        .bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(line.layer || 'CAD line')}</b><br/>Type: ${escapeHtml(line.sourceType || 'LINE')}</div>`)
-        .addTo(map.current);
-      geometryLayersRef.current.push(layer);
-      markers.current.push(layer);
-    });
-
-    if (showPolylineLayer) cadPolylines.filter(isCadLayerVisible).forEach((poly) => {
-      const pts = Array.isArray(poly?.points) ? poly.points : [];
-      const latlngs = pts
-        .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
-        .map((p) => [p[0], p[1]]);
-      if (latlngs.length < 2) return;
-      const decimationStep = getCadPolylineDecimationStep(currentZoom, totalCadPolylineVertices, latlngs.length);
-      const renderLatLngs = decimateLatLngs(latlngs, decimationStep);
-      if (renderLatLngs.length < 2) return;
-      const smoothFactor = getCadPolylineSmoothFactor(currentZoom, totalCadPolylineVertices, latlngs.length);
-      const layer = L.polyline(renderLatLngs, {
-        renderer: canvasRendererRef.current || undefined,
-        color: '#2563eb',
-        weight: 2,
-        opacity: 0.8,
-        smoothFactor,
-      })
-        .bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(poly.layer || 'CAD polyline')}</b><br/>Type: ${escapeHtml(poly.sourceType || 'POLYLINE')}</div>`)
-        .addTo(map.current);
-      geometryLayersRef.current.push(layer);
-      markers.current.push(layer);
-    });
+          color: '#2563eb',
+          weight: 2,
+          opacity: 0.8,
+          smoothFactor,
+        })
+          .bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(poly.layer || 'CAD polyline')}</b><br/>Type: ${escapeHtml(poly.sourceType || 'POLYLINE')}</div>`)
+          .addTo(map.current);
+        geometryLayersRef.current.push(layer);
+        markers.current.push(layer);
+      });
+    }
 
     if (annotationsVisible && SHOW_CAD_TEXT_ANNOTATIONS) {
       // Collect all text assigned to points to avoid rendering duplicates
@@ -1328,7 +1376,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         map.current.off('moveend', handleViewChange);
       }
     };
-  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, onMapInstanceReady, getMarkerColor, getPointLabelMarkup, isCadLayerVisible, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showLabels, effectiveShowLabels, annotationsVisible, hiddenCadLayers, pointSymbol, pointSizeScale, removeDuplicates, snapMode, snapRadiusPx]);
+  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, onMapInstanceReady, getMarkerColor, getPointLabelMarkup, isCadLayerVisible, isGeometryInBounds, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showLabels, effectiveShowLabels, annotationsVisible, hiddenCadLayers, pointSymbol, pointSizeScale, removeDuplicates, snapMode, snapRadiusPx]);
 
   return (
     <div
