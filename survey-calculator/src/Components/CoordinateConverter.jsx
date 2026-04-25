@@ -1011,6 +1011,7 @@ const CoordinateConverter = () => {
   const [bulkResults, setBulkResults] = useState([]);
   const [bulkProgress, setBulkProgress] = useState(null);
   const [bulkUploadFile, setBulkUploadFile] = useState(null);
+  const [fileImportMode, setFileImportMode] = useState("append"); // append | replace
   const [bulkUploadError, setBulkUploadError] = useState("");
   const [cadPreviewLoading, setCadPreviewLoading] = useState(false);
   const [cadBackendStatus, setCadBackendStatus] = useState(null);
@@ -1035,6 +1036,8 @@ const CoordinateConverter = () => {
   const [detectionMapMode, setDetectionMapMode] = useState("top"); // top | all
   const [, setBulkSummary] = useState(null);
   const [bulkIsConverting, setBulkIsConverting] = useState(false);
+  const bulkEmitModeRef = useRef("replace");
+  const bulkSourceKeyRef = useRef(null);
   const [presets, setPresets] = useState([]);
   const [selectedPresetId, setSelectedPresetId] = useState("");
   const [presetScope, setPresetScope] = useState("project"); // project | global
@@ -2327,10 +2330,13 @@ const CoordinateConverter = () => {
       console.debug(`[useEffect] After validation: ${validPoints.length} valid points`);
       if (validPoints.length > 0) {
         console.debug('[useEffect] Emitting valid points to map:', validPoints);
-        emit("converter:pointsForMap", { points: validPoints });
+        emit("converter:pointsForMap", {
+          points: validPoints,
+          append: bulkEmitModeRef.current === "append",
+          sourceKey: bulkSourceKeyRef.current,
+        });
       } else {
-        console.warn('[useEffect] No valid points to emit, sending empty array');
-        emit("converter:pointsForMap", { points: [] });
+        console.warn('[useEffect] No valid points to emit');
       }
     }
   }, [bulkResults, buildMapPoints]);
@@ -2665,6 +2671,9 @@ const CoordinateConverter = () => {
       await handleBulkFileConvert(bulkUploadFile);
       return;
     }
+
+    bulkEmitModeRef.current = "replace";
+    bulkSourceKeyRef.current = null;
 
     setBulkIsConverting(true);
     bulkCancelRef.current = false;
@@ -3154,11 +3163,20 @@ const CoordinateConverter = () => {
         setCadSourceGeometry(cadPayload?.geometry || null);
         setCadGeometrySourceCrs(sourceCrs || null);
 
+      const importSourceKey = `${file.name}-${Date.now()}`;
+
         const previewPoints = projectCadRowsToWgs84(rows, sourceCrs, cadPayload?.geometry);
-      emit("converter:pointsForMap", { points: previewPoints });
+      emit("converter:pointsForMap", {
+        points: previewPoints,
+        append: fileImportMode === "append",
+        sourceKey: importSourceKey,
+      });
 
         const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrs, rows);
-      emit("converter:cadGeometryForMap", { geometry: projectedGeometry });
+      emit("converter:cadGeometryForMap", {
+        geometry: projectedGeometry,
+        append: fileImportMode === "append",
+      });
 
       setBulkProgress(null);
     } catch (err) {
@@ -3167,7 +3185,7 @@ const CoordinateConverter = () => {
     } finally {
       setCadPreviewLoading(false);
     }
-  }, [ambiguousReferenceNotice, bulkUploadFile, detectLocalReferenceFromRows, localReferenceNotice, projectCadGeometryToWgs84, projectCadRowsToWgs84, refreshCadStatus, resolveCadSourceCrs]);
+  }, [ambiguousReferenceNotice, bulkUploadFile, detectLocalReferenceFromRows, fileImportMode, localReferenceNotice, projectCadGeometryToWgs84, projectCadRowsToWgs84, refreshCadStatus, resolveCadSourceCrs]);
 
   // Detect CRS immediately when file is selected
   const detectFileFormatsAndCRS = async (file) => {
@@ -3240,6 +3258,10 @@ const CoordinateConverter = () => {
       return;
     }
 
+    const importSourceKey = `${file.name}-${Date.now()}`;
+    bulkEmitModeRef.current = fileImportMode;
+    bulkSourceKeyRef.current = importSourceKey;
+
     try {
       let parsed = []; // Declare at the beginning before any use
       setBulkProgress("Reading file...");
@@ -3310,11 +3332,16 @@ const CoordinateConverter = () => {
           setCadSourceGeometry(cadPayload?.geometry || null);
           setCadGeometrySourceCrs(sourceCrsForGeometry || null);
           const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrsForGeometry, rows);
-          emit("converter:cadGeometryForMap", { geometry: projectedGeometry });
+          emit("converter:cadGeometryForMap", {
+            geometry: projectedGeometry,
+            append: fileImportMode === "append",
+          });
         } else {
           setCadSourceGeometry(null);
           setCadGeometrySourceCrs(null);
-          emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [] } });
+          if (fileImportMode !== "append") {
+            emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [] } });
+          }
         }
         
         // Skip the normal line-based parsing since we already have parsed coordinates
@@ -4722,6 +4749,20 @@ const CoordinateConverter = () => {
 
       <div ref={bulkSectionRef} style={{ marginTop: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
         <label style={{ fontWeight: 700 }}>Upload bulk file (CSV/TXT/GeoJSON/GPX/KML/ZIP/XLSX)</label>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.55rem", flexWrap: "wrap" }}>
+          <label style={{ fontSize: "0.84rem", fontWeight: 700, color: "#334155" }}>Import mode</label>
+          <select
+            value={fileImportMode}
+            onChange={(e) => setFileImportMode(e.target.value === "replace" ? "replace" : "append")}
+            style={{ padding: "0.35rem 0.55rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", fontWeight: 600 }}
+          >
+            <option value="append">Append to existing map</option>
+            <option value="replace">Replace existing map data</option>
+          </select>
+          <span style={{ fontSize: "0.8rem", color: "#64748b" }}>
+            Use append for multi-file project stacking.
+          </span>
+        </div>
         <div style={{ fontSize: "0.85rem", color: "#475569" }}>
           Supports files with optional point names/IDs in first column. Header keywords: X/Easting/Lon/Longitude, Y/Northing/Lat/Latitude, 
           Z/Height/Elevation/Hgt (orthometric), h/Ellipsoidal/GeodeticHeight (ellipsoidal), EPSG codes. Add <strong>h</strong> to force ellipsoidal or <strong>H</strong>/Height/Elevation to force orthometric.

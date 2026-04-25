@@ -92,27 +92,55 @@ function App() {
 
   // Points from Coordinate Converter
   useEffect(() => {
-    const off = on("converter:pointsForMap", ({ points }) => {
+    const off = on("converter:pointsForMap", ({ points, append = false, sourceKey = null, detectionMarkers = false }) => {
       if (Array.isArray(points)) {
-        setConverterPoints(points.map((p) => ({ ...p, sourceType: "converted" })));
+        const normalized = points.map((p, idx) => {
+          const rawId = p?.id !== undefined && p?.id !== null ? String(p.id) : String(idx + 1);
+          const mergedId = append && sourceKey ? `${sourceKey}:${rawId}` : rawId;
+          return {
+            ...p,
+            id: mergedId,
+            sourceFileKey: sourceKey || p?.sourceFileKey || null,
+            sourceType: p?.sourceType || "converted",
+          };
+        });
+
+        if (append && !detectionMarkers) {
+          setConverterPoints((prev) => [...prev, ...normalized]);
+        } else {
+          setConverterPoints(normalized);
+        }
       }
     });
     return () => off && off();
   }, []);
 
   useEffect(() => {
-    const off = on("converter:cadGeometryForMap", ({ geometry }) => {
+    const off = on("converter:cadGeometryForMap", ({ geometry, append = false }) => {
       if (geometry && (Array.isArray(geometry.lines) || Array.isArray(geometry.polylines) || Array.isArray(geometry.texts))) {
-        setCadGeometry({
-          lines: Array.isArray(geometry.lines) ? geometry.lines : [],
-          polylines: Array.isArray(geometry.polylines) ? geometry.polylines : [],
-          texts: Array.isArray(geometry.texts) ? geometry.texts : [],
-          layerSummary: geometry.layerSummary || null,
-          validation: geometry.validation || null,
-          notifications: Array.isArray(geometry.notifications) ? geometry.notifications : [],
-          repairs: geometry.repairs || null,
-          localPreview: Boolean(geometry.localPreview),
-        });
+        if (append) {
+          setCadGeometry((prev) => ({
+            lines: [...(Array.isArray(prev?.lines) ? prev.lines : []), ...(Array.isArray(geometry.lines) ? geometry.lines : [])],
+            polylines: [...(Array.isArray(prev?.polylines) ? prev.polylines : []), ...(Array.isArray(geometry.polylines) ? geometry.polylines : [])],
+            texts: [...(Array.isArray(prev?.texts) ? prev.texts : []), ...(Array.isArray(geometry.texts) ? geometry.texts : [])],
+            layerSummary: geometry.layerSummary || prev?.layerSummary || null,
+            validation: geometry.validation || prev?.validation || null,
+            notifications: [...(Array.isArray(prev?.notifications) ? prev.notifications : []), ...(Array.isArray(geometry.notifications) ? geometry.notifications : [])],
+            repairs: geometry.repairs || prev?.repairs || null,
+            localPreview: Boolean(prev?.localPreview || geometry.localPreview),
+          }));
+        } else {
+          setCadGeometry({
+            lines: Array.isArray(geometry.lines) ? geometry.lines : [],
+            polylines: Array.isArray(geometry.polylines) ? geometry.polylines : [],
+            texts: Array.isArray(geometry.texts) ? geometry.texts : [],
+            layerSummary: geometry.layerSummary || null,
+            validation: geometry.validation || null,
+            notifications: Array.isArray(geometry.notifications) ? geometry.notifications : [],
+            repairs: geometry.repairs || null,
+            localPreview: Boolean(geometry.localPreview),
+          });
+        }
         return;
       }
       setCadGeometry(EMPTY_CAD_GEOMETRY);
