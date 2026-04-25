@@ -28,12 +28,12 @@ const escapeHtml = (value) => String(value ?? '')
 const clampNumber = (value, min, max) => Math.min(max, Math.max(min, value));
 
 const getZoomBasedMarkerRadius = (zoom) => {
-  if (zoom <= 10) return 3;
-  if (zoom <= 12) return 4;
-  if (zoom <= 14) return 5;
-  if (zoom <= 16) return 6;
-  if (zoom <= 18) return 7;
-  return 8;
+  if (zoom <= 10) return 2;
+  if (zoom <= 12) return 2.5;
+  if (zoom <= 14) return 3;
+  if (zoom <= 16) return 3.5;
+  if (zoom <= 18) return 4;
+  return 4.5;
 };
 
 const getCadPolylineDecimationStep = (zoom, totalVertices, featureVertices) => {
@@ -122,6 +122,8 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   const [showPolylineLayer, setShowPolylineLayer] = useState(true);
   const [showTextLayer, setShowTextLayer] = useState(true);
   const [showLabels, setShowLabels] = useState(true);
+  const [pointSymbol, setPointSymbol] = useState('circle');
+  const [pointSizeScale, setPointSizeScale] = useState(0.7);
   const [legendCollapsed, setLegendCollapsed] = useState(true);
   const [labelsTouched, setLabelsTouched] = useState(false);
   const [hiddenCadLayers, setHiddenCadLayers] = useState({});
@@ -229,6 +231,10 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       .point-cluster-label.leaflet-tooltip-top:before {
         border-top-color: rgba(30, 41, 59, 0.92);
       }
+      .point-symbol-icon {
+        background: transparent;
+        border: none;
+      }
       .map-export-mode .map-legend-overlay {
         display: none !important;
       }
@@ -302,6 +308,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
 
   const getMarkerColor = useCallback((point) => {
     if (point?.markerColor) return point.markerColor;
+    if (point?.color) return point.color;
     return getGeoidColor(point?.geoidUndulation);
   }, [getGeoidColor]);
 
@@ -326,21 +333,32 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
 
   const getCoordKey = (lat, lng) => `${lat.toFixed(5)}|${lng.toFixed(5)}`;
 
-  const getPointLabel = (point) => {
+  const getPointLabel = useCallback((point) => {
     const raw = String(point?.label || point?.id || 'Point');
     return raw.length > 42 ? `${raw.slice(0, 39)}...` : raw;
-  };
+  }, []);
 
-  const getPointLabelMarkup = (point) => {
+  const getPointLabelMarkup = useCallback((point) => {
     const importedName = String(point?.importedCadName || '').trim();
     const importedElevationText = String(point?.importedCadElevationText || '').trim();
-    if (point?.sourceType === 'cad-point' && (importedName || importedElevationText)) {
-      const nameHtml = importedName ? `<div class="cad-point-name">${escapeHtml(importedName)}</div>` : '';
-      const elevationHtml = importedElevationText ? `<div class="cad-point-elevation">${escapeHtml(importedElevationText)}</div>` : '';
+    const fallbackName = escapeHtml(getPointLabel(point));
+    const hasHeight = Number.isFinite(Number(point?.height));
+    const fallbackElevation = hasHeight ? `${Number(point.height).toFixed(2)} m` : '';
+    const pointName = importedName || fallbackName;
+    const pointElevation = importedElevationText || fallbackElevation;
+
+    if (point?.sourceType === 'cad-point' && (pointName || pointElevation)) {
+      const nameHtml = pointName ? `<div class="cad-point-name">${escapeHtml(pointName)}</div>` : '';
+      const elevationHtml = pointElevation ? `<div class="cad-point-elevation">${escapeHtml(pointElevation)}</div>` : '';
       return `${nameHtml}${elevationHtml}`;
     }
+
+    if (pointElevation) {
+      return `${escapeHtml(getPointLabel(point))}<div class="cad-point-elevation">${escapeHtml(pointElevation)}</div>`;
+    }
+
     return escapeHtml(getPointLabel(point));
-  };
+  }, [getPointLabel]);
 
   const getPointPopupTitle = (point) => {
     const importedName = String(point?.importedCadName || '').trim();
@@ -417,6 +435,45 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       offset: [ox, oy],
       isDense: total >= 8,
     };
+  };
+
+  const createPointSymbolLayer = (lat, lng, style) => {
+    if (style.symbol === 'circle') {
+      return L.circleMarker([lat, lng], {
+        renderer: canvasRendererRef.current || undefined,
+        radius: style.size,
+        fillColor: style.fillColor,
+        color: style.strokeColor,
+        weight: style.strokeWidth,
+        opacity: 1,
+        fillOpacity: style.fillOpacity,
+      });
+    }
+
+    const box = Math.max(9, Math.round(style.size * 2.6));
+    const stroke = Math.max(1, Math.round(style.strokeWidth));
+    let symbolMarkup = '';
+
+    if (style.symbol === 'square') {
+      symbolMarkup = `<rect x="4" y="4" width="16" height="16" fill="${style.fillColor}" stroke="${style.strokeColor}" stroke-width="${stroke}" />`;
+    } else if (style.symbol === 'diamond') {
+      symbolMarkup = `<polygon points="12,2 22,12 12,22 2,12" fill="${style.fillColor}" stroke="${style.strokeColor}" stroke-width="${stroke}" />`;
+    } else if (style.symbol === 'cross') {
+      symbolMarkup = `<line x1="12" y1="3" x2="12" y2="21" stroke="${style.strokeColor}" stroke-width="${Math.max(2, stroke)}" stroke-linecap="round" /><line x1="3" y1="12" x2="21" y2="12" stroke="${style.strokeColor}" stroke-width="${Math.max(2, stroke)}" stroke-linecap="round" />`;
+    } else {
+      symbolMarkup = `<circle cx="12" cy="12" r="8" fill="${style.fillColor}" stroke="${style.strokeColor}" stroke-width="${stroke}" />`;
+    }
+
+    const html = `<svg width="${box}" height="${box}" viewBox="0 0 24 24" aria-hidden="true">${symbolMarkup}</svg>`;
+    return L.marker([lat, lng], {
+      icon: L.divIcon({
+        className: 'point-symbol-icon',
+        html,
+        iconSize: [box, box],
+        iconAnchor: [box / 2, box / 2],
+      }),
+      keyboard: false,
+    });
   };
 
   const extractCrsCode = (point) => {
@@ -786,19 +843,18 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       const color = getMarkerColor(point);
       const undulationLabel = getGeoidLabel(point.geoidUndulation);
       const baseRadius = getZoomBasedMarkerRadius(map.current.getZoom());
-      const markerRadius = isSelectableConverted ? baseRadius + 2 : baseRadius;
+      const scaledRadius = clampNumber(baseRadius * pointSizeScale, 1, 12);
+      const markerRadius = isSelectableConverted ? scaledRadius + 0.8 : scaledRadius;
       const markerStroke = isSelectableConverted ? '#f97316' : '#fff';
       const markerWeight = isSelectableConverted ? 4 : 2;
       const markerFillOpacity = isSelectableConverted ? 0.95 : 0.8;
 
-      // Create custom circle marker
-      const circleMarker = L.circleMarker([displayLat, displayLng], {
-        renderer: canvasRendererRef.current || undefined,
-        radius: markerRadius,
+      const pointLayer = createPointSymbolLayer(displayLat, displayLng, {
+        symbol: pointSymbol,
+        size: markerRadius,
         fillColor: color,
-        color: markerStroke,
-        weight: markerWeight,
-        opacity: 1,
+        strokeColor: markerStroke,
+        strokeWidth: markerWeight,
         fillOpacity: markerFillOpacity,
       })
         .bindPopup(
@@ -839,7 +895,12 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         const overlapIndex = overlapGroup ? overlapGroup.points.findIndex((p) => String(p.id) === String(point.id) && p.label === point.label) : 0;
         const labelLayout = getSmartLabelLayout(Math.max(overlapIndex, 0), overlapSize);
         const pointId = point.id !== undefined ? String(point.id) : null;
-        const hasImportedCadLabel = Boolean(String(point?.importedCadName || '').trim() || String(point?.importedCadElevationText || '').trim());
+        const hasImportedCadLabel = Boolean(
+          String(point?.importedCadName || '').trim()
+          || String(point?.importedCadElevationText || '').trim()
+          || String(point?.label || '').trim()
+          || Number.isFinite(Number(point?.height))
+        );
         const shouldShowConvertedLabel = pointId
           ? visibleConvertedLabelIds.has(pointId)
           : false;
@@ -860,11 +921,13 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       }
 
       if (isSelectableConverted) {
-        circleMarker.bringToFront();
+        if (typeof pointLayer.bringToFront === 'function') {
+          pointLayer.bringToFront();
+        }
       }
 
-      pointLayersRef.current.push(circleMarker);
-      markers.current.push(circleMarker);
+      pointLayersRef.current.push(pointLayer);
+      markers.current.push(pointLayer);
     });
 
     if (effectiveShowLabels) hiddenCountByCoordKey.forEach((hiddenCount, key) => {
@@ -1016,7 +1079,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         map.current.off('moveend', handleViewChange);
       }
     };
-  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, getMarkerColor, isCadLayerVisible, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showTextLayer, showLabels, effectiveShowLabels, hiddenCadLayers]);
+  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, onMapInstanceReady, getMarkerColor, getPointLabelMarkup, isCadLayerVisible, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showTextLayer, showLabels, effectiveShowLabels, hiddenCadLayers, pointSymbol, pointSizeScale]);
 
   return (
     <div
@@ -1159,6 +1222,39 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
                 >
                   Text
                 </button>
+              </div>
+              <div style={{ display: 'grid', gap: '6px', marginBottom: '9px' }}>
+                <label style={{ display: 'grid', gap: '3px', fontSize: '9px', color: '#cbd5e1' }}>
+                  Point Symbol
+                  <select
+                    value={pointSymbol}
+                    onChange={(e) => setPointSymbol(e.target.value)}
+                    style={{
+                      border: '1px solid rgba(148,163,184,0.45)',
+                      background: 'rgba(15,23,42,0.65)',
+                      color: '#e2e8f0',
+                      borderRadius: '7px',
+                      fontSize: '10px',
+                      padding: '3px 6px'
+                    }}
+                  >
+                    <option value="circle">Circle</option>
+                    <option value="square">Square</option>
+                    <option value="diamond">Diamond</option>
+                    <option value="cross">Cross</option>
+                  </select>
+                </label>
+                <label style={{ display: 'grid', gap: '3px', fontSize: '9px', color: '#cbd5e1' }}>
+                  Point Size ({pointSizeScale.toFixed(2)}x)
+                  <input
+                    type="range"
+                    min="0.4"
+                    max="2.4"
+                    step="0.1"
+                    value={pointSizeScale}
+                    onChange={(e) => setPointSizeScale(Number(e.target.value))}
+                  />
+                </label>
               </div>
               {cadLayers.length > 0 && (
                 <div>

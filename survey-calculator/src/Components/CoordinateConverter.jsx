@@ -1941,13 +1941,34 @@ const CoordinateConverter = () => {
         const hasZoneWarning = Boolean(row.utmWarning || row.ccWarning || row.otherZoneWarning);
         const markerSeverity = hasOutlier ? "high" : (hasZoneWarning ? "medium" : "normal");
         const markerColor = hasOutlier ? "#dc2626" : (hasZoneWarning ? "#f59e0b" : null);
+        const preferredLabel = String(
+          row.importedCadName
+          || row.label
+          || row.name
+          || row.sourceLabel
+          || row.inputLabel
+          || row.id
+          || ''
+        ).trim();
+        const parsedOutputZ = row.outputZ !== undefined && row.outputZ !== null && row.outputZ !== ''
+          ? parseFloat(String(row.outputZ).replace(/,/g, ''))
+          : null;
+        const parsedInputZ = row.inputZ !== undefined && row.inputZ !== null && row.inputZ !== ''
+          ? parseFloat(String(row.inputZ).replace(/,/g, ''))
+          : null;
+        const resolvedHeight = Number.isFinite(parsedOutputZ)
+          ? parsedOutputZ
+          : (Number.isFinite(parsedInputZ) ? parsedInputZ : 0);
 
         const point = {
           id: String(row.id),
           lat,
           lng,
-          height: row.outputZ ? parseFloat(row.outputZ.toString().replace(/,/g, "")) : 0,
-          label: `Point ${row.id}`,
+          height: resolvedHeight,
+          label: preferredLabel || `Point ${row.id}`,
+          importedCadName: String(row.importedCadName || '').trim(),
+          importedCadElevationText: String(row.importedCadElevationText || row.elevationText || '').trim(),
+          sourceType: row.sourceType || 'converted',
           geoidUndulation: row.N ? parseFloat(row.N.toString().replace(/,/g, "")) : 0,
           markerSeverity,
           markerColor,
