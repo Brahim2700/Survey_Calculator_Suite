@@ -9,6 +9,7 @@ import MultiPointMeasurements from "./Components/MultiPointMeasurements";
 import ElevationProfile from "./Components/ElevationProfile";
 import BatchOperations from "./Components/BatchOperations";
 import MarkerStyleManager from "./Components/MarkerStyleManager";
+import SmartConflictDetection from "./Components/SmartConflictDetection";
 import proj4 from "proj4";
 import { calculateAllDistances, calculateGeodesicDistance, getUTMZone } from "./utils/calculations";
 import { on } from "./utils/eventBus";
@@ -85,6 +86,7 @@ function App() {
   const [showElevationProfilePanel, setShowElevationProfilePanel] = useState(true);
   const [showBatchOpsPanel, setShowBatchOpsPanel] = useState(true);
   const [showMarkerStylePanel, setShowMarkerStylePanel] = useState(false);
+  const [showConflictPanel, setShowConflictPanel] = useState(true);
   const [markerStyleConfig, setMarkerStyleConfig] = useState({ elevationRules: [], pointSizeScale: 1.0, customIcons: {}, showLegend: true });
 
   const resetAppWorkspace = ({ remountConverter = false } = {}) => {
@@ -583,6 +585,13 @@ function App() {
                   🎨
                 </button>
                 <button
+                  className={`btn btn-tool-toggle${showConflictPanel ? " active" : ""}`}
+                  onClick={() => setShowConflictPanel((v) => !v)}
+                  title="Smart conflict detection"
+                >
+                  🚨
+                </button>
+                <button
                   className={`btn btn-ghost${mapFocusMode ? " btn-mapfocus-active" : ""}`}
                   onClick={() => setMapFocusMode((v) => !v)}
                   title={mapFocusMode ? "Restore balanced layout" : "Expand map workspace"}
@@ -893,7 +902,7 @@ function App() {
             )}
 
             {/* Added tool panels now appear below the map area */}
-            {(showSearchPanel || showDiagnosticsPanel || showMeasurementsPanel || showElevationProfilePanel || showBatchOpsPanel || showMarkerStylePanel) && (
+            {(showSearchPanel || showDiagnosticsPanel || showMeasurementsPanel || showElevationProfilePanel || showBatchOpsPanel || showMarkerStylePanel || showConflictPanel) && (
               <div className="map-results-panels fade-slide-in">
                 {showSearchPanel && (
                   <PointSearchFilter
@@ -932,6 +941,10 @@ function App() {
 
                 {showMarkerStylePanel && (
                   <MarkerStyleManager onChange={setMarkerStyleConfig} />
+                )}
+
+                {showConflictPanel && (
+                  <SmartConflictDetection points={visibleConverterPoints} />
                 )}
               </div>
             )}

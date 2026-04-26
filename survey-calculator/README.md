@@ -123,3 +123,12 @@ To regenerate XLSX and Shapefile samples: `npm run generate:samples`.
 
 - Survey Adjustment Engine: add least-squares network adjustment and traverse closure analysis.
 - Quality outputs for adjustment workflows: residuals, closure error, RMSE, and confidence reporting.
+- Control Point Manager: store, lock, and reuse known control points by project with quality class and epoch.
+- Coordinate Epoch and Velocity Support: time-dependent coordinate handling for GNSS datasets.
+- Baseline and Loop QA: automatic traverse loop and baseline tolerance checks.
+- Cadastral Parcel Tools: parcel closure checks, area/frontage metrics, and legal-style reporting.
+- Stakeout Mode: field deltas for design points and lines (direction, distance, cut/fill).
+- Profile and Cross-Section Generator: longitudinal profiles and cross-sections from measured lines.
+- CRS Batch Recommendation Engine: suggest best working CRS per imported layer/region.
+- Datum Shift Audit: expose transformation path, grids used, and uncertainty metadata.
+- Project Version Snapshots: project checkpoints with side-by-side change comparison.
