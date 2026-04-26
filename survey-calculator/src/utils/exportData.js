@@ -115,22 +115,45 @@ const toFiniteNumber = (value, fallback = 0) => {
   return Number.isFinite(num) ? num : fallback;
 };
 
-const collectGeometryLayers = (geometry = {}) => {
-  const layers = new Set(['0']);
-  (Array.isArray(geometry.points) ? geometry.points : []).forEach((point) => {
-    layers.add(normalizeDxfLayerName(point?.layer || 'POINTS'));
-  });
-  (Array.isArray(geometry.lines) ? geometry.lines : []).forEach((line) => {
-    layers.add(normalizeDxfLayerName(line?.layerStandardized || line?.layerNormalized || line?.layerOriginal || line?.layer || '0'));
-  });
-  (Array.isArray(geometry.polylines) ? geometry.polylines : []).forEach((poly) => {
-    layers.add(normalizeDxfLayerName(poly?.layerStandardized || poly?.layerNormalized || poly?.layerOriginal || poly?.layer || '0'));
-  });
-  (Array.isArray(geometry.texts) ? geometry.texts : []).forEach((text) => {
-    layers.add(normalizeDxfLayerName(text?.layerStandardized || text?.layerNormalized || text?.layerOriginal || text?.layer || '0'));
-  });
-  return [...layers];
+// ACI color index mapping for common hex colors (approximate, for round-trip)
+const hexToAciColor = (hex) => {
+  if (!hex) return 7;
+  const h = String(hex).replace('#', '').toLowerCase();
+  if (h === 'ff0000') return 1; // Red
+  if (h === 'ffff00') return 2; // Yellow
+  if (h === '00ff00') return 3; // Green
+  if (h === '00ffff') return 4; // Cyan
+  if (h === '0000ff') return 5; // Blue
+  if (h === 'ff00ff') return 6; // Magenta
+  if (h === 'ffffff') return 7; // White
+  return 7;
 };
+
+const collectGeometryLayersWithMeta = (geometry = {}) => {
+  const layers = new Map();
+  const ensureLayer = (name, colorHex = null, colorIndex = null) => {
+    const key = normalizeDxfLayerName(name);
+    if (!layers.has(key)) {
+      const aci = colorIndex || hexToAciColor(colorHex) || 7;
+      layers.set(key, { name: key, aci });
+    }
+  };
+  ensureLayer('0');
+  (Array.isArray(geometry.points) ? geometry.points : []).forEach((p) =>
+    ensureLayer(p?.layer || 'POINTS', p?.colorHex, p?.colorIndex));
+  (Array.isArray(geometry.lines) ? geometry.lines : []).forEach((l) =>
+    ensureLayer(l?.layerStandardized || l?.layerNormalized || l?.layerOriginal || l?.layer || '0', l?.colorHex, l?.colorIndex));
+  (Array.isArray(geometry.polylines) ? geometry.polylines : []).forEach((p) =>
+    ensureLayer(p?.layerStandardized || p?.layerNormalized || p?.layerOriginal || p?.layer || '0', p?.colorHex, p?.colorIndex));
+  (Array.isArray(geometry.texts) ? geometry.texts : []).forEach((t) =>
+    ensureLayer(t?.layerStandardized || t?.layerNormalized || t?.layerOriginal || t?.layer || '0', t?.colorHex, t?.colorIndex));
+  (Array.isArray(geometry.dimensions) ? geometry.dimensions : []).forEach((d) =>
+    ensureLayer(d?.layerStandardized || d?.layerNormalized || d?.layerOriginal || d?.layer || '0'));
+  return [...layers.values()];
+};
+
+const collectGeometryLayers = (geometry = {}) =>
+  collectGeometryLayersWithMeta(geometry).map((l) => l.name);
 /**
  * Export conversion results as CSV
  * @param {Array} results - Array of conversion result objects
@@ -681,13 +704,19 @@ export const exportAsDXFGeometry = (geometry, metadata = null) => {
     lines: Array.isArray(geometry?.lines) ? geometry.lines : [],
     polylines: Array.isArray(geometry?.polylines) ? geometry.polylines : [],
     texts: Array.isArray(geometry?.texts) ? geometry.texts : [],
+    dimensions: Array.isArray(geometry?.dimensions) ? geometry.dimensions : [],
   };
 
-  if (!safeGeometry.points.length && !safeGeometry.lines.length && !safeGeometry.polylines.length && !safeGeometry.texts.length) {
+  if (!safeGeometry.points.length && !safeGeometry.lines.length && !safeGeometry.polylines.length
+    && !safeGeometry.texts.length && !safeGeometry.dimensions.length) {
     return null;
   }
 
-  lines.push('0', 'SECTION', '2', 'HEADER', '9', '$ACADVER', '1', 'AC1009');
+  // HEADER section — R2000 (AC1015) for LWPOLYLINE support
+  lines.push('0', 'SECTION', '2', 'HEADER');
+  lines.push('9', '$ACADVER', '1', 'AC1015');
+  lines.push('9', '$INSUNITS', '70', '6'); // 6 = Meters
+  lines.push('9', '$MEASUREMENT', '70', '1'); // 1 = Metric
   lines.push('9', '$PDMODE', '70', '35');
   lines.push('9', '$PDSIZE', '40', '1.0');
   if (metadata?.fromCrs && metadata?.toCrs) {
@@ -695,15 +724,16 @@ export const exportAsDXFGeometry = (geometry, metadata = null) => {
   }
   lines.push('0', 'ENDSEC');
 
-  const layerNames = collectGeometryLayers(safeGeometry);
+  // TABLES section — with color-preserving LAYER entries
+  const layerMetas = collectGeometryLayersWithMeta(safeGeometry);
   lines.push('0', 'SECTION', '2', 'TABLES');
   lines.push('0', 'TABLE', '2', 'LTYPE', '70', '1');
   lines.push('0', 'LTYPE', '2', 'CONTINUOUS', '70', '0', '3', 'Solid line', '72', '65', '73', '0', '40', '0.0');
   lines.push('0', 'ENDTAB');
 
-  lines.push('0', 'TABLE', '2', 'LAYER', '70', String(layerNames.length));
-  layerNames.forEach((layerName) => {
-    lines.push('0', 'LAYER', '2', layerName, '70', '0', '62', '7', '6', 'CONTINUOUS');
+  lines.push('0', 'TABLE', '2', 'LAYER', '70', String(layerMetas.length));
+  layerMetas.forEach(({ name, aci }) => {
+    lines.push('0', 'LAYER', '2', name, '70', '0', '62', String(aci), '6', 'CONTINUOUS');
   });
   lines.push('0', 'ENDTAB');
   lines.push('0', 'ENDSEC');
@@ -717,6 +747,7 @@ export const exportAsDXFGeometry = (geometry, metadata = null) => {
 
   lines.push('0', 'SECTION', '2', 'ENTITIES');
 
+  // POINT entities
   safeGeometry.points.forEach((pointEntity) => {
     const x = toFiniteNumber(pointEntity?.x ?? pointEntity?.[0], NaN);
     const y = toFiniteNumber(pointEntity?.y ?? pointEntity?.[1], NaN);
@@ -726,6 +757,7 @@ export const exportAsDXFGeometry = (geometry, metadata = null) => {
     lines.push('0', 'POINT', '8', layer, '62', '7', '10', String(x), '20', String(y), '30', String(z));
   });
 
+  // LINE entities
   safeGeometry.lines.forEach((lineEntity) => {
     const start = Array.isArray(lineEntity?.start) ? lineEntity.start : [];
     const end = Array.isArray(lineEntity?.end) ? lineEntity.end : [];
@@ -740,50 +772,57 @@ export const exportAsDXFGeometry = (geometry, metadata = null) => {
     lines.push('0', 'LINE', '8', layer, '10', String(x1), '20', String(y1), '30', String(z1), '11', String(x2), '21', String(y2), '31', String(z2));
   });
 
+  // LWPOLYLINE entities (R2000+, more compact than legacy POLYLINE)
   safeGeometry.polylines.forEach((polyEntity) => {
-    const points = (Array.isArray(polyEntity?.points) ? polyEntity.points : [])
+    const pts = (Array.isArray(polyEntity?.points) ? polyEntity.points : [])
       .map((point) => {
         const x = toFiniteNumber(point?.[0], NaN);
         const y = toFiniteNumber(point?.[1], NaN);
-        const z = toFiniteNumber(point?.[2], 0);
         if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-        return [x, y, z];
+        return [x, y];
       })
       .filter(Boolean);
-    if (points.length < 2) return;
-
+    if (pts.length < 2) return;
     const layer = normalizeDxfLayerName(polyEntity?.layerStandardized || polyEntity?.layerNormalized || polyEntity?.layerOriginal || polyEntity?.layer || '0');
-    lines.push('0', 'POLYLINE', '8', layer, '66', '1', '70', '0');
-    points.forEach((point) => {
-      lines.push('0', 'VERTEX', '8', layer, '10', String(point[0]), '20', String(point[1]), '30', String(point[2]));
+    lines.push('0', 'LWPOLYLINE', '8', layer, '90', String(pts.length), '70', '0');
+    pts.forEach(([x, y]) => {
+      lines.push('10', String(x), '20', String(y));
     });
-    lines.push('0', 'SEQEND', '8', layer);
   });
 
+  // TEXT entities
   safeGeometry.texts.forEach((textEntity) => {
     const position = Array.isArray(textEntity?.position) ? textEntity.position : [];
     const x = toFiniteNumber(position[0], NaN);
     const y = toFiniteNumber(position[1], NaN);
     const z = toFiniteNumber(position[2], 0);
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-
     const layer = normalizeDxfLayerName(textEntity?.layerStandardized || textEntity?.layerNormalized || textEntity?.layerOriginal || textEntity?.layer || '0');
     const textValue = String(textEntity?.text || textEntity?.rawText || '').replace(/\r?\n/g, ' ').trim();
     if (!textValue) return;
     const textHeight = Math.max(0.01, toFiniteNumber(textEntity?.textHeight, 2.5));
     const rotation = toFiniteNumber(textEntity?.rotation, 0);
     const styleName = String(textEntity?.styleName || 'STANDARD').trim() || 'STANDARD';
+    lines.push('0', 'TEXT', '8', layer, '10', String(x), '20', String(y), '30', String(z),
+      '40', String(textHeight), '1', textValue, '50', String(rotation), '7', styleName);
+  });
 
-    lines.push(
-      '0', 'TEXT',
-      '8', layer,
-      '10', String(x),
-      '20', String(y),
-      '30', String(z),
-      '40', String(textHeight),
-      '1', textValue,
-      '50', String(rotation),
-      '7', styleName
+  // DIMENSION entities (re-exported as simplified DIMENSION stubs with text)
+  safeGeometry.dimensions.forEach((dimEntity) => {
+    const mid = dimEntity?.midPoint;
+    const def = dimEntity?.defPoint;
+    if (!Array.isArray(mid) || !Number.isFinite(mid[0]) || !Number.isFinite(mid[1])) return;
+    const layer = normalizeDxfLayerName(dimEntity?.layerStandardized || dimEntity?.layerNormalized || dimEntity?.layer || '0');
+    const dimText = dimEntity?.text || '';
+    const typeCode = Number(dimEntity?.typeCode ?? 0);
+    const defX = Array.isArray(def) && Number.isFinite(def[0]) ? def[0] : mid[0];
+    const defY = Array.isArray(def) && Number.isFinite(def[1]) ? def[1] : mid[1];
+    const defZ = Array.isArray(def) && Number.isFinite(def[2]) ? def[2] : 0;
+    lines.push('0', 'DIMENSION', '8', layer,
+      '10', String(defX), '20', String(defY), '30', String(defZ),
+      '11', String(mid[0]), '21', String(mid[1]), '31', String(mid[2] ?? 0),
+      '70', String(typeCode),
+      '1', dimText
     );
   });
 
