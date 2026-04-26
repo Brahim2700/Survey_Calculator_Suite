@@ -30,6 +30,11 @@ const escapeHtml = (value) => String(value ?? '')
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&#39;');
 const clampNumber = (value, min, max) => Math.min(max, Math.max(min, value));
+const normalizeHexColor = (value, fallback = '#3b82f6') => {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  return /^#([0-9a-fA-F]{6})$/.test(trimmed) ? trimmed : fallback;
+};
 
 const toCoordKey = (lat, lng, precision = 7) => `${Number(lat).toFixed(precision)}|${Number(lng).toFixed(precision)}`;
 
@@ -213,6 +218,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   const [snapRadiusPx, setSnapRadiusPx] = useState(14);
   const [pointSymbol, setPointSymbol] = useState('circle');
   const [pointSizeScale, setPointSizeScale] = useState(0.7);
+  const [pointBaseColor, setPointBaseColor] = useState('#3b82f6');
   const [legendCollapsed, setLegendCollapsed] = useState(true);
   const [labelsTouched, setLabelsTouched] = useState(false);
   const [hiddenCadLayers, setHiddenCadLayers] = useState({});
@@ -239,6 +245,13 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     const rawPolylines = Array.isArray(cadGeometry?.polylines) ? cadGeometry.polylines : [];
     return dedupeGeometryPayload({ points: rawPoints, lines: rawLines, polylines: rawPolylines }).stats;
   }, [removeDuplicates, showPointLayer, points, cadGeometry]);
+
+  useEffect(() => {
+    const externalPointColor = normalizeHexColor(markerStyleConfig?.pointColor, null);
+    if (externalPointColor) {
+      setPointBaseColor(externalPointColor);
+    }
+  }, [markerStyleConfig?.pointColor]);
 
   useEffect(() => {
     if (typeof onMapContainerReady !== 'function') return;
@@ -474,8 +487,8 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       });
       if (matched) return matched.color;
     }
-    return getGeoidColor(point?.geoidUndulation);
-  }, [getGeoidColor, markerStyleConfig]);
+    return normalizeHexColor(pointBaseColor, getGeoidColor(point?.geoidUndulation));
+  }, [getGeoidColor, markerStyleConfig, pointBaseColor]);
 
   const selectedPointStillVisible = selectedPoint && Array.isArray(points) && points.some((point) => {
     if (selectedPoint.id !== undefined && point.id !== undefined) {
@@ -1199,9 +1212,12 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       let pointLayer;
       if (customIcon?.url) {
         const iconSize = Math.round(markerRadius * 2.5);
+        const iconColor = normalizeHexColor(color, '#3b82f6');
+        const innerIconSize = Math.max(12, Math.round(iconSize * 0.72));
         pointLayer = L.marker([displayLat, displayLng], {
-          icon: L.icon({
-            iconUrl: customIcon.url,
+          icon: L.divIcon({
+            className: 'point-symbol-icon',
+            html: `<div style="width:${iconSize}px;height:${iconSize}px;border-radius:999px;background:${iconColor};border:2px solid ${markerStroke};display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.35);"><img src="${escapeHtml(customIcon.url)}" alt="" style="width:${innerIconSize}px;height:${innerIconSize}px;object-fit:contain;pointer-events:none;" /></div>`,
             iconSize: [iconSize, iconSize],
             iconAnchor: [Math.round(iconSize / 2), Math.round(iconSize / 2)],
             popupAnchor: [0, -Math.round(iconSize / 2)],
@@ -1711,6 +1727,23 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
                     value={pointSizeScale}
                     onChange={(e) => setPointSizeScale(Number(e.target.value))}
                   />
+                </label>
+                <label style={{ display: 'grid', gap: '3px', fontSize: '9px', color: '#cbd5e1' }}>
+                  Point Color
+                  <div style={{ display: 'grid', gridTemplateColumns: '34px 1fr', gap: '6px', alignItems: 'center' }}>
+                    <input
+                      type="color"
+                      value={normalizeHexColor(pointBaseColor)}
+                      onChange={(e) => setPointBaseColor(normalizeHexColor(e.target.value))}
+                      style={{ width: '34px', height: '24px', padding: 0, border: '1px solid rgba(148,163,184,0.45)', borderRadius: '6px', background: 'rgba(15,23,42,0.65)' }}
+                    />
+                    <input
+                      type="text"
+                      value={normalizeHexColor(pointBaseColor)}
+                      onChange={(e) => setPointBaseColor(normalizeHexColor(e.target.value, pointBaseColor))}
+                      style={{ border: '1px solid rgba(148,163,184,0.45)', background: 'rgba(15,23,42,0.65)', color: '#e2e8f0', borderRadius: '7px', fontSize: '10px', padding: '3px 6px' }}
+                    />
+                  </div>
                 </label>
               </div>
               {cadLayers.length > 0 && (
