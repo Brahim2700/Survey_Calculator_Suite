@@ -1266,10 +1266,12 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
 };
 
 export const collectCadGeometryFromDxf = (dxfData) => {
+  const DIMENSION_TYPE_LABELS = ['Linear', 'Aligned', 'Angular (3pt)', 'Diameter', 'Radius', 'Angular (2L)', 'Ordinate'];
   const geometry = {
     lines: [],
     polylines: [],
     texts: [],
+    dimensions: [],
   };
   const expandedEntities = expandCadEntities(dxfData).entities;
   const layerTable = dxfData?.tables?.layer?.layers || {};
@@ -1371,6 +1373,75 @@ export const collectCadGeometryFromDxf = (dxfData) => {
     });
   };
 
+  const addDimension = (entity) => {
+    const layer = entity?.layer || 'DIM';
+    const descriptor = getLayerDescriptor(layer, layerTable[layer]);
+    const typeCode = Number(entity?.dimensionType ?? 0) & 0x0F;
+    const typeLabel = DIMENSION_TYPE_LABELS[typeCode] || `Type ${typeCode}`;
+    const rawText = entity?.text ?? entity?.dimensionText ?? '';
+    const measurement = Number.isFinite(Number(entity?.actualMeasurement)) ? Number(entity.actualMeasurement) : null;
+    const displayText = rawText || (measurement !== null ? String(measurement.toFixed(3)) : '');
+    const midPoint = entity?.midPoint || entity?.textMidpoint || entity?.insertionPoint;
+    const defPoint = entity?.definitionPoint;
+    const p1x = Number(entity?.x1 ?? entity?.xLinePoint1?.x ?? NaN);
+    const p1y = Number(entity?.y1 ?? entity?.xLinePoint1?.y ?? NaN);
+    const p2x = Number(entity?.x2 ?? entity?.xLinePoint2?.x ?? NaN);
+    const p2y = Number(entity?.y2 ?? entity?.xLinePoint2?.y ?? NaN);
+
+    const dimRecord = {
+      layer: descriptor.displayName,
+      layerOriginal: descriptor.originalName,
+      layerNormalized: descriptor.normalizedName,
+      layerStandardized: descriptor.standardizedName,
+      sourceType: 'DIMENSION',
+      typeCode,
+      typeLabel,
+      text: displayText,
+      measurement,
+      defPoint: defPoint ? [Number(defPoint.x), Number(defPoint.y), Number(defPoint.z ?? 0)] : null,
+      midPoint: midPoint ? [Number(midPoint.x), Number(midPoint.y), Number(midPoint.z ?? 0)] : null,
+      p1: Number.isFinite(p1x) && Number.isFinite(p1y) ? [p1x, p1y] : null,
+      p2: Number.isFinite(p2x) && Number.isFinite(p2y) ? [p2x, p2y] : null,
+    };
+    geometry.dimensions.push(dimRecord);
+
+    // Add dimension text as a map annotation
+    if (displayText && midPoint) {
+      const mx = Number(midPoint.x);
+      const my = Number(midPoint.y);
+      const mz = Number(midPoint.z ?? 0);
+      if (Number.isFinite(mx) && Number.isFinite(my)) {
+        geometry.texts.push({
+          layer: descriptor.displayName,
+          layerOriginal: descriptor.originalName,
+          layerNormalized: descriptor.normalizedName,
+          layerStandardized: descriptor.standardizedName,
+          layerCategory: descriptor.category,
+          sourceType: 'DIMENSION',
+          position: [mx, my, Number.isFinite(mz) ? mz : 0],
+          text: displayText,
+          rawText,
+          textHeight: DEFAULT_TEXT_HEIGHT,
+          rotation: Number.isFinite(Number(entity?.angle)) ? Number(entity.angle) : 0,
+          styleName: 'STANDARD',
+          fontFamily: FALLBACK_TEXT_FONT,
+          fontFile: null,
+          widthFactor: 1,
+          obliqueAngle: 0,
+          colorHex: cadColorToHex(entity?.color, descriptor.colorHex || '#94a3b8'),
+        });
+      }
+    }
+
+    // Add extension lines as geometry lines
+    if (defPoint && Number.isFinite(p1x) && Number.isFinite(p1y)) {
+      addLine({ x: p1x, y: p1y, z: 0 }, { x: Number(defPoint.x), y: Number(defPoint.y), z: Number(defPoint.z ?? 0) }, layer, 'DIMENSION');
+    }
+    if (defPoint && Number.isFinite(p2x) && Number.isFinite(p2y)) {
+      addLine({ x: p2x, y: p2y, z: 0 }, { x: Number(defPoint.x), y: Number(defPoint.y), z: Number(defPoint.z ?? 0) }, layer, 'DIMENSION');
+    }
+  };
+
   const visitEntities = (entities) => {
     if (!Array.isArray(entities)) return;
     entities.forEach((ent) => {
@@ -1387,6 +1458,9 @@ export const collectCadGeometryFromDxf = (dxfData) => {
         case 'MTEXT':
         case 'ATTRIB':
           addText(ent);
+          break;
+        case 'DIMENSION':
+          addDimension(ent);
           break;
         default:
           break;
@@ -1436,7 +1510,8 @@ export function parseDxfTextContent(text, options = {}) {
   const hasRenderableCad = rows.length > 0
     || geometry.lines.length > 0
     || geometry.polylines.length > 0
-    || geometry.texts.length > 0;
+    || geometry.texts.length > 0
+    || (Array.isArray(geometry.dimensions) && geometry.dimensions.length > 0);
 
   if (!hasRenderableCad) {
     const hint = options.pointsOnly
