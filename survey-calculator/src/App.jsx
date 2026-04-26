@@ -12,6 +12,7 @@ import MarkerStyleManager from "./Components/MarkerStyleManager";
 import SmartConflictDetection from "./Components/SmartConflictDetection";
 import DxfLayerManager from "./Components/DxfLayerManager";
 import HatchAreaPanel from "./Components/HatchAreaPanel";
+import DxfDiffPanel from "./Components/DxfDiffPanel";
 import proj4 from "proj4";
 import { calculateAllDistances, calculateGeodesicDistance, getUTMZone } from "./utils/calculations";
 import { on } from "./utils/eventBus";
@@ -92,6 +93,7 @@ function App() {
   const [showDxfLayerPanel, setShowDxfLayerPanel] = useState(false);
   const [hiddenDxfLayers, setHiddenDxfLayers] = useState([]);
   const [showHatchPanel, setShowHatchPanel] = useState(false);
+  const [showDxfDiffPanel, setShowDxfDiffPanel] = useState(false);
   const [markerStyleConfig, setMarkerStyleConfig] = useState({ elevationRules: [], pointSizeScale: 1.0, customIcons: {}, showLegend: true });
 
   const resetAppWorkspace = ({ remountConverter = false } = {}) => {
@@ -617,6 +619,13 @@ function App() {
                   ⬛
                 </button>
                 <button
+                  className={`btn btn-tool-toggle${showDxfDiffPanel ? " active" : ""}`}
+                  onClick={() => setShowDxfDiffPanel((v) => !v)}
+                  title="DXF diff — compare two files"
+                >
+                  🔀
+                </button>
+                <button
                   className={`btn btn-ghost${mapFocusMode ? " btn-mapfocus-active" : ""}`}
                   onClick={() => setMapFocusMode((v) => !v)}
                   title={mapFocusMode ? "Restore balanced layout" : "Expand map workspace"}
@@ -927,7 +936,7 @@ function App() {
             )}
 
             {/* Added tool panels now appear below the map area */}
-            {(showSearchPanel || showDiagnosticsPanel || showMeasurementsPanel || showElevationProfilePanel || showBatchOpsPanel || showMarkerStylePanel || showConflictPanel || showDxfLayerPanel || showHatchPanel) && (
+            {(showSearchPanel || showDiagnosticsPanel || showMeasurementsPanel || showElevationProfilePanel || showBatchOpsPanel || showMarkerStylePanel || showConflictPanel || showDxfLayerPanel || showHatchPanel || showDxfDiffPanel) && (
               <div className="map-results-panels fade-slide-in">
                 {showSearchPanel && (
                   <PointSearchFilter
@@ -991,6 +1000,9 @@ function App() {
                 )}
                 {showHatchPanel && (
                   <HatchAreaPanel hatches={Array.isArray(cadGeometry?.hatches) ? cadGeometry.hatches : []} />
+                )}
+                {showDxfDiffPanel && (
+                  <DxfDiffPanel />
                 )}
               </div>
             )}
