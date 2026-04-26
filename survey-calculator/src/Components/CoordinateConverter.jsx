@@ -8,6 +8,7 @@ import proj4 from "proj4";
 import CRS_LIST from "../crsList";
 import CrsSearchSelector from "./CrsSearchSelector";
 import GeoidLoader from "./GeoidLoader";
+import MapToolTip from "./MapToolTip";
 import { tryParseWKT, tryParseUTM, parseHemisphericNumber, parseGeoJSONFile, parseGPXFile, parseKMLFile, parseKMZFile, parseShapefileZip, parseXLSXFile, parseDXFFile, parseDWGFile } from "../utils/fileImport";
 import { getCadBackendStatus } from "../utils/cadApi";
 import { exportAsCSV, exportAsGeoJSON, exportAsKML, exportAsGPX, exportAsXLSX, exportAsWKT, exportAsDXF, exportAsDXFGeometry, exportAllFormats, downloadFile } from "../utils/exportData";
@@ -4286,29 +4287,33 @@ const CoordinateConverter = () => {
         <div style={{ flex: "1 1 260px", minWidth: "260px" }}>
           <CrsSearchSelector label="From CRS" value={fromCrs} onChange={setFromCrsManually} />
         </div>
-        <button
-          className="crs-swap-btn"
-          onClick={handleSwapCrs}
-          title="Swap From/To CRS"
-          aria-label="Swap From and To CRS"
-          style={{
-            alignSelf: "center",
-            marginBottom: "0.1rem",
-            width: "44px",
-            height: "44px",
-            borderRadius: "999px",
-            border: "1px solid #cbd5e1",
-            background: "#f8fafc",
-            color: "#1e293b",
-            cursor: "pointer",
-            fontSize: "1.2rem",
-            fontWeight: 700,
-            lineHeight: 1,
-            transition: "background 160ms ease, box-shadow 160ms ease, transform 160ms ease",
-          }}
+        <MapToolTip
+          title="Swap From / To CRS"
+          description="Swaps the source (From) and target (To) coordinate reference systems. Useful when you need to reverse a conversion — for example switching from RGF93 → WGS84 to WGS84 → RGF93 in one click."
         >
-          ⇄
-        </button>
+          <button
+            className="crs-swap-btn"
+            onClick={handleSwapCrs}
+            aria-label="Swap From and To CRS"
+            style={{
+              alignSelf: "center",
+              marginBottom: "0.1rem",
+              width: "44px",
+              height: "44px",
+              borderRadius: "999px",
+              border: "1px solid #cbd5e1",
+              background: "#f8fafc",
+              color: "#1e293b",
+              cursor: "pointer",
+              fontSize: "1.2rem",
+              fontWeight: 700,
+              lineHeight: 1,
+              transition: "background 160ms ease, box-shadow 160ms ease, transform 160ms ease",
+            }}
+          >
+            ⇄
+          </button>
+        </MapToolTip>
         <div style={{ flex: "1 1 260px", minWidth: "260px" }}>
           <CrsSearchSelector label="To CRS" value={toCrs} onChange={setToCrsManually} />
         </div>
@@ -4885,23 +4890,27 @@ const CoordinateConverter = () => {
           <button onClick={handleBulkConvert} style={{ padding: "0.5rem 0.9rem", background: "#0f766e", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: 600 }}>
             Convert File/Bulk
           </button>
-          <button
-            onClick={handleDetectAndVisualizeCadOnly}
-            disabled={cadPreviewLoading || !bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())}
-            style={{
-              padding: "0.5rem 0.9rem",
-              background: "#0284c7",
-              color: "#fff",
-              border: "none",
-              borderRadius: "6px",
-              cursor: cadPreviewLoading ? "wait" : "pointer",
-              fontWeight: 600,
-              opacity: (!bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())) ? 0.65 : 1,
-            }}
-            title="Detect CRS and preview DXF/DWG geometry on map without converting to target CRS"
+          <MapToolTip
+            title="Detect CRS + Visualize Only"
+            description="Automatically detects the coordinate reference system of the loaded DXF or DWG file and renders its geometry directly on the map without applying any CRS conversion. Use this to inspect a CAD file's original position and verify its CRS before converting."
           >
-            {cadPreviewLoading ? "Preparing Preview..." : "Detect CRS + Visualize Only"}
-          </button>
+            <button
+              onClick={handleDetectAndVisualizeCadOnly}
+              disabled={cadPreviewLoading || !bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())}
+              style={{
+                padding: "0.5rem 0.9rem",
+                background: "#0284c7",
+                color: "#fff",
+                border: "none",
+                borderRadius: "6px",
+                cursor: cadPreviewLoading ? "wait" : "pointer",
+                fontWeight: 600,
+                opacity: (!bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())) ? 0.65 : 1,
+              }}
+            >
+              {cadPreviewLoading ? "Preparing Preview..." : "Detect CRS + Visualize Only"}
+            </button>
+          </MapToolTip>
           {bulkIsConverting && (
             <button
               onClick={() => { bulkCancelRef.current = true; }}
@@ -4916,22 +4925,30 @@ const CoordinateConverter = () => {
           >
             Reset Bulk
           </button>
-          <button
-            onClick={downloadCadSummaryReport}
-            disabled={!cadInspection}
-            style={{ padding: "0.5rem 0.9rem", background: "#fff", color: "#0f172a", border: "1px solid #cbd5e1", borderRadius: "6px", cursor: cadInspection ? "pointer" : "not-allowed", opacity: cadInspection ? 1 : 0.55, fontWeight: 600 }}
-            title="Download a readable CAD summary report"
+          <MapToolTip
+            title="Download CAD Summary Report"
+            description="Generates and downloads a human-readable text report of the CAD file inspection results. Includes layer names, entity counts, detected CRS, warnings, and repair actions applied during import."
           >
-            Download CAD Summary
-          </button>
-          <button
-            onClick={downloadCadDiagnosticReport}
-            disabled={!cadInspection}
-            style={{ padding: "0.5rem 0.9rem", background: "#f8fafc", color: "#334155", border: "1px solid #cbd5e1", borderRadius: "6px", cursor: cadInspection ? "pointer" : "not-allowed", opacity: cadInspection ? 1 : 0.55, fontWeight: 600 }}
-            title="Download raw CAD diagnostics JSON for technical support"
+            <button
+              onClick={downloadCadSummaryReport}
+              disabled={!cadInspection}
+              style={{ padding: "0.5rem 0.9rem", background: "#fff", color: "#0f172a", border: "1px solid #cbd5e1", borderRadius: "6px", cursor: cadInspection ? "pointer" : "not-allowed", opacity: cadInspection ? 1 : 0.55, fontWeight: 600 }}
+            >
+              Download CAD Summary
+            </button>
+          </MapToolTip>
+          <MapToolTip
+            title="Download Raw CAD Debug JSON"
+            description="Downloads the full raw diagnostic JSON payload from the CAD parser. This is intended for technical support and debugging — it contains every internal field returned by the server including raw vertex data and error traces."
           >
-            Download Raw CAD Debug
-          </button>
+            <button
+              onClick={downloadCadDiagnosticReport}
+              disabled={!cadInspection}
+              style={{ padding: "0.5rem 0.9rem", background: "#f8fafc", color: "#334155", border: "1px solid #cbd5e1", borderRadius: "6px", cursor: cadInspection ? "pointer" : "not-allowed", opacity: cadInspection ? 1 : 0.55, fontWeight: 600 }}
+            >
+              Download Raw CAD Debug
+            </button>
+          </MapToolTip>
           {bulkUploadFile && <span style={{ fontSize: "0.85rem", color: "#059669", fontWeight: 500 }}>✓ {bulkUploadFile.name}</span>}
         </div>
         {bulkUploadError && <div role="alert" style={{ color: "#b91c1c" }}>{bulkUploadError}</div>}
@@ -5467,25 +5484,29 @@ const CoordinateConverter = () => {
                       📦 All (ZIP)
                     </button>
                     {benchmarkSummary && benchmarkRows.length > 0 && (
-                      <button
-                        onClick={handleExportBenchmarkReport}
-                        style={{
-                          padding: "0.6rem 0.8rem",
-                          background: "#1d4ed8",
-                          color: "#fff",
-                          border: "none",
-                          borderRadius: "6px",
-                          cursor: "pointer",
-                          fontWeight: 600,
-                          fontSize: "0.85rem",
-                          transition: "all 0.2s",
-                        }}
-                        onMouseOver={(e) => e.target.style.background = "#1e40af"}
-                        onMouseOut={(e) => e.target.style.background = "#1d4ed8"}
-                        title="Export detailed benchmark comparison report"
+                      <MapToolTip
+                        title="Export Benchmark Report"
+                        description="Generates a detailed benchmark comparison report. Compares expected versus actual converted coordinates across all test rows and downloads the result as a formatted document for accuracy verification."
                       >
-                        📑 Benchmark Report
-                      </button>
+                        <button
+                          onClick={handleExportBenchmarkReport}
+                          style={{
+                            padding: "0.6rem 0.8rem",
+                            background: "#1d4ed8",
+                            color: "#fff",
+                            border: "none",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                            fontWeight: 600,
+                            fontSize: "0.85rem",
+                            transition: "all 0.2s",
+                          }}
+                          onMouseOver={(e) => e.target.style.background = "#1e40af"}
+                          onMouseOut={(e) => e.target.style.background = "#1d4ed8"}
+                        >
+                          📑 Benchmark Report
+                        </button>
+                      </MapToolTip>
                     )}
                   </div>
                   <div style={{ marginTop: "0.5rem", fontSize: "0.75rem", color: "#64748b" }}>

@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import MapToolTip from "./MapToolTip";
 
 /**
  * DxfLayerManager
@@ -51,22 +52,30 @@ export default function DxfLayerManager({ layerSummary, hiddenDxfLayers = [], on
 
       {/* Select all / none controls */}
       <div style={{ display: "flex", gap: "0.4rem", padding: "0.4rem 0.75rem", borderBottom: "1px solid var(--border)" }}>
-        <button
-          className="btn btn-xs btn-ghost"
-          onClick={() => onToggleAll && onToggleAll(true)}
-          disabled={allVisible}
-          title="Show all layers"
+        <MapToolTip
+          title="Show All Layers"
+          description="Makes all DXF layers visible on the map simultaneously. Use this to restore full visibility after selectively hiding individual layers."
         >
-          Show All
-        </button>
-        <button
-          className="btn btn-xs btn-ghost"
-          onClick={() => onToggleAll && onToggleAll(false)}
-          disabled={!anyVisible}
-          title="Hide all layers"
+          <button
+            className="btn btn-xs btn-ghost"
+            onClick={() => onToggleAll && onToggleAll(true)}
+            disabled={allVisible}
+          >
+            Show All
+          </button>
+        </MapToolTip>
+        <MapToolTip
+          title="Hide All Layers"
+          description="Hides every DXF layer from the map at once. Useful as a starting point when you want to selectively reveal only specific layers from a complex multi-layer drawing."
         >
-          Hide All
-        </button>
+          <button
+            className="btn btn-xs btn-ghost"
+            onClick={() => onToggleAll && onToggleAll(false)}
+            disabled={!anyVisible}
+          >
+            Hide All
+          </button>
+        </MapToolTip>
       </div>
 
       {/* Layer list */}

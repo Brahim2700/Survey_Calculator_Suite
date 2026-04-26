@@ -1,8 +1,9 @@
 // src/App.jsx
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import CoordinateConverter from "./Components/CoordinateConverter";
 import MapVisualization from "./Components/MapVisualization";
+import MapToolTip from "./Components/MapToolTip";
 import PointSearchFilter from "./Components/PointSearchFilter";
 import PerformanceDiagnostics from "./Components/PerformanceDiagnostics";
 import MultiPointMeasurements from "./Components/MultiPointMeasurements";
@@ -50,33 +51,6 @@ const pickNiceScale = (requiredDenominator) => {
   if (fromList) return fromList;
   return Math.ceil(rounded / 5000) * 5000;
 };
-
-/**
- * MapToolTip — lightweight floating tooltip for toolbar buttons.
- * Appears instantly on hover and disappears when the cursor leaves.
- * Positions itself below the wrapped element, centred horizontally.
- */
-function MapToolTip({ children, title, description }) {
-  const [visible, setVisible] = useState(false);
-  const wrapRef = useRef(null);
-
-  return (
-    <div
-      className="map-tooltip-wrapper"
-      ref={wrapRef}
-      onMouseEnter={() => setVisible(true)}
-      onMouseLeave={() => setVisible(false)}
-    >
-      {children}
-      {visible && (
-        <div className="map-tooltip-popup" role="tooltip">
-          <div className="map-tooltip-title">{title}</div>
-          <div className="map-tooltip-desc">{description}</div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 function App() {
   const BASE_LAYER_KEY = "__base__";
@@ -555,6 +529,7 @@ function App() {
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 3-6.708"/><path d="M3 3v6h6"/></svg>
                     New Operation
                   </button>
+
                 </MapToolTip>
 
                 {/* ── Clear measure points ── */}
@@ -567,6 +542,7 @@ function App() {
                       className="btn btn-danger"
                       onClick={() => setMeasurePoints([])}
                     >
+
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
                       Clear
                     </button>
@@ -583,6 +559,7 @@ function App() {
                       className="btn btn-ghost"
                       onClick={handleUndoLastMeasurePoint}
                     >
+
                       ↩ Undo
                     </button>
                   </MapToolTip>
@@ -598,6 +575,7 @@ function App() {
                       className="btn btn-ghost"
                       onClick={handleCloseMeasurePolygon}
                     >
+
                       🔷 Close
                     </button>
                   </MapToolTip>
