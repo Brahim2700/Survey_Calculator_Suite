@@ -1,5 +1,5 @@
 // src/App.jsx
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import CoordinateConverter from "./Components/CoordinateConverter";
 import MapVisualization from "./Components/MapVisualization";
@@ -50,6 +50,33 @@ const pickNiceScale = (requiredDenominator) => {
   if (fromList) return fromList;
   return Math.ceil(rounded / 5000) * 5000;
 };
+
+/**
+ * MapToolTip — lightweight floating tooltip for toolbar buttons.
+ * Appears instantly on hover and disappears when the cursor leaves.
+ * Positions itself below the wrapped element, centred horizontally.
+ */
+function MapToolTip({ children, title, description }) {
+  const [visible, setVisible] = useState(false);
+  const wrapRef = useRef(null);
+
+  return (
+    <div
+      className="map-tooltip-wrapper"
+      ref={wrapRef}
+      onMouseEnter={() => setVisible(true)}
+      onMouseLeave={() => setVisible(false)}
+    >
+      {children}
+      {visible && (
+        <div className="map-tooltip-popup" role="tooltip">
+          <div className="map-tooltip-title">{title}</div>
+          <div className="map-tooltip-desc">{description}</div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function App() {
   const BASE_LAYER_KEY = "__base__";
@@ -515,151 +542,270 @@ function App() {
                 Interactive Map
               </span>
               <div className="map-toolbar-actions">
-                <button
-                  className="btn btn-ghost"
-                  onClick={() => resetAppWorkspace({ remountConverter: true })}
-                  title="Reset the app for a new conversion session"
+
+                {/* ── New Operation ── */}
+                <MapToolTip
+                  title="New Operation"
+                  description="Resets the entire workspace for a fresh session. Clears all loaded points, CAD geometry, measurements, and panel states. Use this when starting a brand-new survey project."
                 >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 3-6.708"/><path d="M3 3v6h6"/></svg>
-                  New Operation
-                </button>
-                {measurePoints.length > 0 && (
-                  <button
-                    className="btn btn-danger"
-                    onClick={() => setMeasurePoints([])}
-                    title="Clear measure points"
-                  >
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
-                    Clear
-                  </button>
-                )}
-                {measurePoints.length > 0 && (
                   <button
                     className="btn btn-ghost"
-                    onClick={handleUndoLastMeasurePoint}
-                    title="Remove last measured point"
+                    onClick={() => resetAppWorkspace({ remountConverter: true })}
                   >
-                    ↩ Undo
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 3-6.708"/><path d="M3 3v6h6"/></svg>
+                    New Operation
                   </button>
+                </MapToolTip>
+
+                {/* ── Clear measure points ── */}
+                {measurePoints.length > 0 && (
+                  <MapToolTip
+                    title="Clear Measurements"
+                    description="Removes all currently placed measurement points from the map. Use this to start a fresh distance or area measurement from scratch."
+                  >
+                    <button
+                      className="btn btn-danger"
+                      onClick={() => setMeasurePoints([])}
+                    >
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                      Clear
+                    </button>
+                  </MapToolTip>
                 )}
+
+                {/* ── Undo last measure point ── */}
+                {measurePoints.length > 0 && (
+                  <MapToolTip
+                    title="Undo Last Point"
+                    description="Removes the most recently placed measurement point. Step back through your clicks one at a time to correct mistakes without losing all measurements."
+                  >
+                    <button
+                      className="btn btn-ghost"
+                      onClick={handleUndoLastMeasurePoint}
+                    >
+                      ↩ Undo
+                    </button>
+                  </MapToolTip>
+                )}
+
+                {/* ── Close measurement polygon ── */}
                 {measurePoints.length >= 3 && (
+                  <MapToolTip
+                    title="Close Polygon"
+                    description="Connects the last measurement point back to the first to close the polygon. Once closed, the tool calculates total perimeter and enclosed area automatically."
+                  >
+                    <button
+                      className="btn btn-ghost"
+                      onClick={handleCloseMeasurePolygon}
+                    >
+                      🔷 Close
+                    </button>
+                  </MapToolTip>
+                )}
+
+                {/* ── Measure mode toggle ── */}
+                <MapToolTip
+                  title={measureMode ? "Measuring — Click to Stop" : "Measure Tool"}
+                  description={measureMode
+                    ? "Measurement mode is active. Click converted points on the map to drop pins. The tool computes distance, bearing, and cumulative length for each leg. Click again to deactivate."
+                    : "Activates measurement mode. Once active, click any converted point on the map to start placing measurement pins. Distances, bearings, and running totals are calculated in real time."}
+                >
+                  <button
+                    className={`btn btn-measure${measureMode ? " active" : ""}`}
+                    onClick={() => setMeasureMode(m => !m)}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 6H3"/><path d="M21 12H3"/><path d="M21 18H3"/></svg>
+                    {measureMode ? "Measuring…" : "Measure"}
+                  </button>
+                </MapToolTip>
+
+                {/* ── Point Search & Filter ── */}
+                <MapToolTip
+                  title="Point Search & Filter"
+                  description="Opens the search panel. Search points by label or coordinates, filter by attribute values, and isolate specific subsets for analysis. Active points are highlighted on the map."
+                >
+                  <button
+                    className={`btn btn-tool-toggle${showSearchPanel ? " active" : ""}`}
+                    onClick={() => setShowSearchPanel((v) => !v)}
+                  >
+                    🔍
+                  </button>
+                </MapToolTip>
+
+                {/* ── Performance Diagnostics ── */}
+                <MapToolTip
+                  title="Performance Diagnostics"
+                  description="Opens the diagnostics panel. Displays rendering statistics, total point and entity counts, layer summaries, and memory usage. Helps identify bottlenecks when working with large datasets."
+                >
+                  <button
+                    className={`btn btn-tool-toggle${showDiagnosticsPanel ? " active" : ""}`}
+                    onClick={() => setShowDiagnosticsPanel((v) => !v)}
+                  >
+                    📊
+                  </button>
+                </MapToolTip>
+
+                {/* ── Multi-Point Measurements panel ── */}
+                <MapToolTip
+                  title="Multi-Point Measurements"
+                  description="Opens the measurements panel. Shows detailed surveying metrics for each measured leg — horizontal distance, geodesic distance, bearing, azimuth, and cumulative totals along the traverse."
+                >
+                  <button
+                    className={`btn btn-tool-toggle${showMeasurementsPanel ? " active" : ""}`}
+                    onClick={() => setShowMeasurementsPanel((v) => !v)}
+                  >
+                    📏
+                  </button>
+                </MapToolTip>
+
+                {/* ── Elevation Profile ── */}
+                <MapToolTip
+                  title="Elevation Profile"
+                  description="Opens the elevation profile panel. Visualises terrain height changes along a measured transect using external elevation data. Useful for slope analysis and cross-section studies."
+                >
+                  <button
+                    className={`btn btn-tool-toggle${showElevationProfilePanel ? " active" : ""}`}
+                    onClick={() => setShowElevationProfilePanel((v) => !v)}
+                  >
+                    📈
+                  </button>
+                </MapToolTip>
+
+                {/* ── Batch Operations ── */}
+                <MapToolTip
+                  title="Batch Operations"
+                  description="Opens the batch operations panel. Apply bulk coordinate transformations, CRS reprojections, or data edits to all loaded points simultaneously, saving time on large datasets."
+                >
+                  <button
+                    className={`btn btn-tool-toggle${showBatchOpsPanel ? " active" : ""}`}
+                    onClick={() => setShowBatchOpsPanel((v) => !v)}
+                  >
+                    ⚙️
+                  </button>
+                </MapToolTip>
+
+                {/* ── Marker Style Manager ── */}
+                <MapToolTip
+                  title="Marker Style Manager"
+                  description="Opens the marker style panel. Customise how points are rendered on the map — change colours, icons, sizes, and cluster appearance per point type or layer."
+                >
+                  <button
+                    className={`btn btn-tool-toggle${showMarkerStylePanel ? " active" : ""}`}
+                    onClick={() => setShowMarkerStylePanel((v) => !v)}
+                  >
+                    🎨
+                  </button>
+                </MapToolTip>
+
+                {/* ── Smart Conflict Detection ── */}
+                <MapToolTip
+                  title="Smart Conflict Detection"
+                  description="Opens the conflict detection panel. Automatically identifies duplicate points, overlapping geometries, and inconsistent coordinate systems across your loaded data, then highlights issues on the map."
+                >
+                  <button
+                    className={`btn btn-tool-toggle${showConflictPanel ? " active" : ""}`}
+                    onClick={() => setShowConflictPanel((v) => !v)}
+                  >
+                    🚨
+                  </button>
+                </MapToolTip>
+
+                {/* ── DXF Layer Manager ── */}
+                <MapToolTip
+                  title="DXF Layer Manager"
+                  description="Opens the layer manager. Toggle individual DXF layers on or off to control map visibility. Essential when working with complex multi-layer CAD drawings that have many overlapping entities."
+                >
+                  <button
+                    className={`btn btn-tool-toggle${showDxfLayerPanel ? " active" : ""}`}
+                    onClick={() => setShowDxfLayerPanel((v) => !v)}
+                  >
+                    🗂️
+                  </button>
+                </MapToolTip>
+
+                {/* ── Hatch Area Calculator ── */}
+                <MapToolTip
+                  title="Hatch Area Calculator"
+                  description="Opens the hatch area panel. Computes surface areas from DXF HATCH entities (filled polygon regions) and reports results in square metres or hectares. Ideal for land area computations from CAD plans."
+                >
+                  <button
+                    className={`btn btn-tool-toggle${showHatchPanel ? " active" : ""}`}
+                    onClick={() => setShowHatchPanel((v) => !v)}
+                  >
+                    ⬛
+                  </button>
+                </MapToolTip>
+
+                {/* ── DXF Diff ── */}
+                <MapToolTip
+                  title="DXF Diff — Compare Files"
+                  description="Opens the DXF comparison panel. Load two DXF files side-by-side and the tool highlights geometric differences: added entities, removed entities, and moved geometries between the two versions."
+                >
+                  <button
+                    className={`btn btn-tool-toggle${showDxfDiffPanel ? " active" : ""}`}
+                    onClick={() => setShowDxfDiffPanel((v) => !v)}
+                  >
+                    🔀
+                  </button>
+                </MapToolTip>
+
+                {/* ── Entity Type Breakdown ── */}
+                <MapToolTip
+                  title="Entity Type Breakdown"
+                  description="Opens the entity breakdown panel. Shows a statistical summary of all CAD entity types (lines, arcs, polylines, texts, hatches, blocks) found in the loaded DXF file, including counts per layer."
+                >
+                  <button
+                    className={`btn btn-tool-toggle${showEntityBreakdown ? " active" : ""}`}
+                    onClick={() => setShowEntityBreakdown((v) => !v)}
+                  >
+                    📊
+                  </button>
+                </MapToolTip>
+
+                {/* ── CAD Entity Picker ── */}
+                <MapToolTip
+                  title="CAD Entity Picker"
+                  description="Opens the entity picker. Click directly on any line or polyline rendered on the map to select it and view its full properties: layer name, colour, length, and exact vertex coordinates."
+                >
+                  <button
+                    className={`btn btn-tool-toggle${showEntityPicker ? " active" : ""}`}
+                    onClick={() => setShowEntityPicker((v) => !v)}
+                  >
+                    🖱
+                  </button>
+                </MapToolTip>
+
+                {/* ── Map Focus / Balanced View ── */}
+                <MapToolTip
+                  title={mapFocusMode ? "Balanced View" : "Map Focus"}
+                  description={mapFocusMode
+                    ? "Restores the balanced split layout where the coordinate converter panel and the map share equal screen space."
+                    : "Expands the map to occupy most of the screen, hiding side panels for an unobstructed view of your survey data. Click again to restore the balanced layout."}
+                >
+                  <button
+                    className={`btn btn-ghost${mapFocusMode ? " btn-mapfocus-active" : ""}`}
+                    onClick={() => setMapFocusMode((v) => !v)}
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                    {mapFocusMode ? "Balanced View" : "Map Focus"}
+                  </button>
+                </MapToolTip>
+
+                {/* ── Export Plan ── */}
+                <MapToolTip
+                  title={showExportPanel ? "Close Export Panel" : "Export Plan"}
+                  description="Opens the export panel. Configure your map for output as a PDF or PNG image — add a project title, surveyor name, scale bar, north arrow, and select page size and orientation before downloading."
+                >
                   <button
                     className="btn btn-ghost"
-                    onClick={handleCloseMeasurePolygon}
-                    title="Close polygon — connect last point back to first"
+                    onClick={() => setShowExportPanel((v) => !v)}
+                    disabled={isExportingMap}
                   >
-                    🔷 Close
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    {showExportPanel ? "Close Export" : "Export Plan"}
                   </button>
-                )}
-                <button
-                  className={`btn btn-measure${measureMode ? " active" : ""}`}
-                  onClick={() => setMeasureMode(m => !m)}
-                  title={measureMode ? "Stop measuring" : "Click converted points to measure"}
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 6H3"/><path d="M21 12H3"/><path d="M21 18H3"/></svg>
-                  {measureMode ? "Measuring…" : "Measure"}
-                </button>
-                <button
-                  className={`btn btn-tool-toggle${showSearchPanel ? " active" : ""}`}
-                  onClick={() => setShowSearchPanel((v) => !v)}
-                  title="Search and filter points"
-                >
-                  🔍
-                </button>
-                <button
-                  className={`btn btn-tool-toggle${showDiagnosticsPanel ? " active" : ""}`}
-                  onClick={() => setShowDiagnosticsPanel((v) => !v)}
-                  title="Performance diagnostics"
-                >
-                  📊
-                </button>
-                <button
-                  className={`btn btn-tool-toggle${showMeasurementsPanel ? " active" : ""}`}
-                  onClick={() => setShowMeasurementsPanel((v) => !v)}
-                  title="Multi-point measurements"
-                >
-                  📏
-                </button>
-                <button
-                  className={`btn btn-tool-toggle${showElevationProfilePanel ? " active" : ""}`}
-                  onClick={() => setShowElevationProfilePanel((v) => !v)}
-                  title="Elevation profile"
-                >
-                  📈
-                </button>
-                <button
-                  className={`btn btn-tool-toggle${showBatchOpsPanel ? " active" : ""}`}
-                  onClick={() => setShowBatchOpsPanel((v) => !v)}
-                  title="Batch operations"
-                >
-                  ⚙️
-                </button>
-                <button
-                  className={`btn btn-tool-toggle${showMarkerStylePanel ? " active" : ""}`}
-                  onClick={() => setShowMarkerStylePanel((v) => !v)}
-                  title="Marker styles and legend"
-                >
-                  🎨
-                </button>
-                <button
-                  className={`btn btn-tool-toggle${showConflictPanel ? " active" : ""}`}
-                  onClick={() => setShowConflictPanel((v) => !v)}
-                  title="Smart conflict detection"
-                >
-                  🚨
-                </button>
-                <button
-                  className={`btn btn-tool-toggle${showDxfLayerPanel ? " active" : ""}`}
-                  onClick={() => setShowDxfLayerPanel((v) => !v)}
-                  title="DXF layer manager"
-                >
-                  🗂️
-                </button>
-                <button
-                  className={`btn btn-tool-toggle${showHatchPanel ? " active" : ""}`}
-                  onClick={() => setShowHatchPanel((v) => !v)}
-                  title="Hatch area calculator"
-                >
-                  ⬛
-                </button>
-                <button
-                  className={`btn btn-tool-toggle${showDxfDiffPanel ? " active" : ""}`}
-                  onClick={() => setShowDxfDiffPanel((v) => !v)}
-                  title="DXF diff — compare two files"
-                >
-                  🔀
-                </button>
-                <button
-                  className={`btn btn-tool-toggle${showEntityBreakdown ? " active" : ""}`}
-                  onClick={() => setShowEntityBreakdown((v) => !v)}
-                  title="Entity type breakdown"
-                >
-                  📊
-                </button>
-                <button
-                  className={`btn btn-tool-toggle${showEntityPicker ? " active" : ""}`}
-                  onClick={() => setShowEntityPicker((v) => !v)}
-                  title="CAD entity picker — click lines on map"
-                >
-                  🖱
-                </button>
-                <button
-                  className={`btn btn-ghost${mapFocusMode ? " btn-mapfocus-active" : ""}`}
-                  onClick={() => setMapFocusMode((v) => !v)}
-                  title={mapFocusMode ? "Restore balanced layout" : "Expand map workspace"}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
-                  {mapFocusMode ? "Balanced View" : "Map Focus"}
-                </button>
-                <button
-                  className="btn btn-ghost"
-                  onClick={() => setShowExportPanel((v) => !v)}
-                  title="Open export options"
-                  disabled={isExportingMap}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                  {showExportPanel ? "Close Export" : "Export Plan"}
-                </button>
+                </MapToolTip>
+
               </div>
             </div>
 
