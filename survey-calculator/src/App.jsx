@@ -10,6 +10,7 @@ import ElevationProfile from "./Components/ElevationProfile";
 import BatchOperations from "./Components/BatchOperations";
 import MarkerStyleManager from "./Components/MarkerStyleManager";
 import SmartConflictDetection from "./Components/SmartConflictDetection";
+import DxfLayerManager from "./Components/DxfLayerManager";
 import proj4 from "proj4";
 import { calculateAllDistances, calculateGeodesicDistance, getUTMZone } from "./utils/calculations";
 import { on } from "./utils/eventBus";
@@ -87,6 +88,8 @@ function App() {
   const [showBatchOpsPanel, setShowBatchOpsPanel] = useState(true);
   const [showMarkerStylePanel, setShowMarkerStylePanel] = useState(false);
   const [showConflictPanel, setShowConflictPanel] = useState(true);
+  const [showDxfLayerPanel, setShowDxfLayerPanel] = useState(false);
+  const [hiddenDxfLayers, setHiddenDxfLayers] = useState([]);
   const [markerStyleConfig, setMarkerStyleConfig] = useState({ elevationRules: [], pointSizeScale: 1.0, customIcons: {}, showLegend: true });
 
   const resetAppWorkspace = ({ remountConverter = false } = {}) => {
@@ -303,14 +306,20 @@ function App() {
   );
 
   const visibleCadGeometry = useMemo(() => {
-    const isVisible = (sourceFileKey) => !hiddenLayerKeys.includes(getLayerKey(sourceFileKey));
+    const isFileVisible = (sourceFileKey) => !hiddenLayerKeys.includes(getLayerKey(sourceFileKey));
+    const isDxfLayerVisible = (entity) => {
+      if (hiddenDxfLayers.length === 0) return true;
+      const dxfLayer = entity?.layerStandardized || entity?.layerNormalized || entity?.layer || null;
+      if (!dxfLayer) return true;
+      return !hiddenDxfLayers.includes(dxfLayer);
+    };
     return {
       ...cadGeometry,
-      lines: (Array.isArray(cadGeometry?.lines) ? cadGeometry.lines : []).filter((line) => isVisible(line?.sourceFileKey)),
-      polylines: (Array.isArray(cadGeometry?.polylines) ? cadGeometry.polylines : []).filter((polyline) => isVisible(polyline?.sourceFileKey)),
-      texts: (Array.isArray(cadGeometry?.texts) ? cadGeometry.texts : []).filter((text) => isVisible(text?.sourceFileKey)),
+      lines: (Array.isArray(cadGeometry?.lines) ? cadGeometry.lines : []).filter((line) => isFileVisible(line?.sourceFileKey) && isDxfLayerVisible(line)),
+      polylines: (Array.isArray(cadGeometry?.polylines) ? cadGeometry.polylines : []).filter((polyline) => isFileVisible(polyline?.sourceFileKey) && isDxfLayerVisible(polyline)),
+      texts: (Array.isArray(cadGeometry?.texts) ? cadGeometry.texts : []).filter((text) => isFileVisible(text?.sourceFileKey) && isDxfLayerVisible(text)),
     };
-  }, [cadGeometry, hiddenLayerKeys]);
+  }, [cadGeometry, hiddenLayerKeys, hiddenDxfLayers]);
 
   const toggleLayerVisibility = (layerKey) => {
     setHiddenLayerKeys((prev) => (
@@ -590,6 +599,13 @@ function App() {
                   title="Smart conflict detection"
                 >
                   🚨
+                </button>
+                <button
+                  className={`btn btn-tool-toggle${showDxfLayerPanel ? " active" : ""}`}
+                  onClick={() => setShowDxfLayerPanel((v) => !v)}
+                  title="DXF layer manager"
+                >
+                  🗂️
                 </button>
                 <button
                   className={`btn btn-ghost${mapFocusMode ? " btn-mapfocus-active" : ""}`}
@@ -902,7 +918,7 @@ function App() {
             )}
 
             {/* Added tool panels now appear below the map area */}
-            {(showSearchPanel || showDiagnosticsPanel || showMeasurementsPanel || showElevationProfilePanel || showBatchOpsPanel || showMarkerStylePanel || showConflictPanel) && (
+            {(showSearchPanel || showDiagnosticsPanel || showMeasurementsPanel || showElevationProfilePanel || showBatchOpsPanel || showMarkerStylePanel || showConflictPanel || showDxfLayerPanel) && (
               <div className="map-results-panels fade-slide-in">
                 {showSearchPanel && (
                   <PointSearchFilter
@@ -945,6 +961,24 @@ function App() {
 
                 {showConflictPanel && (
                   <SmartConflictDetection points={visibleConverterPoints} />
+                )}
+                {showDxfLayerPanel && (
+                  <DxfLayerManager
+                    layerSummary={cadGeometry?.layerSummary}
+                    hiddenDxfLayers={hiddenDxfLayers}
+                    onToggleLayer={(layerName) =>
+                      setHiddenDxfLayers((prev) =>
+                        prev.includes(layerName) ? prev.filter((n) => n !== layerName) : [...prev, layerName]
+                      )
+                    }
+                    onToggleAll={(visible) =>
+                      setHiddenDxfLayers(
+                        visible
+                          ? []
+                          : (cadGeometry?.layerSummary?.layers || []).map((l) => l.standardizedName)
+                      )
+                    }
+                  />
                 )}
               </div>
             )}
