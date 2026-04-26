@@ -462,9 +462,14 @@
 .map-results-panels {
   display: grid;
   gap: 0.75rem;
-  padding: 0.8rem 0.9rem 1rem;
+  padding: 0.8rem 0 1rem;
   background: rgba(241, 245, 249, 0.7);
   border-top: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.map-results-panels > * {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .map-layers-panel {
