@@ -1,5 +1,5 @@
 // src/utils/fileImport.js
-// Lightweight file import helpers for GeoJSON, GPX, KML, Shapefile ZIP, XLSX, and CAD imports.
+// Lightweight file import helpers for GeoJSON, GPX, KML/KMZ, Shapefile ZIP, XLSX, and CAD imports.
 // All parsers return an array of rows: { id, x, y, z, detectedFromCrs, crsSuggestions }
 // - x,y in numeric lon/lat for geographic sources unless otherwise noted
 // - z may be null
@@ -117,39 +117,234 @@ export async function parseGPXFile(file) {
   return rows;
 }
 
-export async function parseKMLFile(file) {
-  const text = await file.text();
+const toFiniteOrNull = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+const parseKmlCoordinateList = (rawText) => {
+  if (!rawText || !String(rawText).trim()) return [];
+  return String(rawText)
+    .trim()
+    .split(/\s+/)
+    .map((chunk) => {
+      const [lonRaw, latRaw, altRaw] = chunk.split(',');
+      const lon = toFiniteOrNull(lonRaw);
+      const lat = toFiniteOrNull(latRaw);
+      const alt = toFiniteOrNull(altRaw);
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+      return [lon, lat, Number.isFinite(alt) ? alt : null];
+    })
+    .filter(Boolean);
+};
+
+const getElementsByLocalName = (root, localName) => {
+  if (!root) return [];
+  return Array.from(root.getElementsByTagName('*')).filter((el) => String(el.localName || el.tagName).toLowerCase() === String(localName).toLowerCase());
+};
+
+const appendRow = (rows, coordinates, idPrefix, lon, lat, alt = null, index = null) => {
+  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
+  const id = index === null ? idPrefix : `${idPrefix} ${index}`;
+  const z = Number.isFinite(alt) ? alt : null;
+  coordinates.push({ x: lon, y: lat, z });
+  rows.push({ id, x: lon, y: lat, z });
+};
+
+const parseKmlTextPayload = (text, sourceLabel = 'KML', options = {}) => {
+  const includeAllVerticesAsRows = options.includeAllVerticesAsRows !== false;
   const doc = new DOMParser().parseFromString(text, 'application/xml');
+  const parserError = doc.getElementsByTagName('parsererror')[0];
+  if (parserError) {
+    throw new Error(`Invalid KML XML in ${sourceLabel}`);
+  }
+
   const placemarks = Array.from(doc.getElementsByTagName('Placemark'));
   const rows = [];
   const coordinates = [];
-  let idx = 1;
-  
-  for (const p of placemarks) {
-    const name = p.getElementsByTagName('name')[0]?.textContent;
-    const coordsNode = p.getElementsByTagName('coordinates')[0];
-    if (!coordsNode) continue;
-    const raw = coordsNode.textContent.trim();
-    // KML coordinates are lon,lat[,alt] possibly multiple; take first
-    const parts = raw.split(/\s+/)[0].split(',');
-    const lon = Number(parts[0]);
-    const lat = Number(parts[1]);
-    const z = parts[2] !== undefined ? Number(parts[2]) : null;
-    if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
-    coordinates.push({ x: lon, y: lat, z: Number.isFinite(z) ? z : null });
-    rows.push({ id: name || idx++, x: lon, y: lat, z: Number.isFinite(z) ? z : null });
-  }
-  
-  // Smart CRS detection (KML is always WGS84 but detect anyway for consistency)
+  const geometry = {
+    lines: [],
+    polylines: [],
+    texts: [],
+    layerSummary: {
+      totalLayers: 1,
+      renamedLayers: 0,
+      totalStandardizedLayers: 1,
+      layers: [{ standardizedName: 'kml', normalizedName: 'kml', displayName: 'KML', entityCount: 0 }],
+    },
+    validation: null,
+    notifications: [],
+    repairs: null,
+    localPreview: false,
+  };
+
+  let generatedId = 1;
+  const nextIdPrefix = (fallback) => `${fallback || 'Feature'} ${generatedId++}`;
+
+  placemarks.forEach((placemark) => {
+    const rawName = placemark.getElementsByTagName('name')[0]?.textContent?.trim();
+    const namePrefix = rawName || nextIdPrefix('Placemark');
+
+    const pointNodes = Array.from(placemark.getElementsByTagName('Point'));
+    pointNodes.forEach((pointNode, pointIdx) => {
+      const coordNode = pointNode.getElementsByTagName('coordinates')[0];
+      const pointCoords = parseKmlCoordinateList(coordNode?.textContent || '');
+      if (!pointCoords.length) return;
+      const [lon, lat, alt] = pointCoords[0];
+      appendRow(rows, coordinates, `${namePrefix} P${pointIdx + 1}`, lon, lat, alt, null);
+    });
+
+    const lineNodes = Array.from(placemark.getElementsByTagName('LineString'));
+    lineNodes.forEach((lineNode, lineIdx) => {
+      const coordNode = lineNode.getElementsByTagName('coordinates')[0];
+      const lineCoords = parseKmlCoordinateList(coordNode?.textContent || '');
+      if (lineCoords.length < 2) return;
+      const points = lineCoords.map(([lon, lat, alt]) => [lon, lat, Number.isFinite(alt) ? alt : 0]);
+      geometry.polylines.push({
+        layer: 'KML',
+        layerStandardized: 'KML',
+        sourceType: 'LINESTRING',
+        points,
+        sourceLabel,
+      });
+      if (lineCoords.length === 2) {
+        geometry.lines.push({
+          layer: 'KML',
+          layerStandardized: 'KML',
+          sourceType: 'LINESTRING',
+          start: points[0],
+          end: points[1],
+          sourceLabel,
+        });
+      }
+      if (includeAllVerticesAsRows) {
+        lineCoords.forEach(([lon, lat, alt], vIdx) => {
+          appendRow(rows, coordinates, `${namePrefix} L${lineIdx + 1} V`, lon, lat, alt, vIdx + 1);
+        });
+      }
+    });
+
+    const polygonNodes = Array.from(placemark.getElementsByTagName('Polygon'));
+    polygonNodes.forEach((polygonNode, polygonIdx) => {
+      const ringNodes = Array.from(polygonNode.getElementsByTagName('LinearRing'));
+      ringNodes.forEach((ringNode, ringIdx) => {
+        const coordNode = ringNode.getElementsByTagName('coordinates')[0];
+        const ringCoords = parseKmlCoordinateList(coordNode?.textContent || '');
+        if (ringCoords.length < 2) return;
+        const points = ringCoords.map(([lon, lat, alt]) => [lon, lat, Number.isFinite(alt) ? alt : 0]);
+        geometry.polylines.push({
+          layer: 'KML',
+          layerStandardized: 'KML',
+          sourceType: ringIdx === 0 ? 'POLYGON_OUTER_RING' : 'POLYGON_INNER_RING',
+          points,
+          sourceLabel,
+        });
+        if (includeAllVerticesAsRows) {
+          ringCoords.forEach(([lon, lat, alt], vIdx) => {
+            appendRow(rows, coordinates, `${namePrefix} G${polygonIdx + 1} R${ringIdx + 1} V`, lon, lat, alt, vIdx + 1);
+          });
+        }
+      });
+    });
+
+    const trackNodes = getElementsByLocalName(placemark, 'track');
+    trackNodes.forEach((trackNode, trackIdx) => {
+      const trackCoords = getElementsByLocalName(trackNode, 'coord')
+        .map((coordNode) => {
+          const parts = String(coordNode.textContent || '').trim().split(/\s+/);
+          if (parts.length < 2) return null;
+          const lon = toFiniteOrNull(parts[0]);
+          const lat = toFiniteOrNull(parts[1]);
+          const alt = toFiniteOrNull(parts[2]);
+          if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+          return [lon, lat, Number.isFinite(alt) ? alt : null];
+        })
+        .filter(Boolean);
+      if (trackCoords.length < 2) return;
+      geometry.polylines.push({
+        layer: 'KML',
+        layerStandardized: 'KML',
+        sourceType: 'TRACK',
+        points: trackCoords.map(([lon, lat, alt]) => [lon, lat, Number.isFinite(alt) ? alt : 0]),
+        sourceLabel,
+      });
+      if (includeAllVerticesAsRows) {
+        trackCoords.forEach(([lon, lat, alt], vIdx) => {
+          appendRow(rows, coordinates, `${namePrefix} T${trackIdx + 1} V`, lon, lat, alt, vIdx + 1);
+        });
+      }
+    });
+  });
+
+  geometry.layerSummary.layers[0].entityCount = geometry.lines.length + geometry.polylines.length + rows.length;
+
   const crsSuggestions = detectCRS(coordinates, {});
-  const detectedFromCrs = 'EPSG:4326'; // KML standard
-  
-  rows.forEach(row => {
+  const detectedFromCrs = 'EPSG:4326';
+
+  rows.forEach((row) => {
     row.detectedFromCrs = detectedFromCrs;
     row.crsSuggestions = crsSuggestions;
   });
-  
-  return rows;
+
+  return { rows, geometry, detectedFromCrs, crsSuggestions, sourceFormat: 'kml', warnings: [] };
+};
+
+export async function parseKMLFile(file, options = {}) {
+  const text = await file.text();
+  const payload = parseKmlTextPayload(text, file?.name || 'KML', options);
+  return options.returnPayload ? payload : payload.rows;
+}
+
+export async function parseKMZFile(file, options = {}) {
+  const JSZip = (await import('jszip')).default;
+  const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  const kmlEntries = Object.values(zip.files)
+    .filter((entry) => !entry.dir && /\.kml$/i.test(entry.name))
+    .sort((a, b) => {
+      const aIsDoc = /(^|\/)doc\.kml$/i.test(a.name);
+      const bIsDoc = /(^|\/)doc\.kml$/i.test(b.name);
+      if (aIsDoc && !bIsDoc) return -1;
+      if (!aIsDoc && bIsDoc) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+  if (!kmlEntries.length) {
+    throw new Error('KMZ archive does not contain a KML document.');
+  }
+
+  const merged = {
+    rows: [],
+    geometry: { lines: [], polylines: [], texts: [], layerSummary: null, validation: null, notifications: [], repairs: null, localPreview: false },
+    detectedFromCrs: 'EPSG:4326',
+    crsSuggestions: [],
+    sourceFormat: 'kmz',
+    warnings: [],
+  };
+
+  for (const entry of kmlEntries) {
+    const kmlText = await entry.async('text');
+    const payload = parseKmlTextPayload(kmlText, `${file?.name || 'KMZ'}:${entry.name}`, options);
+    merged.rows.push(...payload.rows);
+    merged.geometry.lines.push(...(payload.geometry?.lines || []));
+    merged.geometry.polylines.push(...(payload.geometry?.polylines || []));
+    merged.geometry.texts.push(...(payload.geometry?.texts || []));
+  }
+
+  const coordinates = merged.rows.map((row) => ({ x: row.x, y: row.y, z: row.z }));
+  merged.crsSuggestions = detectCRS(coordinates, {});
+  merged.rows.forEach((row) => {
+    row.detectedFromCrs = merged.detectedFromCrs;
+    row.crsSuggestions = merged.crsSuggestions;
+  });
+
+  merged.geometry.layerSummary = {
+    totalLayers: 1,
+    renamedLayers: 0,
+    totalStandardizedLayers: 1,
+    layers: [{ standardizedName: 'kml', normalizedName: 'kml', displayName: 'KML/KMZ', entityCount: merged.geometry.lines.length + merged.geometry.polylines.length + merged.rows.length }],
+  };
+
+  return options.returnPayload ? merged : merged.rows;
 }
 
 export async function parseXLSXFile(file) {

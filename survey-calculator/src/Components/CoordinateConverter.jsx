@@ -8,7 +8,7 @@ import proj4 from "proj4";
 import CRS_LIST from "../crsList";
 import CrsSearchSelector from "./CrsSearchSelector";
 import GeoidLoader from "./GeoidLoader";
-import { tryParseWKT, tryParseUTM, parseHemisphericNumber, parseGeoJSONFile, parseGPXFile, parseKMLFile, parseShapefileZip, parseXLSXFile, parseDXFFile, parseDWGFile } from "../utils/fileImport";
+import { tryParseWKT, tryParseUTM, parseHemisphericNumber, parseGeoJSONFile, parseGPXFile, parseKMLFile, parseKMZFile, parseShapefileZip, parseXLSXFile, parseDXFFile, parseDWGFile } from "../utils/fileImport";
 import { getCadBackendStatus } from "../utils/cadApi";
 import { exportAsCSV, exportAsGeoJSON, exportAsKML, exportAsGPX, exportAsXLSX, exportAsWKT, exportAsDXF, exportAsDXFGeometry, exportAllFormats, downloadFile } from "../utils/exportData";
 // Import the map visualization component
@@ -3251,6 +3251,8 @@ const CoordinateConverter = () => {
         rows = await parseGPXFile(file);
       } else if (ext === "kml") {
         rows = await parseKMLFile(file);
+      } else if (ext === "kmz") {
+        rows = await parseKMZFile(file);
       } else if (ext === "zip") {
         rows = await parseShapefileZip(file);
       } else if (ext === "xlsx" || ext === "xls") {
@@ -3303,7 +3305,7 @@ const CoordinateConverter = () => {
     const file = fileArg || bulkUploadFile;
     if (!file) {
       setBulkIsConverting(false);
-      setBulkUploadError("Please select a supported file (.csv, .txt, .geojson, .json, .gpx, .kml, .zip, .xlsx, .xls, .dxf, .dwg). Native DWG requires the CAD backend service.");
+      setBulkUploadError("Please select a supported file (.csv, .txt, .geojson, .json, .gpx, .kml, .kmz, .zip, .xlsx, .xls, .dxf, .dwg). Native DWG requires the CAD backend service.");
       return;
     }
 
@@ -3324,12 +3326,17 @@ const CoordinateConverter = () => {
       } else {
         let rows = [];
         let cadPayload = null;
+        let kmlPayload = null;
         if (ext === "geojson" || ext === "json") {
           rows = await parseGeoJSONFile(file);
         } else if (ext === "gpx") {
           rows = await parseGPXFile(file);
         } else if (ext === "kml") {
-          rows = await parseKMLFile(file);
+          kmlPayload = await parseKMLFile(file, { returnPayload: true });
+          rows = kmlPayload.rows;
+        } else if (ext === "kmz") {
+          kmlPayload = await parseKMZFile(file, { returnPayload: true });
+          rows = kmlPayload.rows;
         } else if (ext === "zip") {
           rows = await parseShapefileZip(file);
         } else if (ext === "xlsx" || ext === "xls") {
@@ -3386,7 +3393,19 @@ const CoordinateConverter = () => {
             append: fileImportMode === "append",
             sourceKey: importSourceKey,
           });
+        } else if (["kml", "kmz"].includes(ext)) {
+          setCadInspection(null);
+          setCadSourceGeometry(null);
+          setCadGeometrySourceCrs(null);
+
+          const projectedGeometry = projectCadGeometryToWgs84(kmlPayload?.geometry, "EPSG:4326");
+          emit("converter:cadGeometryForMap", {
+            geometry: projectedGeometry,
+            append: fileImportMode === "append",
+            sourceKey: importSourceKey,
+          });
         } else {
+          setCadInspection(null);
           setCadSourceGeometry(null);
           setCadGeometrySourceCrs(null);
           if (fileImportMode !== "append") {
@@ -4828,7 +4847,7 @@ const CoordinateConverter = () => {
       </div>
 
       <div ref={bulkSectionRef} style={{ marginTop: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-        <label style={{ fontWeight: 700 }}>Upload bulk file (CSV/TXT/GeoJSON/GPX/KML/ZIP/XLSX)</label>
+        <label style={{ fontWeight: 700 }}>Upload bulk file (CSV/TXT/GeoJSON/GPX/KML/KMZ/ZIP/XLSX)</label>
         {(bulkUploadFile || hasImportedFileData) && (
           <div style={{ display: "flex", alignItems: "center", gap: "0.55rem", flexWrap: "wrap" }}>
             <label style={{ fontSize: "0.84rem", fontWeight: 700, color: "#334155" }}>Import mode</label>
@@ -4853,7 +4872,7 @@ const CoordinateConverter = () => {
           <a href="/samples/sample_l93_complex_expected_wgs84.csv" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", padding: "0.2rem 0.5rem", borderRadius: "999px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", textDecoration: "none", fontSize: "0.78rem", fontWeight: 600 }}>Expected WGS84</a>
         </div>
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
-          <input ref={bulkFileInputRef} type="file" accept=".csv,.txt,.geojson,.json,.gpx,.kml,.zip,.xlsx,.xls,.dxf,.dwg" onChange={(e) => { 
+          <input ref={bulkFileInputRef} type="file" accept=".csv,.txt,.geojson,.json,.gpx,.kml,.kmz,.zip,.xlsx,.xls,.dxf,.dwg" onChange={(e) => { 
             const f = e.target.files?.[0] || null; 
               applyBulkFileSelection(f);
           }} style={{ display: "none" }} />
