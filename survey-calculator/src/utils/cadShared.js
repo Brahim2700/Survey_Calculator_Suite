@@ -257,7 +257,7 @@ const collectCadRawPoints = (rows, geometry) => {
   return points;
 };
 
-const buildCadValidationSummary = ({ rows, geometry, diagnostics, dxfData }) => {
+const buildCadValidationSummary = ({ rows, geometry, diagnostics, dxfData, headerCrsHint = null }) => {
   const unitInfo = getCadUnitInfo(dxfData?.header || {});
   const rawPoints = collectCadRawPoints(rows, geometry);
   const bounds = getBoundingBoxFromPoints(rawPoints);
@@ -351,11 +351,21 @@ const buildCadValidationSummary = ({ rows, geometry, diagnostics, dxfData }) => 
     });
   }
 
+  if (headerCrsHint?.suggestedCrs && !diagnostics?.detectedFromCrs) {
+    notifications.push({
+      severity: 'info',
+      code: 'cad-header-crs-hint',
+      title: `Header CRS suggestion: ${headerCrsHint.suggestedCrs}`,
+      message: headerCrsHint.note || `DXF header analysis suggests ${headerCrsHint.suggestedCrs} (confidence: ${headerCrsHint.confidence}).`,
+    });
+  }
+
   return {
     units: unitInfo,
     bounds,
     extremeCoordinateCount,
     originClusterCount,
+    headerCrsHint: headerCrsHint || null,
     notifications,
   };
 };
@@ -412,6 +422,98 @@ const detectCrsFromDxf = (dxfData) => {
   }
 
   return null;
+};
+
+/**
+ * Extracts and analyses the DXF header to produce a rich CRS hint.
+ * Uses $INSUNITS, $MEASUREMENT, $EXTMIN/$EXTMAX to infer likely CRS.
+ */
+export const extractDxfHeaderCrsHint = (dxfData) => {
+  const header = dxfData?.header || {};
+  const unitInfo = getCadUnitInfo(header);
+
+  // Header extent from $EXTMIN / $EXTMAX
+  const extMin = header.$EXTMIN || null;
+  const extMax = header.$EXTMAX || null;
+  const minX = Number(extMin?.x ?? extMin?.[0] ?? NaN);
+  const minY = Number(extMin?.y ?? extMin?.[1] ?? NaN);
+  const maxX = Number(extMax?.x ?? extMax?.[0] ?? NaN);
+  const maxY = Number(extMax?.y ?? extMax?.[1] ?? NaN);
+  const hasExtent = Number.isFinite(minX) && Number.isFinite(minY) && Number.isFinite(maxX) && Number.isFinite(maxY);
+  const extent = hasExtent ? { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY } : null;
+
+  // Explicit EPSG in header
+  const explicitEpsg = header.$EPSG || header.$EPSGCODE || null;
+  if (explicitEpsg) {
+    return {
+      suggestedCrs: `EPSG:${explicitEpsg}`,
+      source: 'header-explicit',
+      confidence: 'high',
+      unitInfo,
+      extent,
+      note: `DXF header explicitly declares $EPSG = ${explicitEpsg}.`,
+    };
+  }
+
+  let suggestedCrs = null;
+  let source = null;
+  let confidence = null;
+  let note = null;
+
+  if (hasExtent) {
+    const isGeographic = minX >= -180 && maxX <= 180 && minY >= -90 && maxY <= 90;
+    const isLambert93 = minX >= 90000 && maxX <= 1300000 && minY >= 5900000 && maxY <= 7250000;
+    const isUtmLike = Math.abs(minX) < 1e6 && minY > 0 && maxY < 1e7 && (maxX - minX) < 1e6;
+    const isRgf93Cc = minX >= 1000000 && maxX <= 1800000 && minY >= 1000000 && maxY <= 2800000;
+
+    if (isGeographic) {
+      suggestedCrs = 'EPSG:4326';
+      source = 'header-extent';
+      confidence = 'medium';
+      note = `Extent (${minX.toFixed(2)}, ${minY.toFixed(2)}) → (${maxX.toFixed(2)}, ${maxY.toFixed(2)}) matches WGS84 geographic range.`;
+    } else if (isLambert93) {
+      suggestedCrs = 'EPSG:2154';
+      source = 'header-extent';
+      confidence = 'medium';
+      note = `Extent matches French Lambert-93 (EPSG:2154) coordinate range.`;
+    } else if (isRgf93Cc) {
+      suggestedCrs = 'EPSG:3942'; // CC42 – a representative pick; actual zone needs more analysis
+      source = 'header-extent';
+      confidence = 'low';
+      note = `Extent may match French RGF93/CC system. Confirm exact zone.`;
+    } else if (isUtmLike) {
+      // Estimate UTM zone from midpoint X (Easting ~166k–834k = zone width ~668k)
+      const midLon = minX + (maxX - minX) / 2;
+      const midNorthing = minY + (maxY - minY) / 2;
+      const isNorth = midNorthing > 0;
+      // UTM easting center is ~500000; guess zone from offset (very rough)
+      const utmZoneGuess = Math.max(1, Math.min(60, Math.round((midLon - 166022) / 111319) + 1));
+      suggestedCrs = `EPSG:${isNorth ? 326 : 327}${String(utmZoneGuess).padStart(2, '0')}`;
+      source = 'header-extent';
+      confidence = 'low';
+      note = `Extent resembles UTM projected coordinates. Zone estimated as ${utmZoneGuess}${isNorth ? 'N' : 'S'} — verify before use.`;
+    }
+  }
+
+  // Unit-based disambiguation
+  if (unitInfo.code !== null && unitInfo.code !== 0) {
+    const isMetric = [4, 5, 6, 7].includes(unitInfo.code); // mm, cm, m, km
+    const isFeet = [1, 2].includes(unitInfo.code); // inches, feet
+    if (suggestedCrs && isMetric) {
+      note = (note || '') + ` Drawing unit: ${unitInfo.label} (metric — consistent with projected CRS).`;
+    } else if (suggestedCrs && isFeet) {
+      note = (note || '') + ` Drawing unit: ${unitInfo.label} (imperial — CRS suggestion may need review).`;
+    }
+  }
+
+  return {
+    suggestedCrs,
+    source,
+    confidence,
+    unitInfo,
+    extent,
+    note,
+  };
 };
 
 const normalizeCadLabelCandidate = (value) => String(value || '').trim();
@@ -1488,11 +1590,13 @@ export function parseDxfTextContent(text, options = {}) {
   const pointResult = collectPointRowsFromDxf(dxf, options);
   const rows = pointResult.rows;
   const geometry = collectCadGeometryFromDxf(dxf);
+  const headerCrsHint = extractDxfHeaderCrsHint(dxf);
   const validation = buildCadValidationSummary({
     rows,
     geometry,
     diagnostics: pointResult.diagnostics,
     dxfData: dxf,
+    headerCrsHint,
   });
   const diagnostics = {
     ...pointResult.diagnostics,
@@ -1501,11 +1605,13 @@ export function parseDxfTextContent(text, options = {}) {
       ...(geometry.repairs || {}),
     },
     layerSummary: geometry.layerSummary || null,
+    headerCrsHint,
     validation,
   };
 
   geometry.validation = validation;
   geometry.notifications = validation.notifications;
+  geometry.headerCrsHint = headerCrsHint;
 
   const hasRenderableCad = rows.length > 0
     || geometry.lines.length > 0
