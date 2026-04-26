@@ -1374,6 +1374,7 @@ export const collectCadGeometryFromDxf = (dxfData) => {
     polylines: [],
     texts: [],
     dimensions: [],
+    hatches: [],
   };
   const expandedEntities = expandCadEntities(dxfData).entities;
   const layerTable = dxfData?.tables?.layer?.layers || {};
@@ -1544,6 +1545,89 @@ export const collectCadGeometryFromDxf = (dxfData) => {
     }
   };
 
+  // Shoelace formula for polygon area from a flat [x,y] vertices array
+  const shoelaceArea = (vertices) => {
+    let area = 0;
+    const n = vertices.length;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      area += vertices[i][0] * vertices[j][1];
+      area -= vertices[j][0] * vertices[i][1];
+    }
+    return Math.abs(area) / 2;
+  };
+
+  const addHatch = (entity) => {
+    const layer = entity?.layer || 'HATCH';
+    const descriptor = getLayerDescriptor(layer, layerTable[layer]);
+    const patternName = String(entity?.pattern || entity?.patternName || '').trim() || 'HATCH';
+    const isSolid = Boolean(entity?.solidFill || patternName === 'SOLID');
+
+    // Extract boundary paths - dxf-parser provides boundaryPaths array
+    const boundaryPaths = Array.isArray(entity?.boundaryPaths) ? entity.boundaryPaths : [];
+    const hatchPolygons = [];
+
+    boundaryPaths.forEach((path) => {
+      // Polyline-type boundary
+      if (Array.isArray(path?.vertices) && path.vertices.length >= 3) {
+        const verts = path.vertices
+          .map((v) => {
+            const x = Number(v?.x ?? v?.[0] ?? NaN);
+            const y = Number(v?.y ?? v?.[1] ?? NaN);
+            return Number.isFinite(x) && Number.isFinite(y) ? [x, y] : null;
+          })
+          .filter(Boolean);
+        if (verts.length >= 3) {
+          hatchPolygons.push(verts);
+          // Also add as a polyline for map display
+          addPolyline(
+            [...verts.map(([x, y]) => ({ x, y, z: 0 })), { x: verts[0][0], y: verts[0][1], z: 0 }],
+            layer, 'HATCH'
+          );
+        }
+      }
+      // Edge-type boundary — collect LINE edges
+      if (Array.isArray(path?.edges)) {
+        const verts = [];
+        path.edges.forEach((edge) => {
+          const edgeType = String(edge?.type || '').toUpperCase();
+          if (edgeType === 'LINE' && edge?.start) {
+            const x = Number(edge.start?.x ?? NaN);
+            const y = Number(edge.start?.y ?? NaN);
+            if (Number.isFinite(x) && Number.isFinite(y)) verts.push([x, y]);
+          }
+        });
+        if (verts.length >= 3) hatchPolygons.push(verts);
+      }
+    });
+
+    if (hatchPolygons.length === 0) return;
+
+    // Compute total area (outer boundary only — first polygon)
+    const outerVerts = hatchPolygons[0];
+    const area = shoelaceArea(outerVerts);
+    const centroid = outerVerts.length > 0
+      ? [
+        outerVerts.reduce((s, v) => s + v[0], 0) / outerVerts.length,
+        outerVerts.reduce((s, v) => s + v[1], 0) / outerVerts.length,
+      ]
+      : null;
+
+    geometry.hatches.push({
+      layer: descriptor.displayName,
+      layerOriginal: descriptor.originalName,
+      layerNormalized: descriptor.normalizedName,
+      layerStandardized: descriptor.standardizedName,
+      sourceType: 'HATCH',
+      patternName,
+      isSolid,
+      area,
+      centroid,
+      boundaryCount: hatchPolygons.length,
+      colorHex: cadColorToHex(entity?.color, descriptor.colorHex || '#94a3b8'),
+    });
+  };
+
   const visitEntities = (entities) => {
     if (!Array.isArray(entities)) return;
     entities.forEach((ent) => {
@@ -1563,6 +1647,9 @@ export const collectCadGeometryFromDxf = (dxfData) => {
           break;
         case 'DIMENSION':
           addDimension(ent);
+          break;
+        case 'HATCH':
+          addHatch(ent);
           break;
         default:
           break;
