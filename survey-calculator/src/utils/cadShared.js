@@ -1110,7 +1110,7 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
     repairs,
   };
 
-  const addRow = (x, y, z, idHint, hasExplicitName = false, source = 'unknown', layer = null) => {
+  const addRow = (x, y, z, idHint, hasExplicitName = false, source = 'unknown', layer = null, blockAttributes = null) => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     const coordKey = `${x.toFixed(3)},${y.toFixed(3)}`;
     const normalizedHint = normalizeCadLabelCandidate(idHint);
@@ -1126,6 +1126,9 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
         existing.id = explicitName;
         existing.hasExplicitName = true;
       }
+      if (blockAttributes && !existing.blockAttributes) {
+        existing.blockAttributes = blockAttributes;
+      }
       return;
     }
 
@@ -1138,6 +1141,7 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
       layer,
       detectedFromCrs,
       hasExplicitName: Boolean(explicitName),
+      blockAttributes: blockAttributes || null,
     };
     rows.push(row);
     seenCoords.set(coordKey, row);
@@ -1165,7 +1169,15 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
             const fallbackElevation = extractInsertPointElevation(ent);
             const iz = ent.position?.z ?? ent.z ?? ent.position?.[2] ?? fallbackElevation;
             const pointName = ent.__pointName || extractInsertPointName(ent);
-            addRow(ent.position?.x, ent.position?.y, iz, pointName, Boolean(pointName), 'insert-symbol', layer || null);
+            // Collect all ATTRIB TAG=VALUE pairs as structured metadata
+            const attribMap = {};
+            (Array.isArray(ent.attribs) ? ent.attribs : []).forEach((attr) => {
+              const tag = String(attr?.tag || '').trim().toUpperCase();
+              const val = String(attr?.text ?? attr?.value ?? '').trim();
+              if (tag && val) attribMap[tag] = val;
+            });
+            const blockAttributes = Object.keys(attribMap).length > 0 ? { blockName: ent.name || null, attributes: attribMap } : null;
+            addRow(ent.position?.x, ent.position?.y, iz, pointName, Boolean(pointName), 'insert-symbol', layer || null, blockAttributes);
           }
           break;
         }

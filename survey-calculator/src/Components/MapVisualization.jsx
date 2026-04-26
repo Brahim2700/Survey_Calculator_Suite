@@ -1234,6 +1234,15 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
           fillOpacity: markerFillOpacity,
         });
       }
+      const blockAttribRows = (() => {
+        const ba = point.blockAttributes;
+        if (!ba || !ba.attributes || Object.keys(ba.attributes).length === 0) return '';
+        const rows = Object.entries(ba.attributes)
+          .map(([tag, val]) => `<tr><td style="color:#94a3b8;padding-right:6px">${escapeHtml(tag)}</td><td>${escapeHtml(val)}</td></tr>`)
+          .join('');
+        const blockLabel = ba.blockName ? `<span style="color:#94a3b8">Block: </span><b>${escapeHtml(ba.blockName)}</b><br/>` : '';
+        return `${blockLabel}<table style="font-size:11px;border-collapse:collapse;margin-top:3px">${rows}</table><br/>`;
+      })();
       pointLayer
         .bindPopup(
           `<div style="font-size: 12px; min-width: 180px;">
@@ -1241,6 +1250,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
             Lat: ${point.lat.toFixed(4)}°<br/>
             Lng: ${point.lng.toFixed(4)}°<br/>
             Height: ${(point.height || 0).toFixed(2)} m<br/>
+            ${blockAttribRows}
             ${isSelectableConverted ? `<span style="color:#ea580c"><b>Measure:</b> Click or snap to select this point</span><br/>` : ''}
             ${groupSize > 1 ? `<span style="color:#1e3a8a"><b>Note:</b> ${groupSize} points overlap at this location (${groupIndex + 1}/${groupSize}).</span><br/>` : ''}
             ${point.validationMessage ? `<span style="color:#b45309"><b>Validation:</b> ${point.validationMessage}</span><br/>` : ''}
