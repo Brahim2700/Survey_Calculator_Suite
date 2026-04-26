@@ -92,15 +92,15 @@
   gap: 1.75rem;
   width: 100%;
   max-width: 1760px;
-  align-items: flex-start;
+  align-items: stretch;
 }
 .app-col-left  {
   flex: 0 1 760px;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  max-height: calc(100vh - 2.25rem);
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
   padding-right: 0.2rem;
 }
 .app-col-right { flex: 1 1 760px; position: sticky; top: 1.75rem; display: flex; flex-direction: column; }
@@ -121,6 +121,10 @@
 .app-col-left,
 .app-col-right {
   font-size: 0.95rem;
+}
+
+.app-col-left > * {
+  min-height: 100%;
 }
 
 .app-col-left > * {
