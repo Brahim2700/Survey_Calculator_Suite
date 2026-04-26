@@ -1404,6 +1404,20 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
           }
         )
           .bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(line.layer || 'CAD line')}</b><br/>Type: ${escapeHtml(line.sourceType || 'LINE')}</div>`)
+          .on('click', () => {
+            const dx = (end[0] - start[0]);
+            const dy = (end[1] - start[1]);
+            const length = Math.sqrt(dx * dx + dy * dy);
+            emit('cad:entityPicked', {
+              type: 'LINE',
+              layer: line.layer || '',
+              colorHex: line.colorHex || '#0ea5e9',
+              sourceType: line.sourceType || 'LINE',
+              handle: line.handle || null,
+              vertexCount: 2,
+              length,
+            });
+          })
           .addTo(map.current);
         geometryLayersRef.current.push(layer);
         markers.current.push(layer);
@@ -1431,6 +1445,17 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
           smoothFactor,
         })
           .bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(poly.layer || 'CAD polyline')}</b><br/>Type: ${escapeHtml(poly.sourceType || 'POLYLINE')}</div>`)
+          .on('click', () => {
+            emit('cad:entityPicked', {
+              type: 'POLYLINE',
+              layer: poly.layer || '',
+              colorHex: poly.colorHex || '#2563eb',
+              sourceType: poly.sourceType || 'POLYLINE',
+              handle: poly.handle || null,
+              vertexCount: latlngs.length,
+              length: null,
+            });
+          })
           .addTo(map.current);
         geometryLayersRef.current.push(layer);
         markers.current.push(layer);
