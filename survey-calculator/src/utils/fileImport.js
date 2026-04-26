@@ -10,7 +10,38 @@ import { detectCRS } from './crsDetection';
 import { parseCadFileViaBackend } from './cadApi';
 import { isLikelyDxfText, isLikelyNativeDwgData, parseDxfTextContent } from './cadShared';
 
+// ── File size limits ────────────────────────────────────────────────────────
+// These guard against loading files so large they would crash the browser tab.
+// All limits are in bytes.
+const FILE_SIZE_LIMITS = {
+  geojson:    150 * 1024 * 1024, // 150 MB
+  gpx:         50 * 1024 * 1024, //  50 MB
+  kml:        100 * 1024 * 1024, // 100 MB
+  kmz:        150 * 1024 * 1024, // 150 MB
+  xlsx:        80 * 1024 * 1024, //  80 MB
+  zip:        200 * 1024 * 1024, // 200 MB
+  dxf:        150 * 1024 * 1024, // 150 MB
+  dwg:        150 * 1024 * 1024, // 150 MB (backend handles the heavy work)
+  csv:        100 * 1024 * 1024, // 100 MB
+};
+
+const FMT_MB = (bytes) => `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
+
+function assertFileSize(file, type) {
+  const limit = FILE_SIZE_LIMITS[type];
+  if (!limit) return;
+  if (file.size > limit) {
+    throw new Error(
+      `File "${file.name}" is too large (${FMT_MB(file.size)}). ` +
+      `The maximum supported size for ${type.toUpperCase()} files is ${FMT_MB(limit)}. ` +
+      `Please reduce the file size or split it into smaller parts.`
+    );
+  }
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 export async function parseGeoJSONFile(file) {
+  assertFileSize(file, 'geojson');
   const text = await file.text();
   const json = JSON.parse(text);
   const rows = [];
@@ -86,6 +117,7 @@ export async function parseGeoJSONFile(file) {
 }
 
 export async function parseGPXFile(file) {
+  assertFileSize(file, 'gpx');
   const text = await file.text();
   const doc = new DOMParser().parseFromString(text, 'application/xml');
   const wpts = Array.from(doc.getElementsByTagName('wpt'));
@@ -290,12 +322,14 @@ const parseKmlTextPayload = (text, sourceLabel = 'KML', options = {}) => {
 };
 
 export async function parseKMLFile(file, options = {}) {
+  assertFileSize(file, 'kml');
   const text = await file.text();
   const payload = parseKmlTextPayload(text, file?.name || 'KML', options);
   return options.returnPayload ? payload : payload.rows;
 }
 
 export async function parseKMZFile(file, options = {}) {
+  assertFileSize(file, 'kmz');
   const JSZip = (await import('jszip')).default;
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
   const kmlEntries = Object.values(zip.files)
@@ -348,6 +382,7 @@ export async function parseKMZFile(file, options = {}) {
 }
 
 export async function parseXLSXFile(file) {
+  assertFileSize(file, 'xlsx');
   const { read, utils } = await import('xlsx');
   const ab = await file.arrayBuffer();
   const wb = read(ab, { type: 'array' });
@@ -398,6 +433,7 @@ export async function parseXLSXFile(file) {
 }
 
 export async function parseShapefileZip(file) {
+  assertFileSize(file, 'zip');
   const shp = await import('shpjs');
   const ab = await file.arrayBuffer();
   const geojson = await shp.default(ab);
@@ -407,6 +443,7 @@ export async function parseShapefileZip(file) {
 }
 
 export async function parseDXFFile(file, options = {}) {
+  assertFileSize(file, 'dxf');
   const text = await file.text();
   const parsed = parseDxfTextContent(text, { ...options, returnPayload: true });
   const rows = parsed.rows;
@@ -424,6 +461,7 @@ export async function parseDXFFile(file, options = {}) {
 }
 
 export async function parseDWGFile(file, options = {}) {
+  assertFileSize(file, 'dwg');
   const buffer = new Uint8Array(await file.arrayBuffer());
 
   if (isLikelyNativeDwgData(buffer)) {

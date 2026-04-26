@@ -1,5 +1,10 @@
 const CAD_API_BASE_URL = import.meta.env.VITE_CAD_API_BASE_URL || '/api/cad';
 
+// Maximum file size the client will attempt to upload (must be ≤ server limit).
+// The server enforces 100 MB via CAD_MAX_UPLOAD_MB; we keep the same cap here
+// to produce a friendly error message before the request is even sent.
+const CAD_UPLOAD_MAX_BYTES = 100 * 1024 * 1024; // 100 MB
+
 function buildBackendUnavailableMessage() {
   return `Native DWG import requires the CAD backend service. Current CAD API target: ${CAD_API_BASE_URL}. Use the hosted CAD API or start "npm run dev:server" for local development.`;
 }
@@ -16,6 +21,14 @@ async function parseJsonSafely(response) {
 }
 
 export async function parseCadFileViaBackend(file, options = {}) {
+  if (file.size > CAD_UPLOAD_MAX_BYTES) {
+    throw new Error(
+      `File "${file.name}" is ${(file.size / (1024 * 1024)).toFixed(0)} MB, which exceeds the ` +
+      `${CAD_UPLOAD_MAX_BYTES / (1024 * 1024)} MB upload limit. ` +
+      `Please reduce the file size or split it into smaller drawings.`
+    );
+  }
+
   const formData = new FormData();
   formData.append('file', file);
   formData.append('pointsOnly', options.pointsOnly ? 'true' : 'false');

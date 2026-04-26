@@ -1159,7 +1159,13 @@ const CoordinateConverter = () => {
     setBulkResults(annotatedRows);
     setBulkSummary(summarizeBulkResults(annotatedRows));
     setPoints3DData(prepare3DVisualizationData(annotatedRows));
-    setConversionHistoryRows((prev) => (historyMode === "append" ? [...prev, ...annotatedRows] : annotatedRows));
+    // Cap the combined history at 2000 entries to prevent unbounded memory growth
+    // during long sessions with many repeated conversions.
+    const HISTORY_CAP = 2000;
+    setConversionHistoryRows((prev) => {
+      const next = historyMode === "append" ? [...prev, ...annotatedRows] : annotatedRows;
+      return next.length > HISTORY_CAP ? next.slice(next.length - HISTORY_CAP) : next;
+    });
 
     return annotatedRows;
   };
@@ -3321,6 +3327,15 @@ const CoordinateConverter = () => {
       const latestCadStatus = ["dwg", "dxf"].includes(ext) ? await refreshCadStatus() : cadBackendStatus;
       let lines = [];
       if (["csv","txt"].includes(ext)) {
+        // Guard against files that would exhaust browser memory (100 MB limit).
+        const CSV_MAX_BYTES = 100 * 1024 * 1024;
+        if (file.size > CSV_MAX_BYTES) {
+          throw new Error(
+            `File "${file.name}" is ${(file.size / (1024 * 1024)).toFixed(0)} MB. ` +
+            `CSV/TXT files larger than 100 MB are not supported. ` +
+            `Please split the file into smaller parts.`
+          );
+        }
         const text = await file.text();
         const rawLines = text.split(/\r?\n/).map((l) => l.trim());
         lines = rawLines.filter((l) => l.length > 0);
@@ -3991,7 +4006,9 @@ const CoordinateConverter = () => {
     if (bulkFilterMode === "warned") rows = rows.filter((r) => r.utmWarning || r.ccWarning || r.otherZoneWarning || r.outlierWarning);
     if (bulkFilterMode === "selected") rows = rows.filter((r) => selectedBulkRows.includes(String(r.historyRowId || r.id)));
     if (historySourceFilter !== "all") rows = rows.filter((r) => (r.sourceKey || "") === historySourceFilter);
-    return rows;
+    // Cap DOM rows rendered at 500 to prevent browser slowdown with very large datasets.
+    // All rows are still available for export — only the table preview is limited.
+    return rows.length > 500 ? rows.slice(rows.length - 500) : rows;
   }, [conversionHistoryRows, bulkFilterMode, selectedBulkRows, historySourceFilter]);
 
   const updateBulkRowInput = (rowId, field, value) => {
@@ -5553,6 +5570,11 @@ const CoordinateConverter = () => {
                 <div style={{ marginTop: "0.75rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.7rem", flexWrap: "wrap" }}>
                   <div style={{ fontSize: "0.82rem", color: "#334155" }}>
                     Showing {filteredBulkResults.length} of {conversionHistoryRows.length} converted rows
+                    {conversionHistoryRows.length > 500 && (
+                      <span style={{ color: "#b45309", marginLeft: "0.5rem" }}>
+                        (preview capped at 500 rows — export to see all)
+                      </span>
+                    )}
                   </div>
                   <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.82rem", color: "#334155" }}>
                     Source file

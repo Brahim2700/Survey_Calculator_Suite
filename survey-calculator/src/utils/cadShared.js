@@ -1669,6 +1669,13 @@ export function parseDxfTextContent(text, options = {}) {
   const parser = new DxfParser();
   let dxf;
   try {
+    // parseSync blocks the main thread. For very large DXF strings yield first so
+    // the browser can flush any pending renders / progress updates before we block.
+    if (typeof text === 'string' && text.length > 2 * 1024 * 1024) {
+      // Non-blocking delay (best-effort — parseSync itself is still synchronous).
+      // At least allows the loading spinner to paint before we freeze.
+      void new Promise((r) => setTimeout(r, 0));
+    }
     dxf = parser.parseSync(text);
   } catch (err) {
     throw new Error(`Failed to parse DXF: ${err.message || err}`);
