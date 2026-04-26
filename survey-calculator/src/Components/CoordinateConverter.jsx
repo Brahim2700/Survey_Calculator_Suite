@@ -3176,13 +3176,13 @@ const CoordinateConverter = () => {
     setCadPreviewLoading(true);
     setBulkUploadError("");
     setError(null);
-    setBulkProgress("Detecting CRS and preparing CAD preview...");
+    setBulkProgress("Detecting CRS and preparing CAD preview…");
 
     try {
       const latestCadStatus = await refreshCadStatus();
       const cadPayload = ext === 'dxf'
-        ? await parseDXFFile(file, { returnPayload: true })
-        : await parseDWGFile(file, { returnPayload: true });
+        ? (setBulkProgress("Parsing DXF file…"), await parseDXFFile(file, { returnPayload: true }))
+        : await parseDWGFile(file, { returnPayload: true, onProgress: (msg) => setBulkProgress(msg) });
 
       const rows = Array.isArray(cadPayload?.rows) ? cadPayload.rows : [];
       const hasRenderableGeometry = Boolean(
@@ -3267,7 +3267,7 @@ const CoordinateConverter = () => {
       } else if (ext === "dxf") {
         rows = await parseDXFFile(file);
       } else if (ext === "dwg") {
-        rows = await parseDWGFile(file);
+        rows = await parseDWGFile(file, { onProgress: (msg) => console.info('[CRS detect]', msg) });
       }
       
       if (rows && rows.length > 0) {
@@ -3358,10 +3358,11 @@ const CoordinateConverter = () => {
         } else if (ext === "xlsx" || ext === "xls") {
           rows = await parseXLSXFile(file);
         } else if (ext === "dxf") {
+          setBulkProgress("Parsing DXF file…");
           cadPayload = await parseDXFFile(file, { returnPayload: true });
           rows = cadPayload.rows;
         } else if (ext === "dwg") {
-          cadPayload = await parseDWGFile(file, { returnPayload: true });
+          cadPayload = await parseDWGFile(file, { returnPayload: true, onProgress: (msg) => setBulkProgress(msg) });
           rows = cadPayload.rows;
         } else {
           throw new Error(`Unsupported file type: .${ext}`);

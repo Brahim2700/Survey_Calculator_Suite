@@ -5,6 +5,10 @@ const CAD_API_BASE_URL = import.meta.env.VITE_CAD_API_BASE_URL || '/api/cad';
 // to produce a friendly error message before the request is even sent.
 const CAD_UPLOAD_MAX_BYTES = 100 * 1024 * 1024; // 100 MB
 
+// How long to wait for the CAD backend to respond (upload + conversion + parse).
+// Native DWG conversion via ODA/LibreDWG can take 30-90 s for large files.
+const CAD_REQUEST_TIMEOUT_MS = 150_000; // 2.5 minutes
+
 function buildBackendUnavailableMessage() {
   return `Native DWG import requires the CAD backend service. Current CAD API target: ${CAD_API_BASE_URL}. Use the hosted CAD API or start "npm run dev:server" for local development.`;
 }
@@ -33,14 +37,44 @@ export async function parseCadFileViaBackend(file, options = {}) {
   formData.append('file', file);
   formData.append('pointsOnly', options.pointsOnly ? 'true' : 'false');
 
+  // --- Timed progress messages so the user knows the app is working ---
+  const { onProgress } = options;
+  const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1);
+  const progressMessages = [
+    [0,    `Uploading ${fileSizeMB} MB to CAD backend…`],
+    [5000, 'Waiting for DWG-to-DXF conversion to start…'],
+    [15000,'Converting DWG file — this can take 20–60 s for large drawings…'],
+    [40000,'Still converting — complex drawings may take up to 2 minutes…'],
+    [90000,'Almost there — parsing the converted geometry…'],
+  ];
+  const progressTimers = [];
+  if (typeof onProgress === 'function') {
+    for (const [delay, msg] of progressMessages) {
+      progressTimers.push(setTimeout(() => onProgress(msg), delay));
+    }
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), CAD_REQUEST_TIMEOUT_MS);
+
   let response;
   try {
     response = await fetch(`${CAD_API_BASE_URL}/parse`, {
       method: 'POST',
       body: formData,
+      signal: controller.signal,
     });
-  } catch {
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw new Error(
+        `The CAD backend did not respond within ${CAD_REQUEST_TIMEOUT_MS / 1000} seconds. ` +
+        `This can happen with very complex DWG files. Try a simpler drawing or check that the backend service is running.`
+      );
+    }
     throw new Error(buildBackendUnavailableMessage());
+  } finally {
+    clearTimeout(timeoutId);
+    for (const t of progressTimers) clearTimeout(t);
   }
 
   const payload = await parseJsonSafely(response);
