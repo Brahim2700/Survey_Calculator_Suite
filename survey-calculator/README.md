@@ -118,3 +118,8 @@ To regenerate XLSX and Shapefile samples: `npm run generate:samples`.
 
 - Geographic sources default to ellipsoidal height unless explicitly marked orthometric.
 - Projected→Geographic outputs use ellipsoidal height; geoid conversions apply as needed.
+
+## Project Goals (Planned, Not Implemented Yet)
+
+- Survey Adjustment Engine: add least-squares network adjustment and traverse closure analysis.
+- Quality outputs for adjustment workflows: residuals, closure error, RMSE, and confidence reporting.
