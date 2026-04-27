@@ -257,6 +257,10 @@ const buildCadInspectionSummary = (file, rows, status, payload = null) => {
       maxZ: zs.length ? Math.max(...zs) : null,
     },
     cadTextCount: Array.isArray(payload?.geometry?.texts) ? payload.geometry.texts.length : 0,
+    cadSurfaceCount: Array.isArray(payload?.geometry?.surfaces) ? payload.geometry.surfaces.length : 0,
+    cadTriangleCount: Array.isArray(payload?.geometry?.surfaces)
+      ? payload.geometry.surfaces.reduce((sum, surface) => sum + (Array.isArray(surface?.triangles) ? surface.triangles.length : 0), 0)
+      : 0,
     notificationCount: Array.isArray(validation?.notifications) ? validation.notifications.length : 0,
     backendMode: status?.converterMode || "none",
     backendPath: status?.converterPath || null,
@@ -2033,14 +2037,15 @@ const CoordinateConverter = () => {
       lines: Array.isArray(geometry?.lines) ? geometry.lines : [],
       polylines: Array.isArray(geometry?.polylines) ? geometry.polylines : [],
       texts: Array.isArray(geometry?.texts) ? geometry.texts : [],
+      surfaces: Array.isArray(geometry?.surfaces) ? geometry.surfaces : [],
       layerSummary: geometry?.layerSummary || null,
       validation: geometry?.validation || null,
       notifications: Array.isArray(geometry?.notifications) ? geometry.notifications : [],
       repairs: geometry?.repairs || null,
     };
 
-    if (!safeGeometry.lines.length && !safeGeometry.polylines.length && !safeGeometry.texts.length) {
-      return { lines: [], polylines: [], texts: [], layerSummary: null, validation: null, notifications: [], repairs: null };
+    if (!safeGeometry.lines.length && !safeGeometry.polylines.length && !safeGeometry.texts.length && !safeGeometry.surfaces.length) {
+      return { lines: [], polylines: [], texts: [], surfaces: [], layerSummary: null, validation: null, notifications: [], repairs: null };
     }
 
     const collectRawCadPoints = (rowsForPreview = [], geometryForPreview = null) => {
@@ -2069,6 +2074,13 @@ const CoordinateConverter = () => {
         if (Number.isFinite(Number(position[0])) && Number.isFinite(Number(position[1]))) {
           points.push({ x: Number(position[0]), y: Number(position[1]), z: Number(position[2] ?? 0) });
         }
+      });
+      (Array.isArray(geometryForPreview?.surfaces) ? geometryForPreview.surfaces : []).forEach((surface) => {
+        (Array.isArray(surface?.vertices) ? surface.vertices : []).forEach((vertex) => {
+          if (Number.isFinite(Number(vertex?.[0])) && Number.isFinite(Number(vertex?.[1]))) {
+            points.push({ x: Number(vertex[0]), y: Number(vertex[1]), z: Number(vertex[2] ?? 0) });
+          }
+        });
       });
       return points;
     };
@@ -2151,10 +2163,33 @@ const CoordinateConverter = () => {
       })
       .filter(Boolean);
 
+    const surfaces = safeGeometry.surfaces
+      .map((surface) => {
+        const vertices = (Array.isArray(surface?.vertices) ? surface.vertices : [])
+          .map((vertex) => toLatLng(Number(vertex?.[0]), Number(vertex?.[1]), Number(vertex?.[2] ?? 0)))
+          .filter(Boolean);
+        const triangles = (Array.isArray(surface?.triangles) ? surface.triangles : [])
+          .map((tri) => (Array.isArray(tri) ? tri.map((idx) => Number(idx)) : null))
+          .filter((tri) => tri && tri.length === 3 && tri.every((idx) => Number.isInteger(idx) && idx >= 0 && idx < vertices.length));
+
+        if (vertices.length < 3 || triangles.length === 0) return null;
+        return {
+          ...surface,
+          vertices,
+          triangles,
+          triangleCount: triangles.length,
+          vertexCount: vertices.length,
+          minZ: Number.isFinite(Number(surface?.minZ)) ? Number(surface.minZ) : null,
+          maxZ: Number.isFinite(Number(surface?.maxZ)) ? Number(surface.maxZ) : null,
+        };
+      })
+      .filter(Boolean);
+
     return {
       lines,
       polylines,
       texts,
+      surfaces,
       layerSummary: safeGeometry.layerSummary,
       validation: safeGeometry.validation,
       notifications: safeGeometry.notifications,
@@ -3100,7 +3135,7 @@ const CoordinateConverter = () => {
     setBulkIsConverting(false);
     bulkCancelRef.current = false;
     emit("converter:pointsForMap", { points: [] });
-    emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [] } });
+    emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [], texts: [], surfaces: [] } });
     emit("converter:resetAll");
   };
 
@@ -3189,6 +3224,7 @@ const CoordinateConverter = () => {
         cadPayload?.geometry?.lines?.length
         || cadPayload?.geometry?.polylines?.length
         || cadPayload?.geometry?.texts?.length
+        || cadPayload?.geometry?.surfaces?.length
       );
       if (!rows.length && !hasRenderableGeometry) {
         throw new Error("No CAD entities could be rendered from this file.");
@@ -3426,7 +3462,7 @@ const CoordinateConverter = () => {
           setCadSourceGeometry(null);
           setCadGeometrySourceCrs(null);
           if (fileImportMode !== "append") {
-            emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [] } });
+            emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [], texts: [], surfaces: [] } });
           }
         }
         

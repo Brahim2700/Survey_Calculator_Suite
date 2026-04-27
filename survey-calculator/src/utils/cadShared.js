@@ -4,6 +4,7 @@ import { detectCRS, assessReferenceSystem } from './crsDetection.js';
 const CAD_TEXT_DECODER = new TextDecoder('utf-8', { fatal: false });
 const DEFAULT_TEXT_HEIGHT = 2.5;
 const FALLBACK_TEXT_FONT = 'Segoe UI';
+const CAD_SURFACE_TRIANGLE_WARN_THRESHOLD = 20000;
 const CAD_UNIT_LABELS = {
   0: 'Unitless',
   1: 'Inches',
@@ -254,6 +255,14 @@ const collectCadRawPoints = (rows, geometry) => {
     }
   });
 
+  (Array.isArray(geometry?.surfaces) ? geometry.surfaces : []).forEach((surface) => {
+    (Array.isArray(surface?.vertices) ? surface.vertices : []).forEach((vertex) => {
+      if (Number.isFinite(Number(vertex?.[0])) && Number.isFinite(Number(vertex?.[1]))) {
+        points.push({ x: Number(vertex[0]), y: Number(vertex[1]), z: Number(vertex[2] ?? 0) });
+      }
+    });
+  });
+
   return points;
 };
 
@@ -267,6 +276,11 @@ const buildCadValidationSummary = ({ rows, geometry, diagnostics, dxfData, heade
   const extremeCoordinateCount = rawPoints.filter((point) => Math.abs(point.x) > 1e8 || Math.abs(point.y) > 1e8).length;
   const originClusterCount = rawPoints.filter((point) => Math.abs(point.x) <= 1e-6 && Math.abs(point.y) <= 1e-6).length;
   const textCount = Array.isArray(geometry?.texts) ? geometry.texts.length : 0;
+  const surfaceCount = Array.isArray(geometry?.surfaces) ? geometry.surfaces.length : 0;
+  const triangleCount = (Array.isArray(geometry?.surfaces) ? geometry.surfaces : []).reduce(
+    (sum, surface) => sum + (Array.isArray(surface?.triangles) ? surface.triangles.length : 0),
+    0
+  );
 
   if (!unitInfo.code || unitInfo.code === 0) {
     notifications.push({
@@ -348,6 +362,24 @@ const buildCadValidationSummary = ({ rows, geometry, diagnostics, dxfData, heade
       code: 'cad-text-imported',
       title: 'CAD text imported',
       message: `${textCount} CAD text annotation${textCount === 1 ? '' : 's'} prepared for map display with style fallback support.`,
+    });
+  }
+
+  if (surfaceCount > 0) {
+    notifications.push({
+      severity: 'info',
+      code: 'cad-surfaces-imported',
+      title: 'CAD terrain surfaces imported',
+      message: `${surfaceCount} CAD surface object${surfaceCount === 1 ? '' : 's'} loaded with ${triangleCount} TIN triangle${triangleCount === 1 ? '' : 's'}.`,
+    });
+  }
+
+  if (triangleCount >= CAD_SURFACE_TRIANGLE_WARN_THRESHOLD) {
+    notifications.push({
+      severity: 'warning',
+      code: 'cad-surface-heavy',
+      title: 'Heavy terrain mesh detected',
+      message: `This drawing contains ${triangleCount} terrain triangles. Fill rendering may auto-throttle for interactive map performance.`,
     });
   }
 
@@ -826,7 +858,28 @@ const transformCadEntity = (entity, transform, metadata = {}) => {
       return transformed;
     case 'LWPOLYLINE':
     case 'POLYLINE':
+      transformed.vertices = (Array.isArray(entity?.vertices) ? entity.vertices : []).map((vertex) => {
+        const projected = applyCadTransform(vertex, transform);
+        return {
+          ...vertex,
+          ...projected,
+          vertexIndices: Array.isArray(vertex?.vertexIndices) ? [...vertex.vertexIndices] : vertex?.vertexIndices,
+          indices: Array.isArray(vertex?.indices) ? [...vertex.indices] : vertex?.indices,
+          face: Array.isArray(vertex?.face) ? [...vertex.face] : vertex?.face,
+        };
+      });
+      return transformed;
+    case '3DFACE':
+    case 'FACE3D': {
+      const directVertices = Array.isArray(entity?.vertices) ? entity.vertices : [];
+      const fallbackVertices = [entity?.firstCorner, entity?.secondCorner, entity?.thirdCorner, entity?.fourthCorner].filter(Boolean);
+      const sourceVertices = directVertices.length > 0 ? directVertices : fallbackVertices;
+      transformed.vertices = sourceVertices.map((vertex) => applyCadTransform(vertex, transform));
+      return transformed;
+    }
+    case 'MESH':
       transformed.vertices = (Array.isArray(entity?.vertices) ? entity.vertices : []).map((vertex) => applyCadTransform(vertex, transform));
+      transformed.faces = Array.isArray(entity?.faces) ? entity.faces : [];
       return transformed;
     case 'TEXT':
     case 'MTEXT':
@@ -1002,6 +1055,218 @@ const getEntitySegments = (entities, source = 'top-level') => {
   });
 
   return segments;
+};
+
+const toIndexFromFaceToken = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n === 0) return null;
+  return Math.abs(Math.trunc(n)) - 1;
+};
+
+const normalizeTriangleIndexes = (indexes, vertexCount) => {
+  const unique = [];
+  indexes.forEach((indexValue) => {
+    const index = Number(indexValue);
+    if (!Number.isInteger(index) || index < 0 || index >= vertexCount) return;
+    if (unique.includes(index)) return;
+    unique.push(index);
+  });
+  if (unique.length < 3) return [];
+  const triangles = [];
+  for (let i = 1; i < unique.length - 1; i += 1) {
+    triangles.push([unique[0], unique[i], unique[i + 1]]);
+  }
+  return triangles;
+};
+
+const buildSurfaceFeature = ({ vertices, triangles, layer, layerTable = {}, sourceType = 'SURFACE' }) => {
+  const safeVertices = (Array.isArray(vertices) ? vertices : [])
+    .map((vertex) => {
+      const x = Number(vertex?.x ?? vertex?.[0]);
+      const y = Number(vertex?.y ?? vertex?.[1]);
+      const z = Number(vertex?.z ?? vertex?.[2] ?? 0);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      return [x, y, Number.isFinite(z) ? z : 0];
+    })
+    .filter(Boolean);
+
+  if (safeVertices.length < 3) return null;
+
+  const safeTriangles = (Array.isArray(triangles) ? triangles : [])
+    .filter((tri) => Array.isArray(tri) && tri.length === 3)
+    .map((tri) => tri.map((v) => Number(v)))
+    .filter((tri) => tri.every((v) => Number.isInteger(v) && v >= 0 && v < safeVertices.length));
+
+  if (!safeTriangles.length) return null;
+
+  const descriptor = getLayerDescriptor(layer || sourceType || 'SURFACE', layerTable[layer || sourceType || 'SURFACE']);
+  const elevations = safeVertices.map((vertex) => Number(vertex[2])).filter(Number.isFinite);
+
+  return {
+    layer: descriptor.displayName,
+    layerOriginal: descriptor.originalName,
+    layerNormalized: descriptor.normalizedName,
+    layerStandardized: descriptor.standardizedName,
+    layerCategory: descriptor.category,
+    sourceType,
+    vertices: safeVertices,
+    triangles: safeTriangles,
+    triangleCount: safeTriangles.length,
+    vertexCount: safeVertices.length,
+    minZ: elevations.length ? Math.min(...elevations) : null,
+    maxZ: elevations.length ? Math.max(...elevations) : null,
+  };
+};
+
+const extract3dFaceSurface = (entity, layerTable = {}) => {
+  const vertices = Array.isArray(entity?.vertices)
+    ? entity.vertices
+    : [entity?.firstCorner, entity?.secondCorner, entity?.thirdCorner, entity?.fourthCorner].filter(Boolean);
+  if (!Array.isArray(vertices) || vertices.length < 3) return null;
+
+  const validCount = Math.min(vertices.length, 4);
+  const triangles = validCount === 3
+    ? [[0, 1, 2]]
+    : normalizeTriangleIndexes([0, 1, 2, 3], validCount);
+
+  return buildSurfaceFeature({
+    vertices: vertices.slice(0, validCount),
+    triangles,
+    layer: entity?.layer,
+    layerTable,
+    sourceType: String(entity?.type || '3DFACE').toUpperCase(),
+  });
+};
+
+const extractMeshSurface = (entity, layerTable = {}) => {
+  const vertices = Array.isArray(entity?.vertices) ? entity.vertices : [];
+  if (vertices.length < 3) return null;
+
+  const faceRecords = Array.isArray(entity?.faces) ? entity.faces : [];
+  const triangles = [];
+  faceRecords.forEach((face) => {
+    const faceIndexes = Array.isArray(face)
+      ? face
+      : (Array.isArray(face?.vertexIndices) ? face.vertexIndices : (Array.isArray(face?.indices) ? face.indices : []));
+    triangles.push(...normalizeTriangleIndexes(faceIndexes.map((idx) => Number(idx)), vertices.length));
+  });
+
+  return buildSurfaceFeature({
+    vertices,
+    triangles,
+    layer: entity?.layer,
+    layerTable,
+    sourceType: 'MESH',
+  });
+};
+
+const extractPolyfaceSurface = (entity, layerTable = {}) => {
+  if (String(entity?.type || '').toUpperCase() !== 'POLYLINE') return null;
+  const vertices = Array.isArray(entity?.vertices) ? entity.vertices : [];
+  if (vertices.length < 4) return null;
+
+  const faceLikeRecords = vertices.filter((vertex) => {
+    if (!vertex || typeof vertex !== 'object') return false;
+    if (Array.isArray(vertex?.vertexIndices) || Array.isArray(vertex?.indices) || Array.isArray(vertex?.face)) return true;
+    return ['faceA', 'faceB', 'faceC', 'faceD', 'vtx0', 'vtx1', 'vtx2', 'vtx3'].some((key) => Number.isFinite(Number(vertex?.[key])));
+  });
+  if (!faceLikeRecords.length) return null;
+
+  const coordVertices = vertices.filter((vertex) => Number.isFinite(Number(vertex?.x)) && Number.isFinite(Number(vertex?.y)));
+  if (coordVertices.length < 3) return null;
+
+  const triangles = [];
+  faceLikeRecords.forEach((face) => {
+    const indexTokens = [];
+    if (Array.isArray(face?.vertexIndices)) indexTokens.push(...face.vertexIndices);
+    if (Array.isArray(face?.indices)) indexTokens.push(...face.indices);
+    if (Array.isArray(face?.face)) indexTokens.push(...face.face);
+    ['faceA', 'faceB', 'faceC', 'faceD', 'vtx0', 'vtx1', 'vtx2', 'vtx3'].forEach((key) => {
+      if (Number.isFinite(Number(face?.[key]))) indexTokens.push(face[key]);
+    });
+    const normalized = indexTokens
+      .map(toIndexFromFaceToken)
+      .filter((idx) => Number.isInteger(idx));
+    triangles.push(...normalizeTriangleIndexes(normalized, coordVertices.length));
+  });
+
+  return buildSurfaceFeature({
+    vertices: coordVertices,
+    triangles,
+    layer: entity?.layer,
+    layerTable,
+    sourceType: 'POLYFACE_MESH',
+  });
+};
+
+const extractPlaneSurface = (entity, layerTable = {}) => {
+  if (String(entity?.type || '').toUpperCase() !== 'PLANESURFACE') return null;
+
+  // PLANESURFACE can have vertices directly or via boundaries
+  let vertices = [];
+  
+  // Try to extract vertices from the entity's surface points
+  if (Array.isArray(entity?.controlPointArray)) {
+    vertices = entity.controlPointArray.filter(Boolean);
+  } else if (Array.isArray(entity?.vertices)) {
+    vertices = entity.vertices.filter(Boolean);
+  } else if (Array.isArray(entity?.points)) {
+    vertices = entity.points.filter(Boolean);
+  }
+
+  // If still no vertices, try boundary extraction
+  if (vertices.length < 3 && Array.isArray(entity?.boundaryPaths)) {
+    entity.boundaryPaths.forEach((path) => {
+      if (Array.isArray(path?.vertices)) {
+        vertices.push(...path.vertices.filter(Boolean));
+      }
+    });
+  }
+
+  // Dedup and validate
+  const uniqueVertices = [];
+  const vertexKey = new Set();
+  vertices.forEach((v) => {
+    const x = Number(v?.x ?? v?.[0]);
+    const y = Number(v?.y ?? v?.[1]);
+    const z = Number(v?.z ?? v?.[2] ?? 0);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const key = `${x.toFixed(6)},${y.toFixed(6)}`;
+    if (vertexKey.has(key)) return;
+    vertexKey.add(key);
+    uniqueVertices.push([x, y, Number.isFinite(z) ? z : 0]);
+  });
+
+  if (uniqueVertices.length < 3) return null;
+
+  // For planar surface, triangulate via fan triangulation from first vertex
+  const triangles = [];
+  if (uniqueVertices.length === 3) {
+    triangles.push([0, 1, 2]);
+  } else if (uniqueVertices.length === 4) {
+    triangles.push([0, 1, 2], [0, 2, 3]);
+  } else {
+    // Fan triangulation: from vertex 0 to each edge
+    for (let i = 1; i < uniqueVertices.length - 1; i += 1) {
+      triangles.push([0, i, i + 1]);
+    }
+  }
+
+  return buildSurfaceFeature({
+    vertices: uniqueVertices,
+    triangles,
+    layer: entity?.layer,
+    layerTable,
+    sourceType: 'PLANESURFACE',
+  });
+};
+
+const _extract3dLineSurface = (entity) => {
+  if (String(entity?.type || '').toUpperCase() !== '3DLINE') return null;
+  
+  // 3DLINE is typically a wireframe; we extract it as polyline geometry, not surface
+  // Return null here; it will be handled by addPolyline in visitEntities
+  return null;
 };
 
 const getLengthQuantile = (values, q) => {
@@ -1375,6 +1640,7 @@ export const collectCadGeometryFromDxf = (dxfData) => {
     texts: [],
     dimensions: [],
     hatches: [],
+    surfaces: [],
   };
   const expandedEntities = expandCadEntities(dxfData).entities;
   const layerTable = dxfData?.tables?.layer?.layers || {};
@@ -1628,6 +1894,25 @@ export const collectCadGeometryFromDxf = (dxfData) => {
     });
   };
 
+  const addSurface = (entity) => {
+    const type = String(entity?.type || '').toUpperCase();
+    let surface = null;
+    if (type === '3DFACE' || type === 'FACE3D') {
+      surface = extract3dFaceSurface(entity, layerTable);
+    } else if (type === 'MESH') {
+      surface = extractMeshSurface(entity, layerTable);
+    } else if (type === 'POLYLINE') {
+      surface = extractPolyfaceSurface(entity, layerTable);
+    } else if (type === 'PLANESURFACE') {
+      surface = extractPlaneSurface(entity, layerTable);
+    }
+    if (!surface) return;
+    if (surface.layerNormalized !== (entity?.layer || '').toUpperCase()) {
+      repairStats.normalizedLayerName += 1;
+    }
+    geometry.surfaces.push(surface);
+  };
+
   const visitEntities = (entities) => {
     if (!Array.isArray(entities)) return;
     entities.forEach((ent) => {
@@ -1639,6 +1924,9 @@ export const collectCadGeometryFromDxf = (dxfData) => {
         case 'LWPOLYLINE':
         case 'POLYLINE':
           addPolyline(ent.vertices || [], layer, ent.type);
+          if (String(ent?.type || '').toUpperCase() === 'POLYLINE') {
+            addSurface(ent);
+          }
           break;
         case 'TEXT':
         case 'MTEXT':
@@ -1650,6 +1938,18 @@ export const collectCadGeometryFromDxf = (dxfData) => {
           break;
         case 'HATCH':
           addHatch(ent);
+          break;
+        case '3DFACE':
+        case 'FACE3D':
+        case 'MESH':
+          addSurface(ent);
+          break;
+        case 'PLANESURFACE':
+          addSurface(ent);
+          break;
+        case '3DLINE':
+          // 3DLINE is wireframe entity; render as polyline
+          addPolyline(ent.vertices || [], layer, '3DLINE');
           break;
         default:
           break;
@@ -1711,6 +2011,7 @@ export function parseDxfTextContent(text, options = {}) {
     || geometry.lines.length > 0
     || geometry.polylines.length > 0
     || geometry.texts.length > 0
+    || geometry.surfaces.length > 0
     || (Array.isArray(geometry.dimensions) && geometry.dimensions.length > 0);
 
   if (!hasRenderableCad) {

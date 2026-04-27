@@ -9,6 +9,8 @@ const IGN_FRANCE_BOUNDS = L.latLngBounds([41.0, -5.8], [51.5, 9.8]);
 const LABEL_AUTO_HIDE_THRESHOLD = 300;
 const CAD_HEAVY_VERTEX_THRESHOLD = 90000;
 const CAD_EXTREME_VERTEX_THRESHOLD = 180000;
+const CAD_TIN_FILL_TRIANGLE_LIMIT = 8000;
+const CAD_TIN_EDGE_TRIANGLE_LIMIT = 24000;
 const SHOW_DETECTION_LABELS = false;
 const SHOW_CLUSTER_COUNTERS = false;
 const SHOW_CAD_TEXT_ANNOTATIONS = false;
@@ -16,6 +18,7 @@ const EMPTY_CAD_GEOMETRY = {
   lines: [],
   polylines: [],
   texts: [],
+  surfaces: [],
   layerSummary: null,
   validation: null,
   notifications: [],
@@ -192,6 +195,21 @@ const getMapScaleDenominator = (zoom, latitudeDeg) => {
   return getRoundedScaleDenominator(denominator);
 };
 
+const getTinTriangleSamplingStep = (triangleCount, limit) => {
+  if (!Number.isFinite(triangleCount) || triangleCount <= 0) return 1;
+  if (!Number.isFinite(limit) || limit <= 0) return 1;
+  return triangleCount <= limit ? 1 : Math.ceil(triangleCount / limit);
+};
+
+const getTinElevationColor = (avgZ, minZ, maxZ) => {
+  if (!Number.isFinite(avgZ) || !Number.isFinite(minZ) || !Number.isFinite(maxZ) || maxZ <= minZ) {
+    return '#16a34a';
+  }
+  const ratio = clampNumber((avgZ - minZ) / (maxZ - minZ), 0, 1);
+  const hue = (1 - ratio) * 220;
+  return `hsl(${hue.toFixed(0)} 78% 48%)`;
+};
+
 const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible, onPointSelect, measureMode = false, measurePoints = [], onMapContainerReady = null, onMapMetricsChange = null, onMapInstanceReady = null, markerStyleConfig = null }) => {
   const mapContainer = useRef(null);
   const mapRootContainer = useRef(null);
@@ -212,6 +230,8 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   const [showPointLayer, setShowPointLayer] = useState(true);
   const [showLineLayer, setShowLineLayer] = useState(true);
   const [showPolylineLayer, setShowPolylineLayer] = useState(true);
+  const [showTinEdges, setShowTinEdges] = useState(true);
+  const [showTinFill, setShowTinFill] = useState(false);
   const [showLabels, setShowLabels] = useState(true);
   const [removeDuplicates, setRemoveDuplicates] = useState(false);
   const [snapMode, setSnapMode] = useState(false);
@@ -1039,6 +1059,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     const rawCadLines = Array.isArray(cadGeometry?.lines) ? cadGeometry.lines : [];
     const rawCadPolylines = Array.isArray(cadGeometry?.polylines) ? cadGeometry.polylines : [];
     const cadTexts = Array.isArray(cadGeometry?.texts) ? cadGeometry.texts : [];
+    const cadSurfaces = Array.isArray(cadGeometry?.surfaces) ? cadGeometry.surfaces : [];
 
     const dedupeResult = removeDuplicates
       ? dedupeGeometryPayload({ points: rawPoints, lines: rawCadLines, polylines: rawCadPolylines })
@@ -1052,6 +1073,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     const validPoints = dedupeResult.points;
     const cadLines = dedupeResult.lines;
     const cadPolylines = dedupeResult.polylines;
+    const totalTinTriangles = cadSurfaces.reduce((sum, surface) => sum + (Array.isArray(surface?.triangles) ? surface.triangles.length : 0), 0);
 
     const overlapGroups = new Map();
     validPoints.forEach((point) => {
@@ -1366,6 +1388,13 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
             }
           });
         });
+        cadSurfaces.forEach((surface) => {
+          (Array.isArray(surface?.vertices) ? surface.vertices : []).forEach((vertex) => {
+            if (Array.isArray(vertex) && Number.isFinite(vertex[0]) && Number.isFinite(vertex[1])) {
+              snapCandidates.push({ lat: vertex[0], lng: vertex[1], type: 'tin-vertex' });
+            }
+          });
+        });
       }
 
       const snapSeen = new Set();
@@ -1462,6 +1491,79 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       });
     }
 
+    if ((showTinEdges || showTinFill) && cadSurfaces.length > 0) {
+      const visibleSurfaces = cadSurfaces.filter((surface) => isCadLayerVisible(surface));
+      const edgeSampling = getTinTriangleSamplingStep(totalTinTriangles, CAD_TIN_EDGE_TRIANGLE_LIMIT);
+      const fillSampling = getTinTriangleSamplingStep(totalTinTriangles, CAD_TIN_FILL_TRIANGLE_LIMIT);
+
+      visibleSurfaces.forEach((surface) => {
+        const vertices = Array.isArray(surface?.vertices) ? surface.vertices : [];
+        const triangles = Array.isArray(surface?.triangles) ? surface.triangles : [];
+        if (vertices.length < 3 || triangles.length === 0) return;
+
+        const surfaceMinZ = Number.isFinite(Number(surface?.minZ)) ? Number(surface.minZ) : null;
+        const surfaceMaxZ = Number.isFinite(Number(surface?.maxZ)) ? Number(surface.maxZ) : null;
+
+        for (let triIndex = 0; triIndex < triangles.length; triIndex += 1) {
+          const tri = triangles[triIndex];
+          if (!Array.isArray(tri) || tri.length !== 3) continue;
+          const v0 = vertices[tri[0]];
+          const v1 = vertices[tri[1]];
+          const v2 = vertices[tri[2]];
+          if (!Array.isArray(v0) || !Array.isArray(v1) || !Array.isArray(v2)) continue;
+          if (![v0, v1, v2].every((vertex) => Number.isFinite(vertex[0]) && Number.isFinite(vertex[1]))) continue;
+
+          const triangleLatLngs = [
+            [v0[0], v0[1]],
+            [v1[0], v1[1]],
+            [v2[0], v2[1]],
+          ];
+          if (!triangleLatLngs.some((latlng) => viewportBounds.contains(latlng))) continue;
+
+          const avgZ = ((Number(v0[2]) || 0) + (Number(v1[2]) || 0) + (Number(v2[2]) || 0)) / 3;
+
+          if (showTinFill && triIndex % fillSampling === 0) {
+            const fillColor = getTinElevationColor(avgZ, surfaceMinZ, surfaceMaxZ);
+            const polygon = L.polygon(triangleLatLngs, {
+              renderer: canvasRendererRef.current || undefined,
+              color: fillColor,
+              weight: 0,
+              fillOpacity: 0.42,
+              interactive: false,
+            }).addTo(map.current);
+            geometryLayersRef.current.push(polygon);
+            markers.current.push(polygon);
+          }
+
+          if (showTinEdges && triIndex % edgeSampling === 0) {
+            const edge = L.polyline([...triangleLatLngs, triangleLatLngs[0]], {
+              renderer: canvasRendererRef.current || undefined,
+              color: '#16a34a',
+              weight: 1,
+              opacity: 0.46,
+            })
+              .bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(surface.layer || 'TIN surface')}</b><br/>Type: ${escapeHtml(surface.sourceType || 'TIN')}<br/>Triangle: ${triIndex + 1}/${triangles.length}<br/>Avg Z: ${avgZ.toFixed(3)} m</div>`)
+              .on('click', () => {
+                emit('cad:entityPicked', {
+                  type: 'TIN_TRIANGLE',
+                  layer: surface.layer || '',
+                  colorHex: '#16a34a',
+                  sourceType: surface.sourceType || 'TIN',
+                  handle: surface.handle || null,
+                  triangleIndex: triIndex,
+                  triangleCount: triangles.length,
+                  vertexCount: vertices.length,
+                  length: null,
+                });
+              })
+              .addTo(map.current);
+            geometryLayersRef.current.push(edge);
+            markers.current.push(edge);
+          }
+        }
+      });
+    }
+
     if (annotationsVisible && SHOW_CAD_TEXT_ANNOTATIONS) {
       // Collect all text assigned to points to avoid rendering duplicates
       const usedTextValues = new Set();
@@ -1509,6 +1611,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       cadLines.map((l) => `${l?.start?.[0] ?? ''},${l?.start?.[1] ?? ''}->${l?.end?.[0] ?? ''},${l?.end?.[1] ?? ''}`).join('|'),
       cadPolylines.map((pl) => (pl?.points || []).map((p) => `${p?.[0] ?? ''},${p?.[1] ?? ''}`).join(';')).join('|'),
       cadTexts.map((textEntity) => `${textEntity?.position?.[0] ?? ''},${textEntity?.position?.[1] ?? ''}:${textEntity?.text ?? ''}`).join('|'),
+      cadSurfaces.map((surface) => `${surface?.layer || ''}:${surface?.vertexCount || (surface?.vertices || []).length}:${surface?.triangleCount || (surface?.triangles || []).length}`).join('|'),
     ].join('||');
     const fitSignature = `${pointsSignature}__${geometrySignature}`;
 
@@ -1541,7 +1644,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         map.current.off('moveend', handleViewChange);
       }
     };
-  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, onMapInstanceReady, getMarkerColor, getPointLabelMarkup, isCadLayerVisible, isGeometryInBounds, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showLabels, effectiveShowLabels, annotationsVisible, hiddenCadLayers, pointSymbol, pointSizeScale, removeDuplicates, snapMode, snapRadiusPx, markerStyleConfig]);
+  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, onMapInstanceReady, getMarkerColor, getPointLabelMarkup, isCadLayerVisible, isGeometryInBounds, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showTinEdges, showTinFill, showLabels, effectiveShowLabels, annotationsVisible, hiddenCadLayers, pointSymbol, pointSizeScale, removeDuplicates, snapMode, snapRadiusPx, markerStyleConfig]);
 
   return (
     <div
@@ -1666,6 +1769,34 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
                   }}
                 >
                   Polylines
+                </button>
+                <button
+                  onClick={() => setShowTinEdges((v) => !v)}
+                  style={{
+                    border: '1px solid rgba(148,163,184,0.55)',
+                    background: showTinEdges ? 'rgba(22,163,74,0.78)' : 'rgba(15,23,42,0.65)',
+                    color: '#e2e8f0',
+                    borderRadius: '999px',
+                    fontSize: '9px',
+                    padding: '2px 7px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  TIN Edges
+                </button>
+                <button
+                  onClick={() => setShowTinFill((v) => !v)}
+                  style={{
+                    border: '1px solid rgba(148,163,184,0.55)',
+                    background: showTinFill ? 'rgba(14,116,144,0.78)' : 'rgba(15,23,42,0.65)',
+                    color: '#e2e8f0',
+                    borderRadius: '999px',
+                    fontSize: '9px',
+                    padding: '2px 7px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  TIN Fill
                 </button>
                 <button
                   onClick={() => {

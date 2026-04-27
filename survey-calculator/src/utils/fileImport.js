@@ -348,7 +348,7 @@ export async function parseKMZFile(file, options = {}) {
 
   const merged = {
     rows: [],
-    geometry: { lines: [], polylines: [], texts: [], layerSummary: null, validation: null, notifications: [], repairs: null, localPreview: false },
+    geometry: { lines: [], polylines: [], texts: [], surfaces: [], layerSummary: null, validation: null, notifications: [], repairs: null, localPreview: false },
     detectedFromCrs: 'EPSG:4326',
     crsSuggestions: [],
     sourceFormat: 'kmz',

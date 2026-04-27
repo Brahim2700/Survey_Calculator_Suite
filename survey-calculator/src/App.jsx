@@ -37,6 +37,7 @@ const EMPTY_CAD_GEOMETRY = {
   lines: [],
   polylines: [],
   texts: [],
+  surfaces: [],
   layerSummary: null,
   validation: null,
   notifications: [],
@@ -141,11 +142,12 @@ function App() {
 
   useEffect(() => {
     const off = on("converter:cadGeometryForMap", ({ geometry, append = false, sourceKey = null }) => {
-      if (geometry && (Array.isArray(geometry.lines) || Array.isArray(geometry.polylines) || Array.isArray(geometry.texts))) {
+      if (geometry && (Array.isArray(geometry.lines) || Array.isArray(geometry.polylines) || Array.isArray(geometry.texts) || Array.isArray(geometry.surfaces))) {
         const normalizedGeometry = {
           lines: (Array.isArray(geometry.lines) ? geometry.lines : []).map((line) => ({ ...line, sourceFileKey: sourceKey || line?.sourceFileKey || null })),
           polylines: (Array.isArray(geometry.polylines) ? geometry.polylines : []).map((polyline) => ({ ...polyline, sourceFileKey: sourceKey || polyline?.sourceFileKey || null })),
           texts: (Array.isArray(geometry.texts) ? geometry.texts : []).map((text) => ({ ...text, sourceFileKey: sourceKey || text?.sourceFileKey || null })),
+          surfaces: (Array.isArray(geometry.surfaces) ? geometry.surfaces : []).map((surface) => ({ ...surface, sourceFileKey: sourceKey || surface?.sourceFileKey || null })),
           layerSummary: geometry.layerSummary || null,
           validation: geometry.validation || null,
           notifications: Array.isArray(geometry.notifications) ? geometry.notifications : [],
@@ -158,6 +160,7 @@ function App() {
             lines: [...(Array.isArray(prev?.lines) ? prev.lines : []), ...normalizedGeometry.lines],
             polylines: [...(Array.isArray(prev?.polylines) ? prev.polylines : []), ...normalizedGeometry.polylines],
             texts: [...(Array.isArray(prev?.texts) ? prev.texts : []), ...normalizedGeometry.texts],
+            surfaces: [...(Array.isArray(prev?.surfaces) ? prev.surfaces : []), ...normalizedGeometry.surfaces],
             layerSummary: normalizedGeometry.layerSummary || prev?.layerSummary || null,
             validation: normalizedGeometry.validation || prev?.validation || null,
             notifications: [...(Array.isArray(prev?.notifications) ? prev.notifications : []), ...normalizedGeometry.notifications],
@@ -302,10 +305,17 @@ function App() {
       const layer = touchLayer(text?.sourceFileKey || null);
       layer.textCount += 1;
     });
+    (Array.isArray(cadGeometry?.surfaces) ? cadGeometry.surfaces : []).forEach((surface) => {
+      const layer = touchLayer(surface?.sourceFileKey || null);
+      layer.surfaceCount = (layer.surfaceCount || 0) + 1;
+      layer.triangleCount = (layer.triangleCount || 0) + (Array.isArray(surface?.triangles) ? surface.triangles.length : 0);
+    });
 
     return Array.from(stats.values()).map((entry) => ({
       ...entry,
       visible: !hiddenLayerKeys.includes(entry.key),
+      surfaceCount: Number(entry.surfaceCount || 0),
+      triangleCount: Number(entry.triangleCount || 0),
     }));
   }, [cadGeometry, converterPoints, hiddenLayerKeys]);
 
@@ -327,6 +337,7 @@ function App() {
       lines: (Array.isArray(cadGeometry?.lines) ? cadGeometry.lines : []).filter((line) => isFileVisible(line?.sourceFileKey) && isDxfLayerVisible(line)),
       polylines: (Array.isArray(cadGeometry?.polylines) ? cadGeometry.polylines : []).filter((polyline) => isFileVisible(polyline?.sourceFileKey) && isDxfLayerVisible(polyline)),
       texts: (Array.isArray(cadGeometry?.texts) ? cadGeometry.texts : []).filter((text) => isFileVisible(text?.sourceFileKey) && isDxfLayerVisible(text)),
+      surfaces: (Array.isArray(cadGeometry?.surfaces) ? cadGeometry.surfaces : []).filter((surface) => isFileVisible(surface?.sourceFileKey) && isDxfLayerVisible(surface)),
     };
   }, [cadGeometry, hiddenLayerKeys, hiddenDxfLayers]);
 
@@ -402,6 +413,8 @@ function App() {
         { label: "CAD lines", value: cadGeometry.lines.length },
         { label: "CAD polylines", value: cadGeometry.polylines.length },
         { label: "CAD texts", value: cadGeometry.texts.length },
+        { label: "CAD surfaces", value: (Array.isArray(cadGeometry.surfaces) ? cadGeometry.surfaces.length : 0) },
+        { label: "TIN triangles", value: (Array.isArray(cadGeometry.surfaces) ? cadGeometry.surfaces.reduce((sum, s) => sum + (Array.isArray(s?.triangles) ? s.triangles.length : 0), 0) : 0) },
         { label: "Measure mode", value: measureMode ? "ON" : "OFF" },
         { label: "Measure points", value: measurePoints.length },
         { label: "Total ground dist", value: `${totalGroundDistance.toFixed(3)} m` },

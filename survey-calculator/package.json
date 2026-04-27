@@ -13,6 +13,9 @@
     "lint": "eslint .",
     "test:crs": "node ./scripts/crs-detection-test.mjs",
     "test:crs:regression": "node ./scripts/crs-detection-regression.mjs",
+    "test:cad:surfaces": "node ./scripts/cad-surface-regression.mjs",
+    "test:cad:surfaces:fixture": "node ./scripts/cad-fixture-regression.mjs",
+    "test:cad:all": "node ./scripts/cad-regression-all.mjs",
     "test:benchmark": "node ./scripts/benchmark-regression-test.mjs",
     "preview": "vite preview",
     "generate:samples": "node ./scripts/generate-samples.mjs"
