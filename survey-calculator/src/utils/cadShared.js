@@ -919,11 +919,25 @@ const expandCadEntities = (dxfData, options = {}) => {
     diagnostics.resolution.skippedEntitiesByType[normalizedType] = (diagnostics.resolution.skippedEntitiesByType[normalizedType] || 0) + 1;
   };
 
-  const visitEntities = (entities, transform, depth, ancestry = [], sourceBlock = null) => {
-    if (!Array.isArray(entities)) return;
+  // Use iterative approach with work queue instead of recursion to avoid stack overflow on large files
+  const workQueue = [
+    {
+      entities: dxfData?.entities || [],
+      transform: identityCadTransform(),
+      depth: 0,
+      ancestry: [],
+      sourceBlock: null,
+    },
+  ];
+
+  while (workQueue.length > 0) {
+    const work = workQueue.shift();
+    const { entities, transform, depth, ancestry, sourceBlock } = work;
+
+    if (!Array.isArray(entities)) continue;
     diagnostics.resolution.nestedInsertDepthMax = Math.max(diagnostics.resolution.nestedInsertDepthMax, depth);
 
-    entities.forEach((entity) => {
+    for (const entity of entities) {
       const type = String(entity?.type || 'UNKNOWN').toUpperCase();
 
       if (type === 'INSERT') {
@@ -974,7 +988,7 @@ const expandCadEntities = (dxfData, options = {}) => {
               layer: insertEntity.layer || null,
             }, `${insertName || '(unnamed)'}:${insertEntity.layer || ''}:${depth}`);
           }
-          return;
+          continue;
         }
 
         if ((!Array.isArray(block?.entities) || block.entities.length === 0) && isLikelyXrefReference(insertName, block)) {
@@ -990,28 +1004,34 @@ const expandCadEntities = (dxfData, options = {}) => {
             name: insertName,
             chain: [...ancestry, insertName],
           }, [...ancestry, insertName].join('>'));
-          return;
+          continue;
         }
 
         if (depth >= maxDepth) {
           diagnostics.resolution.transformWarnings.push(`Maximum CAD block nesting depth (${maxDepth}) reached at ${insertName}.`);
-          return;
+          continue;
         }
 
-        visitEntities(block?.entities, insertTransform, depth + 1, [...ancestry, insertName], insertName);
-        return;
+        // Queue block entities for processing instead of recursive call
+        workQueue.push({
+          entities: block?.entities || [],
+          transform: insertTransform,
+          depth: depth + 1,
+          ancestry: [...ancestry, insertName],
+          sourceBlock: insertName,
+        });
+        continue;
       }
 
       const transformed = transformCadEntity(entity, transform, { depth, sourceBlock });
       if (!transformed) {
         markSkipped(type);
-        return;
+        continue;
       }
       flattened.push(transformed);
-    });
-  };
+    }
+  }
 
-  visitEntities(dxfData?.entities, identityCadTransform(), 0, [], null);
   diagnostics.resolution.expandedEntityCount = flattened.length;
   return { entities: flattened, diagnostics };
 };
@@ -1441,7 +1461,8 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
   const pointsOnly = options.pointsOnly || false;
   let detectedFromCrs = detectCrsFromDxf(dxfData);
   const seenCoords = new Map();
-  const expandedCad = expandCadEntities(dxfData, options);
+  // Reuse pre-computed expanded entities if provided to avoid double processing
+  const expandedCad = options.expandedCad || expandCadEntities(dxfData, options);
   const expandedEntities = expandedCad.entities;
   const segments = getEntitySegments(expandedEntities);
   const drawingPoints = [
@@ -1632,7 +1653,7 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
   return { rows, diagnostics };
 };
 
-export const collectCadGeometryFromDxf = (dxfData) => {
+export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
   const DIMENSION_TYPE_LABELS = ['Linear', 'Aligned', 'Angular (3pt)', 'Diameter', 'Radius', 'Angular (2L)', 'Ordinate'];
   const geometry = {
     lines: [],
@@ -1642,7 +1663,8 @@ export const collectCadGeometryFromDxf = (dxfData) => {
     hatches: [],
     surfaces: [],
   };
-  const expandedEntities = expandCadEntities(dxfData).entities;
+  // Reuse pre-computed expanded entities to avoid double processing on large files
+  const expandedEntities = expandedCad?.entities || expandCadEntities(dxfData).entities;
   const layerTable = dxfData?.tables?.layer?.layers || {};
   const styleTable = getStyleTable(dxfData);
   const repairStats = {
@@ -1981,9 +2003,21 @@ export function parseDxfTextContent(text, options = {}) {
     throw new Error(`Failed to parse DXF: ${err.message || err}`);
   }
 
-  const pointResult = collectPointRowsFromDxf(dxf, options);
+  // Compute expanded entities once to avoid double processing on large files
+  // that can cause stack overflow with deeply nested blocks or many entities
+  let expandedCad;
+  try {
+    expandedCad = expandCadEntities(dxf, options);
+  } catch (err) {
+    if (String(err?.message || err).includes('stack') || String(err?.message || err).includes('recursion')) {
+      throw new Error(`DXF file too complex to parse: ${err.message || 'Block nesting or entity count too high. Try splitting the file.'}`);
+    }
+    throw err;
+  }
+
+  const pointResult = collectPointRowsFromDxf(dxf, { ...options, expandedCad });
   const rows = pointResult.rows;
-  const geometry = collectCadGeometryFromDxf(dxf);
+  const geometry = collectCadGeometryFromDxf(dxf, expandedCad);
   const headerCrsHint = extractDxfHeaderCrsHint(dxf);
   const validation = buildCadValidationSummary({
     rows,
