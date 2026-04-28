@@ -2048,96 +2048,87 @@ const MAX_DXF_ENTITY_GROUPS = 150_000;
 const DXF_SIZE_THRESHOLD_BYTES = 20 * 1024 * 1024; // only pre-process if DXF > 20 MB
 
 /**
- * Find the byte offset of the start of a named DXF section in raw text.
- * Returns the offset just BEFORE the "  0\nSECTION\n  2\nNAME" sequence, or -1.
- * DXF line endings may be \n or \r\n; we match both.
+ * Locate the start of a named DXF section in raw text (offset of the leading newline
+ * before "  0\r\nSECTION\r\n  2\r\nNAME").  Returns -1 if not found.
  */
-function findDxfSectionStart(text, sectionName) {
+function findDxfSectionBodyStart(text, sectionName) {
   const upper = sectionName.toUpperCase();
-  // Match: newline + optional-spaces + '0' + newline + optional-spaces + 'SECTION' + newline + optional-spaces + '2' + newline + optional-spaces + NAME
+  // Match: newline + 0 + newline + SECTION + newline + 2 + newline + NAME + newline
   const re = new RegExp(
-    '\r?\n[ \t]*0[ \t]*\r?\n[ \t]*SECTION[ \t]*\r?\n[ \t]*2[ \t]*\r?\n[ \t]*' + upper + '[ \t]*(\r?\n|$)',
+    '\\r?\\n[ \\t]*0[ \\t]*\\r?\\n[ \\t]*SECTION[ \\t]*\\r?\\n[ \\t]*2[ \\t]*\\r?\\n[ \\t]*' +
+    upper +
+    '[ \\t]*\\r?\\n',
     'i'
   );
   const m = re.exec(text);
-  return m ? m.index : -1;
+  if (!m) return -1;
+  return m.index + m[0].length; // offset right after the ENTITIES\r\n header
 }
 
 /**
- * Find the byte offset of the ENDSEC immediately following a section start offset.
- * Returns the offset (relative to the full text) of the \r?\n before the 0/ENDSEC pair,
- * or -1 if not found.
- */
-function findDxfEndsec(text, fromOffset) {
-  const re = /\r?\n[ \t]*0[ \t]*\r?\n[ \t]*ENDSEC[ \t]*(\r?\n|$)/i;
-  const sub = text.slice(fromOffset);
-  const m = re.exec(sub);
-  return m ? fromOffset + m.index : -1;
-}
-
-/**
- * Pre-process a large DXF text string to reduce parse time by capping the number
- * of entity groups in the ENTITIES section.
+ * Pre-process a large DXF text string to reduce parseSync() time.
  *
- * Strategy:
- *  – Keep everything before ENTITIES section unchanged (raw string copy).
- *  – Process only ENTITIES section line-by-line, stopping at MAX entity groups.
- *  – Append ENDSEC + EOF immediately when limit is hit (no need to scan to real ENDSEC).
- *  – Everything after ENTITIES (OBJECTS etc.) is omitted — not needed for geometry.
+ * Strategy: locate the ENTITIES section body, count entity groups (group-code 0
+ * pairs) one at a time. Once we hit MAX_DXF_ENTITY_GROUPS, find the next clean
+ * entity boundary and inject "  0\r\nENDSEC\r\n  0\r\nEOF\r\n" there.
+ * Everything before the ENTITIES section is copied verbatim (raw string slice —
+ * no line splitting, no \r\n mangling).
  */
 function limitDxfTextSize(dxfText) {
   if (typeof dxfText !== 'string' || dxfText.length < DXF_SIZE_THRESHOLD_BYTES) {
     return dxfText;
   }
 
-  // Find the ENTITIES section start
-  const entitiesStart = findDxfSectionStart(dxfText, 'ENTITIES');
-  if (entitiesStart === -1) return dxfText; // no ENTITIES section found — pass through
+  const bodyStart = findDxfSectionBodyStart(dxfText, 'ENTITIES');
+  if (bodyStart === -1) return dxfText;
 
-  // Find the ENTITIES ENDSEC to know the section body range
-  const endsecOffset = findDxfEndsec(dxfText, entitiesStart + 1);
-  if (endsecOffset === -1) return dxfText; // malformed — pass through
+  // Determine the line-ending style so injected lines match the rest of the file.
+  const crlf = dxfText.includes('\r\n');
+  const nl = crlf ? '\r\n' : '\n';
 
-  // prefix = everything from file start up to AND including the SECTION marker for ENTITIES
-  // We re-find the exact marker text to include it in prefix
-  const markerRe = /\r?\n[ \t]*0[ \t]*\r?\n[ \t]*SECTION[ \t]*\r?\n[ \t]*2[ \t]*\r?\n[ \t]*ENTITIES[ \t]*(\r?\n|$)/i;
-  markerRe.lastIndex = entitiesStart;
-  const markerMatch = markerRe.exec(dxfText);
-  if (!markerMatch) return dxfText;
-
-  const sectionBodyStart = markerMatch.index + markerMatch[0].length;
-  const prefix = dxfText.slice(0, sectionBodyStart); // includes SECTION header
-
-  // Now process the ENTITIES section body pair-by-pair
-  const body = dxfText.slice(sectionBodyStart, endsecOffset);
-  const lines = body.split('\n');
-  const out = [];
-  let i = 0;
+  // Walk the ENTITIES body reading strict DXF pairs (code-line + value-line).
+  // Advancing ONE line at a time is wrong — a value line whose content is "0"
+  // (e.g. lineweight=0 for code 370, transparency=0 for code 440) would be
+  // mis-counted as an entity-start group code.  We must advance TWO lines per
+  // iteration to stay aligned with the alternating code/value structure.
+  let pos = bodyStart;
   let entityGroups = 0;
+  const textLen = dxfText.length;
 
-  while (i < lines.length) {
-    const codeLine = lines[i];
-    const valueLine = i + 1 < lines.length ? lines[i + 1] : '';
-    const code = parseInt(codeLine.trim(), 10);
+  while (pos < textLen) {
+    // --- Read the CODE line ---
+    const codeLineEnd = dxfText.indexOf('\n', pos);
+    if (codeLineEnd === -1) break;
+    const codeLine = dxfText.slice(pos, codeLineEnd).trim();
 
-    if (code === 0) {
-      const kw = valueLine.trim().toUpperCase();
-      if (kw !== 'ENDSEC') {
-        entityGroups++;
-        if (entityGroups > MAX_DXF_ENTITY_GROUPS) {
-          // Stop here — inject close and EOF immediately
-          out.push('  0', 'ENDSEC', '  0', 'EOF');
-          return prefix + out.join('\n') + '\n';
-        }
+    // --- Read the VALUE line ---
+    const valStart = codeLineEnd + 1;
+    const valLineEnd = dxfText.indexOf('\n', valStart);
+    const valLine = valLineEnd === -1
+      ? dxfText.slice(valStart).trim()
+      : dxfText.slice(valStart, valLineEnd).trim();
+
+    if (codeLine === '0') {
+      const kw = valLine.toUpperCase().replace(/\r$/, '');
+      if (kw === 'ENDSEC') break; // reached end of ENTITIES naturally
+      if (kw === 'EOF') break;
+
+      entityGroups++;
+      if (entityGroups > MAX_DXF_ENTITY_GROUPS) {
+        // pos is the start of the (MAX_DXF_ENTITY_GROUPS+1)-th entity's code line.
+        // The previous entity is complete — inject ENDSEC + EOF right here.
+        const prefix = dxfText.slice(0, pos);
+        const suffix = `  0${nl}ENDSEC${nl}  0${nl}EOF${nl}`;
+        return prefix + suffix;
       }
     }
 
-    out.push(codeLine);
-    i++;
+    // Advance by TWO lines (code line + value line) to stay pair-aligned.
+    pos = (valLineEnd === -1 ? textLen : valLineEnd + 1);
   }
 
-  // Normal end — append the remaining ENDSEC + anything needed
-  return prefix + out.join('\n') + '\n  0\nENDSEC\n  0\nEOF\n';
+  // Fell through without hitting the limit — return as-is
+  return dxfText;
 }
 
 export function parseDxfTextContent(text, options = {}) {
