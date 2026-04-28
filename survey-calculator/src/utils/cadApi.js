@@ -7,10 +7,12 @@ const CAD_UPLOAD_MAX_BYTES = 100 * 1024 * 1024; // 100 MB
 const CAD_CHUNK_MODE_MIN_BYTES = Number(import.meta.env.VITE_CAD_CHUNK_MODE_MIN_MB || 20) * 1024 * 1024;
 const CAD_UPLOAD_CHUNK_BYTES = Number(import.meta.env.VITE_CAD_UPLOAD_CHUNK_MB || 5) * 1024 * 1024;
 const CAD_MAX_CHUNK_RETRIES = 3;
+const CAD_COMPLEX_FILE_BYTES = Number(import.meta.env.VITE_CAD_COMPLEX_FILE_MB || 6) * 1024 * 1024;
 
 // How long to wait for the CAD backend to respond (upload + conversion + parse).
 // Native DWG conversion via ODA/LibreDWG can take 30-90 s for large files.
 const CAD_REQUEST_TIMEOUT_MS = 150_000; // 2.5 minutes
+const CAD_COMPLEX_REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_CAD_COMPLEX_TIMEOUT_MS || 480_000); // 8 minutes
 
 function buildBackendUnavailableMessage() {
   return `Native DWG import requires the CAD backend service. Current CAD API target: ${CAD_API_BASE_URL}. Use the hosted CAD API or start "npm run dev:server" for local development.`;
@@ -149,34 +151,54 @@ export async function parseCadFileViaBackend(file, options = {}) {
     }
   }
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), CAD_REQUEST_TIMEOUT_MS);
-
-  let payload;
-  try {
+  const requestTimeoutMs = file.size >= CAD_COMPLEX_FILE_BYTES
+    ? CAD_COMPLEX_REQUEST_TIMEOUT_MS
+    : CAD_REQUEST_TIMEOUT_MS;
+  const runParseAttempt = async (attemptOptions, signal) => {
     if (file.size >= CAD_CHUNK_MODE_MIN_BYTES) {
       if (typeof onProgress === 'function') {
         onProgress(`Large CAD detected (${fileSizeMB} MB). Switching to chunked upload mode...`);
       }
       try {
-        payload = await uploadCadAndParseChunked(file, options, controller.signal);
-      } catch (chunkErr) {
+        return await uploadCadAndParseChunked(file, attemptOptions, signal);
+      } catch {
         if (typeof onProgress === 'function') {
           onProgress('Chunked upload unavailable on current backend. Falling back to direct upload...');
         }
-        payload = await uploadCadAndParseDirect(file, options, controller.signal);
+        return uploadCadAndParseDirect(file, attemptOptions, signal);
       }
-    } else {
-      payload = await uploadCadAndParseDirect(file, options, controller.signal);
     }
+    return uploadCadAndParseDirect(file, attemptOptions, signal);
+  };
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), requestTimeoutMs);
+
+  let payload;
+  try {
+    payload = await runParseAttempt(options, controller.signal);
   } catch (err) {
-    if (err?.name === 'AbortError') {
+    if (err?.name === 'AbortError' && !options.pointsOnly) {
+      if (typeof onProgress === 'function') {
+        onProgress('Full CAD extraction is taking too long. Retrying in fast preview mode (points only)...');
+      }
+      const fallbackController = new AbortController();
+      const fallbackTimeoutId = setTimeout(() => fallbackController.abort(), requestTimeoutMs);
+      try {
+        payload = await runParseAttempt({ ...options, pointsOnly: true }, fallbackController.signal);
+      } finally {
+        clearTimeout(fallbackTimeoutId);
+      }
+    } else if (err?.name === 'AbortError') {
       throw new Error(
-        `The CAD backend did not respond within ${CAD_REQUEST_TIMEOUT_MS / 1000} seconds. ` +
-        `This can happen with very complex DWG files. Try a simpler drawing or check that the backend service is running.`
+        `The CAD backend did not respond within ${Math.round(requestTimeoutMs / 1000)} seconds. ` +
+        `This can happen with very complex DWG files. Try enabling points-only preview first, then refine layers.`
       );
+    } else if (err?.message) {
+      throw new Error(err.message);
+    } else {
+      throw new Error(buildBackendUnavailableMessage());
     }
-    throw new Error(buildBackendUnavailableMessage());
   } finally {
     clearTimeout(timeoutId);
     for (const t of progressTimers) clearTimeout(t);

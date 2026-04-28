@@ -2035,7 +2035,21 @@ export function parseDxfTextContent(text, options = {}) {
 
   const pointResult = collectPointRowsFromDxf(dxf, { ...options, expandedCad });
   const rows = pointResult.rows;
-  const geometry = collectCadGeometryFromDxf(dxf, expandedCad);
+
+  // In points-only mode skip heavy geometry extraction for faster large-file previews.
+  const geometry = options.pointsOnly
+    ? {
+      lines: [],
+      polylines: [],
+      texts: [],
+      dimensions: [],
+      hatches: [],
+      surfaces: [],
+      layerSummary: null,
+      repairs: {},
+    }
+    : collectCadGeometryFromDxf(dxf, expandedCad);
+
   const headerCrsHint = extractDxfHeaderCrsHint(dxf);
   const validation = buildCadValidationSummary({
     rows,
@@ -2060,11 +2074,13 @@ export function parseDxfTextContent(text, options = {}) {
   geometry.headerCrsHint = headerCrsHint;
 
   const hasRenderableCad = rows.length > 0
-    || geometry.lines.length > 0
-    || geometry.polylines.length > 0
-    || geometry.texts.length > 0
-    || geometry.surfaces.length > 0
-    || (Array.isArray(geometry.dimensions) && geometry.dimensions.length > 0);
+    || (!options.pointsOnly && (
+      geometry.lines.length > 0
+      || geometry.polylines.length > 0
+      || geometry.texts.length > 0
+      || geometry.surfaces.length > 0
+      || (Array.isArray(geometry.dimensions) && geometry.dimensions.length > 0)
+    ));
 
   if (!hasRenderableCad) {
     const hint = options.pointsOnly
