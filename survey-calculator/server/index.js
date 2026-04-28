@@ -1,6 +1,9 @@
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
+import fs from 'node:fs/promises';
 import { getCadBackendStatus, parseCadUpload } from './cadService.js';
 
 const app = express();
@@ -14,6 +17,39 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: uploadLimitMb * 1024 * 1024 },
 });
+const chunkUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: uploadLimitMb * 1024 * 1024 },
+});
+const chunkRootDir = path.join(tmpdir(), 'survey-cad-chunks');
+
+async function ensureChunkRootDir() {
+  await fs.mkdir(chunkRootDir, { recursive: true });
+}
+
+function parseIntegerOrNull(value) {
+  const n = Number(value);
+  return Number.isInteger(n) ? n : null;
+}
+
+async function cleanupUploadDir(uploadId) {
+  const uploadDir = path.join(chunkRootDir, uploadId);
+  await fs.rm(uploadDir, { recursive: true, force: true });
+}
+
+async function readChunkMeta(uploadId) {
+  const uploadDir = path.join(chunkRootDir, uploadId);
+  const metaPath = path.join(uploadDir, 'meta.json');
+  const raw = await fs.readFile(metaPath, 'utf8');
+  return { uploadDir, metaPath, meta: JSON.parse(raw) };
+}
+
+async function writeChunkMeta(uploadId, meta) {
+  const uploadDir = path.join(chunkRootDir, uploadId);
+  await fs.mkdir(uploadDir, { recursive: true });
+  const metaPath = path.join(uploadDir, 'meta.json');
+  await fs.writeFile(metaPath, JSON.stringify(meta), 'utf8');
+}
 
 app.use(cors({
   origin(origin, callback) {
@@ -27,6 +63,122 @@ app.use(cors({
 
 app.get('/api/cad/health', (_req, res) => {
   res.json(getCadBackendStatus());
+});
+
+app.post('/api/cad/upload/chunk', chunkUpload.single('chunk'), async (req, res) => {
+  try {
+    if (!req.file) {
+      res.status(400).json({ message: 'No chunk data was uploaded.' });
+      return;
+    }
+
+    await ensureChunkRootDir();
+
+    const uploadId = String(req.body?.uploadId || '').trim();
+    const fileName = String(req.body?.fileName || '').trim();
+    const chunkIndex = parseIntegerOrNull(req.body?.chunkIndex);
+    const totalChunks = parseIntegerOrNull(req.body?.totalChunks);
+
+    if (!uploadId || !fileName || chunkIndex === null || totalChunks === null || totalChunks <= 0 || chunkIndex < 0 || chunkIndex >= totalChunks) {
+      res.status(400).json({ message: 'Invalid chunk metadata.' });
+      return;
+    }
+
+    const uploadDir = path.join(chunkRootDir, uploadId);
+    await fs.mkdir(uploadDir, { recursive: true });
+
+    const { meta } = await (async () => {
+      try {
+        return await readChunkMeta(uploadId);
+      } catch {
+        const newMeta = {
+          uploadId,
+          fileName,
+          totalChunks,
+          createdAt: Date.now(),
+          received: {},
+          pointsOnly: false,
+        };
+        await writeChunkMeta(uploadId, newMeta);
+        return { meta: newMeta };
+      }
+    })();
+
+    if (meta.fileName !== fileName || meta.totalChunks !== totalChunks) {
+      res.status(400).json({ message: 'Chunk metadata mismatch for existing upload session.' });
+      return;
+    }
+
+    const chunkPath = path.join(uploadDir, `${chunkIndex}.part`);
+    await fs.writeFile(chunkPath, req.file.buffer);
+    meta.received[String(chunkIndex)] = req.file.size;
+    await writeChunkMeta(uploadId, meta);
+
+    const receivedChunks = Object.keys(meta.received).length;
+    res.json({
+      ok: true,
+      uploadId,
+      receivedChunks,
+      totalChunks,
+      complete: receivedChunks === totalChunks,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message || 'Chunk upload failed.' });
+  }
+});
+
+app.post('/api/cad/upload/complete', express.json({ limit: '1mb' }), async (req, res) => {
+  const uploadId = String(req.body?.uploadId || '').trim();
+  const fileName = String(req.body?.fileName || '').trim();
+  const pointsOnly = String(req.body?.pointsOnly || '').toLowerCase() === 'true';
+
+  if (!uploadId || !fileName) {
+    res.status(400).json({ message: 'Missing upload completion metadata.' });
+    return;
+  }
+
+  try {
+    const { uploadDir, meta } = await readChunkMeta(uploadId);
+    if (meta.fileName !== fileName) {
+      res.status(400).json({ message: 'Upload completion metadata mismatch.' });
+      return;
+    }
+
+    const expected = Number(meta.totalChunks);
+    const partBuffers = [];
+    let totalSize = 0;
+
+    for (let i = 0; i < expected; i += 1) {
+      const partPath = path.join(uploadDir, `${i}.part`);
+      const part = await fs.readFile(partPath);
+      partBuffers.push(part);
+      totalSize += part.length;
+    }
+
+    const combined = Buffer.concat(partBuffers, totalSize);
+    const result = await parseCadUpload({
+      buffer: combined,
+      originalName: fileName,
+      fileSizeBytes: combined.length,
+      pointsOnly,
+    });
+
+    await cleanupUploadDir(uploadId);
+
+    res.json({
+      rows: result.rows,
+      geometry: result.geometry || null,
+      sourceFormat: result.sourceFormat,
+      warnings: result.warnings || [],
+      inspection: result.inspection || null,
+    });
+  } catch (err) {
+    await cleanupUploadDir(uploadId);
+    const statusCode = err.statusCode || 500;
+    res.status(statusCode).json({
+      message: err.message || 'Chunk completion parsing failed.',
+    });
+  }
 });
 
 app.post('/api/cad/parse', upload.single('file'), async (req, res) => {

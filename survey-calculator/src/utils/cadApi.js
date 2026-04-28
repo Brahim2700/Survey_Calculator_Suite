@@ -4,6 +4,9 @@ const CAD_API_BASE_URL = import.meta.env.VITE_CAD_API_BASE_URL || '/api/cad';
 // The server enforces 100 MB via CAD_MAX_UPLOAD_MB; we keep the same cap here
 // to produce a friendly error message before the request is even sent.
 const CAD_UPLOAD_MAX_BYTES = 100 * 1024 * 1024; // 100 MB
+const CAD_CHUNK_MODE_MIN_BYTES = Number(import.meta.env.VITE_CAD_CHUNK_MODE_MIN_MB || 20) * 1024 * 1024;
+const CAD_UPLOAD_CHUNK_BYTES = Number(import.meta.env.VITE_CAD_UPLOAD_CHUNK_MB || 5) * 1024 * 1024;
+const CAD_MAX_CHUNK_RETRIES = 3;
 
 // How long to wait for the CAD backend to respond (upload + conversion + parse).
 // Native DWG conversion via ODA/LibreDWG can take 30-90 s for large files.
@@ -24,6 +27,83 @@ async function parseJsonSafely(response) {
   }
 }
 
+async function uploadCadFileInChunks(file, { signal, onProgress } = {}) {
+  const uploadId = crypto.randomUUID();
+  const totalChunks = Math.ceil(file.size / CAD_UPLOAD_CHUNK_BYTES);
+
+  for (let index = 0; index < totalChunks; index += 1) {
+    const start = index * CAD_UPLOAD_CHUNK_BYTES;
+    const end = Math.min(start + CAD_UPLOAD_CHUNK_BYTES, file.size);
+    const chunk = file.slice(start, end);
+
+    let success = false;
+    for (let attempt = 1; attempt <= CAD_MAX_CHUNK_RETRIES; attempt += 1) {
+      try {
+        const formData = new FormData();
+        formData.append('uploadId', uploadId);
+        formData.append('fileName', file.name);
+        formData.append('chunkIndex', String(index));
+        formData.append('totalChunks', String(totalChunks));
+        formData.append('chunk', chunk, `${file.name}.part.${index}`);
+
+        const response = await fetch(`${CAD_API_BASE_URL}/upload/chunk`, {
+          method: 'POST',
+          body: formData,
+          signal,
+        });
+
+        if (!response.ok) {
+          const payload = await parseJsonSafely(response);
+          throw new Error(payload?.message || `Chunk ${index + 1}/${totalChunks} upload failed.`);
+        }
+
+        success = true;
+        break;
+      } catch (err) {
+        if (attempt === CAD_MAX_CHUNK_RETRIES) throw err;
+        await new Promise((resolve) => setTimeout(resolve, attempt * 800));
+      }
+    }
+
+    if (!success) {
+      throw new Error(`Chunk ${index + 1}/${totalChunks} upload failed.`);
+    }
+
+    if (typeof onProgress === 'function') {
+      const pct = Math.round(((index + 1) / totalChunks) * 100);
+      onProgress(`Uploading CAD in chunks (${index + 1}/${totalChunks}) — ${pct}%`);
+    }
+  }
+
+  return { uploadId, totalChunks };
+}
+
+async function uploadCadAndParseChunked(file, options = {}, signal) {
+  const { onProgress } = options;
+  const { uploadId } = await uploadCadFileInChunks(file, { signal, onProgress });
+
+  if (typeof onProgress === 'function') {
+    onProgress('Upload complete. Finalizing and parsing CAD geometry...');
+  }
+
+  const response = await fetch(`${CAD_API_BASE_URL}/upload/complete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      uploadId,
+      fileName: file.name,
+      pointsOnly: options.pointsOnly ? 'true' : 'false',
+    }),
+    signal,
+  });
+
+  const payload = await parseJsonSafely(response);
+  if (!response.ok) {
+    throw new Error(payload?.message || 'CAD chunk upload finalization failed.');
+  }
+  return payload;
+}
+
 export async function parseCadFileViaBackend(file, options = {}) {
   if (file.size > CAD_UPLOAD_MAX_BYTES) {
     throw new Error(
@@ -32,10 +112,6 @@ export async function parseCadFileViaBackend(file, options = {}) {
       `Please reduce the file size or split it into smaller drawings.`
     );
   }
-
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('pointsOnly', options.pointsOnly ? 'true' : 'false');
 
   // --- Timed progress messages so the user knows the app is working ---
   const { onProgress } = options;
@@ -57,13 +133,29 @@ export async function parseCadFileViaBackend(file, options = {}) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), CAD_REQUEST_TIMEOUT_MS);
 
-  let response;
+  let payload;
   try {
-    response = await fetch(`${CAD_API_BASE_URL}/parse`, {
-      method: 'POST',
-      body: formData,
-      signal: controller.signal,
-    });
+    if (file.size >= CAD_CHUNK_MODE_MIN_BYTES) {
+      if (typeof onProgress === 'function') {
+        onProgress(`Large CAD detected (${fileSizeMB} MB). Switching to chunked upload mode...`);
+      }
+      payload = await uploadCadAndParseChunked(file, options, controller.signal);
+    } else {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('pointsOnly', options.pointsOnly ? 'true' : 'false');
+
+      const response = await fetch(`${CAD_API_BASE_URL}/parse`, {
+        method: 'POST',
+        body: formData,
+        signal: controller.signal,
+      });
+
+      payload = await parseJsonSafely(response);
+      if (!response.ok) {
+        throw new Error(payload?.message || buildBackendUnavailableMessage());
+      }
+    }
   } catch (err) {
     if (err?.name === 'AbortError') {
       throw new Error(
@@ -75,11 +167,6 @@ export async function parseCadFileViaBackend(file, options = {}) {
   } finally {
     clearTimeout(timeoutId);
     for (const t of progressTimers) clearTimeout(t);
-  }
-
-  const payload = await parseJsonSafely(response);
-  if (!response.ok) {
-    throw new Error(payload?.message || buildBackendUnavailableMessage());
   }
 
   if (!Array.isArray(payload?.rows)) {
