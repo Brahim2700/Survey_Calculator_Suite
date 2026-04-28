@@ -733,10 +733,18 @@ const getBoundingBoxFromPoints = (points) => {
   const xs = points.map((p) => Number(p?.x)).filter(Number.isFinite);
   const ys = points.map((p) => Number(p?.y)).filter(Number.isFinite);
   if (!xs.length || !ys.length) return null;
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
+  let minX = xs[0];
+  let maxX = xs[0];
+  for (const value of xs) {
+    if (value < minX) minX = value;
+    if (value > maxX) maxX = value;
+  }
+  let minY = ys[0];
+  let maxY = ys[0];
+  for (const value of ys) {
+    if (value < minY) minY = value;
+    if (value > maxY) maxY = value;
+  }
   return {
     minX,
     maxX,
@@ -1121,6 +1129,16 @@ const buildSurfaceFeature = ({ vertices, triangles, layer, layerTable = {}, sour
 
   const descriptor = getLayerDescriptor(layer || sourceType || 'SURFACE', layerTable[layer || sourceType || 'SURFACE']);
   const elevations = safeVertices.map((vertex) => Number(vertex[2])).filter(Number.isFinite);
+  let minZ = null;
+  let maxZ = null;
+  if (elevations.length) {
+    minZ = elevations[0];
+    maxZ = elevations[0];
+    for (const value of elevations) {
+      if (value < minZ) minZ = value;
+      if (value > maxZ) maxZ = value;
+    }
+  }
 
   return {
     layer: descriptor.displayName,
@@ -1133,8 +1151,8 @@ const buildSurfaceFeature = ({ vertices, triangles, layer, layerTable = {}, sour
     triangles: safeTriangles,
     triangleCount: safeTriangles.length,
     vertexCount: safeVertices.length,
-    minZ: elevations.length ? Math.min(...elevations) : null,
-    maxZ: elevations.length ? Math.max(...elevations) : null,
+    minZ,
+    maxZ,
   };
 };
 

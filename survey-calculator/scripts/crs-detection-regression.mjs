@@ -195,6 +195,27 @@ const main = async () => {
   const axisNormalOutcome = shouldSwapCoordinateAxesForCrs('EPSG:2154', l93Swapped.y, l93Swapped.x);
   const axisChecksPass = axisSwapOutcome === true && axisNormalOutcome === false;
 
+  // Guard against stack overflow in bounds computation on very large datasets.
+  const largePointCount = 150000;
+  const largeProjectedPoints = Array.from({ length: largePointCount }, (_, idx) => ({
+    x: 700000 + (idx % 1000) * 2,
+    y: 6600000 + Math.floor(idx / 1000),
+  }));
+  let largeDatasetPass = true;
+  try {
+    const largeSuggestions = detectCRS(largeProjectedPoints, {});
+    largeDatasetPass = Array.isArray(largeSuggestions);
+  } catch (err) {
+    largeDatasetPass = false;
+    failures.push({
+      name: 'Large dataset stack safety',
+      expectedCode: 'No exception for 150k projected points',
+      ok: false,
+      codes: [String(err?.message || err)],
+      suggestions: [],
+    });
+  }
+
   console.log('--- CRS Detection Regression Results ---');
   results.forEach((entry) => {
     const status = entry.ok ? 'PASS' : 'FAIL';
@@ -204,6 +225,7 @@ const main = async () => {
   console.log('--- Axis Checks ---');
   console.log(`PASS expected true for swapped Lambert-93: ${axisSwapOutcome}`);
   console.log(`PASS expected false for normal Lambert-93: ${axisNormalOutcome === false}`);
+  console.log(`PASS large dataset (150k points) stack safety: ${largeDatasetPass}`);
 
   if (!axisChecksPass) {
     failures.push({

@@ -232,15 +232,46 @@ const calculateBounds = (coordinates) => {
   const xs = coordinates.map(c => parseFloat(c.x)).filter(v => Number.isFinite(v));
   const ys = coordinates.map(c => parseFloat(c.y)).filter(v => Number.isFinite(v));
 
+  if (!xs.length || !ys.length) {
+    return {
+      minX: NaN,
+      maxX: NaN,
+      minY: NaN,
+      maxY: NaN,
+      rangeX: NaN,
+      rangeY: NaN,
+      avgX: NaN,
+      avgY: NaN,
+    };
+  }
+
+  let minX = xs[0];
+  let maxX = xs[0];
+  let sumX = 0;
+  for (const value of xs) {
+    if (value < minX) minX = value;
+    if (value > maxX) maxX = value;
+    sumX += value;
+  }
+
+  let minY = ys[0];
+  let maxY = ys[0];
+  let sumY = 0;
+  for (const value of ys) {
+    if (value < minY) minY = value;
+    if (value > maxY) maxY = value;
+    sumY += value;
+  }
+
   return {
-    minX: Math.min(...xs),
-    maxX: Math.max(...xs),
-    minY: Math.min(...ys),
-    maxY: Math.max(...ys),
-    rangeX: Math.max(...xs) - Math.min(...xs),
-    rangeY: Math.max(...ys) - Math.min(...ys),
-    avgX: xs.reduce((a, b) => a + b, 0) / xs.length,
-    avgY: ys.reduce((a, b) => a + b, 0) / ys.length,
+    minX,
+    maxX,
+    minY,
+    maxY,
+    rangeX: maxX - minX,
+    rangeY: maxY - minY,
+    avgX: sumX / xs.length,
+    avgY: sumY / ys.length,
   };
 };
 

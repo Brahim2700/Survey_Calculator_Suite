@@ -71,6 +71,18 @@ const BatchOperations = ({ points = [], filteredPoints = null, onBatchOperation 
     if (activeCount === 0) return;
 
     const elevations = activePoints.map((p) => Number(p?.height || 0)).filter(Number.isFinite);
+    let minElevation = null;
+    let maxElevation = null;
+    let sumElevation = 0;
+    if (elevations.length) {
+      minElevation = elevations[0];
+      maxElevation = elevations[0];
+      for (const value of elevations) {
+        if (value < minElevation) minElevation = value;
+        if (value > maxElevation) maxElevation = value;
+        sumElevation += value;
+      }
+    }
     const crsCounts = {};
     const sourceTypeCounts = {};
 
@@ -84,9 +96,9 @@ const BatchOperations = ({ points = [], filteredPoints = null, onBatchOperation 
 Points: ${activeCount} / ${totalPoints}
 
 Elevations:
-  Min: ${Math.min(...elevations).toFixed(2)} m
-  Max: ${Math.max(...elevations).toFixed(2)} m
-  Avg: ${(elevations.reduce((a, b) => a + b, 0) / elevations.length).toFixed(2)} m
+  Min: ${(Number.isFinite(minElevation) ? minElevation : 0).toFixed(2)} m
+  Max: ${(Number.isFinite(maxElevation) ? maxElevation : 0).toFixed(2)} m
+  Avg: ${(elevations.length ? (sumElevation / elevations.length) : 0).toFixed(2)} m
 
 CRS Distribution:
 ${Object.entries(crsCounts).map(([crs, count]) => `  ${crs}: ${count}`).join('\n')}

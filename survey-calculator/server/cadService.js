@@ -67,16 +67,31 @@ function summarizeCadRows(rows) {
   const zs = rows.map((row) => Number(row.z)).filter(Number.isFinite);
   const detectedFromCrs = rows.find((row) => row.detectedFromCrs)?.detectedFromCrs || null;
 
+  const getMinMax = (values) => {
+    if (!values.length) return { min: null, max: null };
+    let min = values[0];
+    let max = values[0];
+    for (const value of values) {
+      if (value < min) min = value;
+      if (value > max) max = value;
+    }
+    return { min, max };
+  };
+
+  const xRange = getMinMax(xs);
+  const yRange = getMinMax(ys);
+  const zRange = getMinMax(zs);
+
   return {
     rowCount: rows.length,
     detectedFromCrs,
     bounds: {
-      minX: xs.length ? Math.min(...xs) : null,
-      maxX: xs.length ? Math.max(...xs) : null,
-      minY: ys.length ? Math.min(...ys) : null,
-      maxY: ys.length ? Math.max(...ys) : null,
-      minZ: zs.length ? Math.min(...zs) : null,
-      maxZ: zs.length ? Math.max(...zs) : null,
+      minX: xRange.min,
+      maxX: xRange.max,
+      minY: yRange.min,
+      maxY: yRange.max,
+      minZ: zRange.min,
+      maxZ: zRange.max,
     },
   };
 }
