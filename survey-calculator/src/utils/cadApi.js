@@ -104,6 +104,25 @@ async function uploadCadAndParseChunked(file, options = {}, signal) {
   return payload;
 }
 
+async function uploadCadAndParseDirect(file, options = {}, signal) {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('pointsOnly', options.pointsOnly ? 'true' : 'false');
+
+  const response = await fetch(`${CAD_API_BASE_URL}/parse`, {
+    method: 'POST',
+    body: formData,
+    signal,
+  });
+
+  const payload = await parseJsonSafely(response);
+  if (!response.ok) {
+    throw new Error(payload?.message || buildBackendUnavailableMessage());
+  }
+
+  return payload;
+}
+
 export async function parseCadFileViaBackend(file, options = {}) {
   if (file.size > CAD_UPLOAD_MAX_BYTES) {
     throw new Error(
@@ -139,22 +158,16 @@ export async function parseCadFileViaBackend(file, options = {}) {
       if (typeof onProgress === 'function') {
         onProgress(`Large CAD detected (${fileSizeMB} MB). Switching to chunked upload mode...`);
       }
-      payload = await uploadCadAndParseChunked(file, options, controller.signal);
-    } else {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('pointsOnly', options.pointsOnly ? 'true' : 'false');
-
-      const response = await fetch(`${CAD_API_BASE_URL}/parse`, {
-        method: 'POST',
-        body: formData,
-        signal: controller.signal,
-      });
-
-      payload = await parseJsonSafely(response);
-      if (!response.ok) {
-        throw new Error(payload?.message || buildBackendUnavailableMessage());
+      try {
+        payload = await uploadCadAndParseChunked(file, options, controller.signal);
+      } catch (chunkErr) {
+        if (typeof onProgress === 'function') {
+          onProgress('Chunked upload unavailable on current backend. Falling back to direct upload...');
+        }
+        payload = await uploadCadAndParseDirect(file, options, controller.signal);
       }
+    } else {
+      payload = await uploadCadAndParseDirect(file, options, controller.signal);
     }
   } catch (err) {
     if (err?.name === 'AbortError') {
