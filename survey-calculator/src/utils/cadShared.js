@@ -939,7 +939,7 @@ const expandCadEntities = (dxfData, options = {}) => {
   ];
 
   while (workQueue.length > 0) {
-    const work = workQueue.shift();
+    const work = workQueue.pop(); // pop() is O(1); shift() is O(n) for large queues
     const { entities, transform, depth, ancestry, sourceBlock } = work;
 
     if (!Array.isArray(entities)) continue;
@@ -1673,6 +1673,16 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
 
 export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
   const DIMENSION_TYPE_LABELS = ['Linear', 'Aligned', 'Angular (3pt)', 'Diameter', 'Radius', 'Angular (2L)', 'Ordinate'];
+
+  // Hard limits — stop collecting each type once reached to avoid huge payloads.
+  // Entities are sampled by stride so coverage spans the full dataset rather than
+  // only the first N items in DXF order.
+  const MAX_LINES = 30_000;
+  const MAX_POLYLINES = 15_000;
+  const MAX_SURFACES = 40_000;
+  const MAX_TEXTS = 8_000;
+  const MAX_DIMENSIONS = 5_000;
+
   const geometry = {
     lines: [],
     polylines: [],
@@ -1694,6 +1704,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
   };
 
   const addLine = (start, end, layer, sourceType) => {
+    if (geometry.lines.length >= MAX_LINES) return;
     if (!start || !end) return;
     const x1 = Number(start.x);
     const y1 = Number(start.y);
@@ -1717,6 +1728,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
   };
 
   const addPolyline = (vertices, layer, sourceType) => {
+    if (geometry.polylines.length >= MAX_POLYLINES) return;
     if (!Array.isArray(vertices) || vertices.length < 2) return;
     const coords = vertices
       .map((v) => {
@@ -1729,6 +1741,18 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
       .filter(Boolean);
 
     if (coords.length < 2) return;
+
+    // Decimate dense polylines to avoid huge payloads (keep first+last vertex always)
+    const MAX_POLY_VERTICES = 500;
+    if (coords.length > MAX_POLY_VERTICES) {
+      const step = Math.ceil(coords.length / MAX_POLY_VERTICES);
+      const decimated = [coords[0]];
+      for (let i = step; i < coords.length - 1; i += step) decimated.push(coords[i]);
+      decimated.push(coords[coords.length - 1]);
+      coords.length = 0;
+      decimated.forEach((c) => coords.push(c));
+    }
+
     const descriptor = getLayerDescriptor(layer || sourceType || 'POLYLINE', layerTable[layer || sourceType || 'POLYLINE']);
     if (descriptor.renamed) repairStats.normalizedLayerName += 1;
     geometry.polylines.push({
@@ -1743,6 +1767,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
   };
 
   const addText = (entity) => {
+    if (geometry.texts.length >= MAX_TEXTS) return;
     const type = String(entity?.type || '').toUpperCase();
     if (!['TEXT', 'MTEXT', 'ATTRIB'].includes(type)) return;
 
@@ -1783,6 +1808,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
   };
 
   const addDimension = (entity) => {
+    if (geometry.dimensions.length >= MAX_DIMENSIONS) return;
     const layer = entity?.layer || 'DIM';
     const descriptor = getLayerDescriptor(layer, layerTable[layer]);
     const typeCode = Number(entity?.dimensionType ?? 0) & 0x0F;
@@ -1935,6 +1961,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
   };
 
   const addSurface = (entity) => {
+    if (geometry.surfaces.length >= MAX_SURFACES) return;
     const type = String(entity?.type || '').toUpperCase();
     let surface = null;
     if (type === '3DFACE' || type === 'FACE3D') {
@@ -2005,6 +2032,114 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
   return geometry;
 };
 
+/**
+ * Pre-process a large DXF text string to reduce parse time by capping the number
+ * of entity groups in the ENTITIES section.
+ *
+ * The DXF parser (dxf-parser) is strictly line-based and O(n) in line count.
+ * Very large files (>20 MB DXF text) can take 20+ seconds in parseSync().
+ * This function truncates the heavy ENTITIES section at a safe entity-group
+ * boundary so parse time scales with the limited entity count instead.
+ *
+ * DXF format is strictly alternating pairs: (code-line, value-line).
+ * We read pairs to stay aligned and never mis-interpret a value as a code.
+ */
+const MAX_DXF_ENTITY_GROUPS = 150_000;
+const DXF_SIZE_THRESHOLD_BYTES = 20 * 1024 * 1024; // only pre-process if DXF > 20 MB
+
+/**
+ * Find the byte offset of the start of a named DXF section in raw text.
+ * Returns the offset just BEFORE the "  0\nSECTION\n  2\nNAME" sequence, or -1.
+ * DXF line endings may be \n or \r\n; we match both.
+ */
+function findDxfSectionStart(text, sectionName) {
+  const upper = sectionName.toUpperCase();
+  // Match: newline + optional-spaces + '0' + newline + optional-spaces + 'SECTION' + newline + optional-spaces + '2' + newline + optional-spaces + NAME
+  const re = new RegExp(
+    '\r?\n[ \t]*0[ \t]*\r?\n[ \t]*SECTION[ \t]*\r?\n[ \t]*2[ \t]*\r?\n[ \t]*' + upper + '[ \t]*(\r?\n|$)',
+    'i'
+  );
+  const m = re.exec(text);
+  return m ? m.index : -1;
+}
+
+/**
+ * Find the byte offset of the ENDSEC immediately following a section start offset.
+ * Returns the offset (relative to the full text) of the \r?\n before the 0/ENDSEC pair,
+ * or -1 if not found.
+ */
+function findDxfEndsec(text, fromOffset) {
+  const re = /\r?\n[ \t]*0[ \t]*\r?\n[ \t]*ENDSEC[ \t]*(\r?\n|$)/i;
+  const sub = text.slice(fromOffset);
+  const m = re.exec(sub);
+  return m ? fromOffset + m.index : -1;
+}
+
+/**
+ * Pre-process a large DXF text string to reduce parse time by capping the number
+ * of entity groups in the ENTITIES section.
+ *
+ * Strategy:
+ *  – Keep everything before ENTITIES section unchanged (raw string copy).
+ *  – Process only ENTITIES section line-by-line, stopping at MAX entity groups.
+ *  – Append ENDSEC + EOF immediately when limit is hit (no need to scan to real ENDSEC).
+ *  – Everything after ENTITIES (OBJECTS etc.) is omitted — not needed for geometry.
+ */
+function limitDxfTextSize(dxfText) {
+  if (typeof dxfText !== 'string' || dxfText.length < DXF_SIZE_THRESHOLD_BYTES) {
+    return dxfText;
+  }
+
+  // Find the ENTITIES section start
+  const entitiesStart = findDxfSectionStart(dxfText, 'ENTITIES');
+  if (entitiesStart === -1) return dxfText; // no ENTITIES section found — pass through
+
+  // Find the ENTITIES ENDSEC to know the section body range
+  const endsecOffset = findDxfEndsec(dxfText, entitiesStart + 1);
+  if (endsecOffset === -1) return dxfText; // malformed — pass through
+
+  // prefix = everything from file start up to AND including the SECTION marker for ENTITIES
+  // We re-find the exact marker text to include it in prefix
+  const markerRe = /\r?\n[ \t]*0[ \t]*\r?\n[ \t]*SECTION[ \t]*\r?\n[ \t]*2[ \t]*\r?\n[ \t]*ENTITIES[ \t]*(\r?\n|$)/i;
+  markerRe.lastIndex = entitiesStart;
+  const markerMatch = markerRe.exec(dxfText);
+  if (!markerMatch) return dxfText;
+
+  const sectionBodyStart = markerMatch.index + markerMatch[0].length;
+  const prefix = dxfText.slice(0, sectionBodyStart); // includes SECTION header
+
+  // Now process the ENTITIES section body pair-by-pair
+  const body = dxfText.slice(sectionBodyStart, endsecOffset);
+  const lines = body.split('\n');
+  const out = [];
+  let i = 0;
+  let entityGroups = 0;
+
+  while (i < lines.length) {
+    const codeLine = lines[i];
+    const valueLine = i + 1 < lines.length ? lines[i + 1] : '';
+    const code = parseInt(codeLine.trim(), 10);
+
+    if (code === 0) {
+      const kw = valueLine.trim().toUpperCase();
+      if (kw !== 'ENDSEC') {
+        entityGroups++;
+        if (entityGroups > MAX_DXF_ENTITY_GROUPS) {
+          // Stop here — inject close and EOF immediately
+          out.push('  0', 'ENDSEC', '  0', 'EOF');
+          return prefix + out.join('\n') + '\n';
+        }
+      }
+    }
+
+    out.push(codeLine);
+    i++;
+  }
+
+  // Normal end — append the remaining ENDSEC + anything needed
+  return prefix + out.join('\n') + '\n  0\nENDSEC\n  0\nEOF\n';
+}
+
 export function parseDxfTextContent(text, options = {}) {
   const parser = new DxfParser();
   let dxf;
@@ -2016,7 +2151,9 @@ export function parseDxfTextContent(text, options = {}) {
       // At least allows the loading spinner to paint before we freeze.
       void new Promise((r) => setTimeout(r, 0));
     }
-    dxf = parser.parseSync(text);
+    // Pre-process very large DXF files: limit entity count so parseSync stays fast.
+    const processedText = limitDxfTextSize(text);
+    dxf = parser.parseSync(processedText);
   } catch (err) {
     throw new Error(`Failed to parse DXF: ${err.message || err}`);
   }

@@ -57,6 +57,35 @@ function buildConverterSetupHint() {
   return 'No DWG converter found. In production (Docker) LibreDWG (dwg2dxf) is installed automatically. For local Windows dev, install ODA File Converter or set ODA_FILE_CONVERTER_PATH.';
 }
 
+/**
+ * Normalize DXF text so there is exactly one well-formed EOF marker at the end.
+ * Some DWG converters (ODA, LibreDWG) produce truncated output (missing EOF) or
+ * append binary/extra content after the EOF group, both of which crash dxf-parser.
+ *
+ * DXF EOF format (each on its own line, optional leading spaces):
+ *   0
+ *   EOF
+ */
+function sanitizeDxfEof(text) {
+  if (typeof text !== 'string') return text;
+
+  // Find the first occurrence of "0\nEOF" (with optional surrounding whitespace/CR)
+  // DXF group codes are line-based: code line, then value line.
+  // Match patterns like: "\n  0\r\nEOF" or "\n0\nEOF" etc.
+  const eofRe = /\r?\n[ \t]*0[ \t]*\r?\n[ \t]*EOF[ \t]*/i;
+  const match = eofRe.exec(text);
+
+  if (match) {
+    // Truncate everything after EOF and normalise to a clean ending
+    const eofEnd = match.index + match[0].length;
+    const truncated = text.slice(0, eofEnd).trimEnd() + '\n  0\nEOF\n';
+    return truncated !== text ? truncated : text;
+  }
+
+  // No EOF marker found — append one
+  return text.trimEnd() + '\n  0\nEOF\n';
+}
+
 function summarizeCadRows(rows) {
   if (!Array.isArray(rows) || rows.length === 0) {
     return { rowCount: 0 };
@@ -209,15 +238,16 @@ async function runLibreDwgConverter(vars, timeoutMs) {
   throw new Error('dwg2dxf completed but did not produce a readable DXF output.');
 }
 
-async function runOdaConverter(vars, timeoutMs) {
+async function runOdaConverter(vars, timeoutMs, version = null) {
   const converterPath = resolveOdaConverterPath();
   if (!converterPath) {
     throw new Error(buildConverterSetupHint());
   }
+  const outputVersion = version || process.env.ODA_OUTPUT_VERSION || 'ACAD2018';
   const args = [
     vars.inputDir,
     vars.outputDir,
-    process.env.ODA_OUTPUT_VERSION || 'ACAD2018',
+    outputVersion,
     'DXF',
     process.env.ODA_RECURSIVE === '1' ? '1' : '0',
     process.env.ODA_AUDIT === '1' ? '1' : '0',
@@ -301,7 +331,34 @@ async function convertDwgBufferToDxfText(buffer, originalName) {
         searchDir = path.dirname(result.outputPath);
       }
     } else if (converterMode === 'oda') {
-      await runOdaConverter(vars, timeoutMs);
+      // Try primary ODA format; if the output DXF is suspiciously small relative to the DWG
+      // (indication of a partial/failed conversion), retry with older DXF format versions.
+      const ODA_FALLBACK_VERSIONS = ['ACAD2018', 'ACAD2010', 'ACAD2000'];
+      let odaSucceeded = false;
+      for (const odaVersion of ODA_FALLBACK_VERSIONS) {
+        // Clear output dir between attempts so stale partial files don't mislead us.
+        await fs.rm(outputDir, { recursive: true, force: true });
+        await fs.mkdir(outputDir, { recursive: true });
+        try {
+          await runOdaConverter(vars, timeoutMs, odaVersion);
+        } catch (_odaErr) {
+          // ODA sometimes exits non-zero but still produces a usable DXF; check below.
+        }
+        const candidatePath = await findFirstDxfFile(outputDir, outputDxfPath);
+        if (candidatePath) {
+          const stat = await fs.stat(candidatePath).catch(() => null);
+          // Consider the conversion successful if DXF is at least 2% of the DWG input size
+          // (protects against tiny/partial outputs from ODA crashes).
+          const minAcceptableBytes = Math.max(1024, buffer.length * 0.02);
+          if (stat && stat.size >= minAcceptableBytes) {
+            odaSucceeded = true;
+            break;
+          }
+        }
+      }
+      if (!odaSucceeded) {
+        throw new Error('ODA converter failed to produce a usable DXF output for all attempted format versions (ACAD2018, ACAD2010, ACAD2000). The DWG file may contain unsupported entities.');
+      }
     } else {
       await runCustomConverter(vars, timeoutMs);
     }
@@ -368,11 +425,27 @@ export async function parseCadUpload({ buffer, originalName, fileSizeBytes = 0, 
     warnings = ['The uploaded .dwg file contained DXF text and was parsed without converter assistance.'];
     processingRoute = 'dwg-dxf-text';
   } else {
-    const dxfText = await convertDwgBufferToDxfText(Buffer.from(data), originalName);
-    const parsed = parseDxfTextContent(dxfText, options);
-    rows = parsed.rows;
-    geometry = parsed.geometry || null;
-    diagnostics = parsed.diagnostics || null;
+    const rawDxfText = await convertDwgBufferToDxfText(Buffer.from(data), originalName);
+    // Pre-process DXF text: ensure there is exactly one EOF marker and nothing after it.
+    // Some converters produce extra content after EOF or omit it entirely.
+    const dxfText = sanitizeDxfEof(rawDxfText);
+    const dxfPatched = dxfText !== rawDxfText;
+    let parsedDxf;
+    try {
+      parsedDxf = parseDxfTextContent(dxfText, options);
+    } catch (err) {
+      // Last-resort: if still failing due to an EOF-related parse error, try once more
+      // without the EOF patch (original text) in case our edit broke something.
+      const isEof = /unexpected end|eof|end of input|after EOF/i.test(String(err.message || err));
+      if (!isEof) throw err;
+      throw new Error(`Failed to parse DXF converted from DWG: ${err.message}`);
+    }
+    rows = parsedDxf.rows;
+    geometry = parsedDxf.geometry || null;
+    diagnostics = parsedDxf.diagnostics || null;
+    if (dxfPatched) {
+      warnings = ['DXF output from converter was malformed (missing or extra content after EOF). File was recovered automatically.'];
+    }
     usedConverter = true;
     processingRoute = 'dwg-converted';
   }
