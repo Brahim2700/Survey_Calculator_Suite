@@ -260,6 +260,9 @@ const buildCadInspectionSummary = (file, rows, status, payload = null) => {
     preScanRecommendedEngine: payload?.inspection?.preScan?.recommendedEngine || null,
     preScanRecommendedMode: payload?.inspection?.preScan?.recommendedMode || null,
     preScanSignals: Array.isArray(payload?.inspection?.preScan?.signals) ? payload.inspection.preScan.signals : [],
+    fileHashAlgorithm: payload?.inspection?.fileHashAlgorithm || null,
+    expectedFileHashFNV64: payload?.inspection?.expectedFileHashFNV64 || null,
+    assembledHashFNV64: payload?.inspection?.assembledHashFNV64 || null,
     expectedFileHashSha256: payload?.inspection?.expectedFileHashSha256 || null,
     assembledHashSha256: payload?.inspection?.assembledHashSha256 || null,
     integrityVerified: Boolean(payload?.inspection?.integrityVerified),
@@ -366,14 +369,14 @@ const buildCadValidationIssueRows = (inspection) => {
     });
   }
 
-  if (inspection.expectedFileHashSha256 && !inspection.integrityVerified) {
+  if ((inspection.expectedFileHashFNV64 || inspection.expectedFileHashSha256) && !inspection.integrityVerified) {
     addIssue({
       severity: "error",
       category: "integrity",
       code: "cad-upload-integrity-failed",
       title: "Upload integrity mismatch",
       message: "The assembled server file hash did not match the client hash.",
-      detail: "Re-upload the file and check network/retry behavior.",
+      detail: `Re-upload the file and check network/retry behavior. Algorithm: ${inspection.fileHashAlgorithm || "unknown"}`,
     });
   }
 

@@ -447,7 +447,8 @@ export async function parseCadUpload({
   fileSizeBytes = 0,
   pointsOnly = false,
   processingMode = 'full',
-  expectedFileHashSha256 = '',
+  expectedFileHashFNV64 = '',
+  assembledHashFNV64 = '',
   assembledHashSha256 = '',
   preflightFormatHint = 'unknown',
   preflightModeConfidence = 'low',
@@ -462,7 +463,8 @@ export async function parseCadUpload({
   }
 
   const data = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-  const resolvedFileHashSha256 = assembledHashSha256 || (expectedFileHashSha256 ? computeSha256Hex(Buffer.from(data)) : '');
+  const resolvedFileHashSha256 = assembledHashSha256 || computeSha256Hex(Buffer.from(data));
+  const resolvedFileHashFNV64 = assembledHashFNV64 || null;
   const options = { pointsOnly, returnPayload: true };
   let rows;
   let geometry = null;
@@ -559,9 +561,12 @@ export async function parseCadUpload({
       preflightModeConfidenceReason,
       preScan,
       fileSizeBytes,
-      expectedFileHashSha256: expectedFileHashSha256 || null,
+      expectedFileHashFNV64: expectedFileHashFNV64 || null,
+      expectedFileHashSha256: null,
+      assembledHashFNV64: resolvedFileHashFNV64,
       assembledHashSha256: resolvedFileHashSha256 || null,
-      integrityVerified: Boolean(expectedFileHashSha256 && resolvedFileHashSha256 && String(expectedFileHashSha256).toLowerCase() === String(resolvedFileHashSha256).toLowerCase()),
+      fileHashAlgorithm: expectedFileHashFNV64 ? 'fnv1a64' : 'none',
+      integrityVerified: Boolean(expectedFileHashFNV64 && resolvedFileHashFNV64 && String(expectedFileHashFNV64).toLowerCase() === String(resolvedFileHashFNV64).toLowerCase()),
       nativeDwg: ext === '.dwg' && isLikelyNativeDwgData(data),
       usedConverter,
       preferredConverterMode,

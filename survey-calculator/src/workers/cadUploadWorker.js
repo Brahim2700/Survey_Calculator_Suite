@@ -1,9 +1,7 @@
 const toHex = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
-
-async function digestSha256Hex(buffer) {
-  const digest = await crypto.subtle.digest('SHA-256', buffer);
-  return toHex(new Uint8Array(digest));
-}
+const FNV64_OFFSET_BASIS = 0xcbf29ce484222325n;
+const FNV64_PRIME = 0x100000001b3n;
+const FNV64_MASK = 0xffffffffffffffffn;
 
 function chooseProcessingMode(fileSize, previewThresholdBytes, recoveryThresholdBytes) {
   if (fileSize >= recoveryThresholdBytes) return 'recovery';
@@ -25,6 +23,20 @@ function buildChunkSpecs(fileSize, chunkBytes) {
   return { totalChunks, chunks, chunkBytes: safeChunkSize };
 }
 
+function fnv1a64Update(hash, bytes) {
+  let next = hash;
+  for (let i = 0; i < bytes.length; i += 1) {
+    next ^= BigInt(bytes[i]);
+    next = (next * FNV64_PRIME) & FNV64_MASK;
+  }
+  return next;
+}
+
+function toFNV64Hex(hash) {
+  const hex = hash.toString(16);
+  return hex.padStart(16, '0');
+}
+
 async function readStreamSignature(file) {
   if (!file || typeof file.stream !== 'function') return '';
 
@@ -37,6 +49,25 @@ async function readStreamSignature(file) {
   } finally {
     reader.releaseLock();
   }
+}
+
+async function computeStreamFNV64(file) {
+  if (!file || typeof file.stream !== 'function') return '';
+
+  const reader = file.stream().getReader();
+  let hash = FNV64_OFFSET_BASIS;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value && value.length) {
+        hash = fnv1a64Update(hash, value);
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return toFNV64Hex(hash);
 }
 
 function deriveFormatHint(fileName, signatureHex) {
@@ -88,8 +119,7 @@ self.onmessage = async (event) => {
     const processingMode = chooseProcessingMode(file.size, previewThresholdBytes, recoveryThresholdBytes);
     const chunkPlan = buildChunkSpecs(file.size, payload?.chunkBytes);
     const signatureHex = await readStreamSignature(file);
-    const fileBuffer = await file.arrayBuffer();
-    const fileHashSha256 = await digestSha256Hex(fileBuffer);
+    const fileHashFNV64 = await computeStreamFNV64(file);
     const formatHint = deriveFormatHint(file.name, signatureHex);
     const confidence = deriveModeConfidence(processingMode, formatHint);
 
@@ -100,7 +130,7 @@ self.onmessage = async (event) => {
         ...chunkPlan,
         processingMode,
         signatureHex,
-        fileHashSha256,
+        fileHashFNV64,
         formatHint,
         processingModeConfidence: confidence.level,
         processingModeConfidenceReason: confidence.reason,

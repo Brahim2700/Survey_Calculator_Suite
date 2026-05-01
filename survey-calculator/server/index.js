@@ -86,6 +86,32 @@ function hashesEqualHex(a, b) {
   return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 }
 
+const FNV64_OFFSET_BASIS = 0xcbf29ce484222325n;
+const FNV64_PRIME = 0x100000001b3n;
+const FNV64_MASK = 0xffffffffffffffffn;
+
+function fnv1a64Update(hash, bytes) {
+  let next = hash;
+  for (let i = 0; i < bytes.length; i += 1) {
+    next ^= BigInt(bytes[i]);
+    next = (next * FNV64_PRIME) & FNV64_MASK;
+  }
+  return next;
+}
+
+function toFNV64Hex(hash) {
+  return hash.toString(16).padStart(16, '0');
+}
+
+async function hashFileFNV64(filePath) {
+  let hash = FNV64_OFFSET_BASIS;
+  const rs = createReadStream(filePath);
+  for await (const chunk of rs) {
+    hash = fnv1a64Update(hash, chunk);
+  }
+  return toFNV64Hex(hash);
+}
+
 const PROCESSING_MODE_RANK = {
   full: 0,
   preview: 1,
@@ -198,7 +224,7 @@ app.post('/api/cad/upload/complete', express.json({ limit: '1mb' }), async (req,
   const fileName = String(req.body?.fileName || '').trim();
   const pointsOnly = String(req.body?.pointsOnly || '').toLowerCase() === 'true';
   const processingMode = String(req.body?.processingMode || 'full').trim() || 'full';
-  const expectedFileHashSha256 = String(req.body?.expectedFileHashSha256 || '').trim();
+  const expectedFileHashFNV64 = String(req.body?.expectedFileHashFNV64 || '').trim();
   const preflightFormatHint = String(req.body?.preflightFormatHint || 'unknown').trim() || 'unknown';
   const preflightModeConfidence = String(req.body?.preflightModeConfidence || 'low').trim() || 'low';
   const preflightModeConfidenceReason = String(req.body?.preflightModeConfidenceReason || '').trim();
@@ -218,9 +244,10 @@ app.post('/api/cad/upload/complete', express.json({ limit: '1mb' }), async (req,
     const expected = Number(meta.totalChunks);
     const assembledPath = path.join(uploadDir, '__assembled.upload');
     await assembleChunksToFile(uploadDir, expected, assembledPath);
+    const assembledHashFNV64 = await hashFileFNV64(assembledPath);
     const assembledHashSha256 = await hashFileSha256(assembledPath);
 
-    if (expectedFileHashSha256 && !hashesEqualHex(assembledHashSha256, expectedFileHashSha256)) {
+    if (expectedFileHashFNV64 && !hashesEqualHex(assembledHashFNV64, expectedFileHashFNV64)) {
       const mismatch = new Error('Chunk integrity check failed: assembled file hash does not match client hash.');
       mismatch.statusCode = 409;
       throw mismatch;
@@ -240,7 +267,8 @@ app.post('/api/cad/upload/complete', express.json({ limit: '1mb' }), async (req,
       fileSizeBytes: combined.length,
       pointsOnly,
       processingMode: effectiveProcessingMode,
-      expectedFileHashSha256,
+      expectedFileHashFNV64,
+      assembledHashFNV64,
       assembledHashSha256,
       preflightFormatHint,
       preflightModeConfidence,
@@ -288,7 +316,7 @@ app.post('/api/cad/parse', upload.single('file'), async (req, res) => {
       fileSizeBytes: req.file.size,
       pointsOnly: String(req.body?.pointsOnly || '').toLowerCase() === 'true',
       processingMode: effectiveProcessingMode,
-      expectedFileHashSha256: String(req.body?.expectedFileHashSha256 || '').trim(),
+      expectedFileHashFNV64: String(req.body?.expectedFileHashFNV64 || '').trim(),
       preflightFormatHint: String(req.body?.preflightFormatHint || 'unknown').trim() || 'unknown',
       preflightModeConfidence: String(req.body?.preflightModeConfidence || 'low').trim() || 'low',
       preflightModeConfidenceReason: String(req.body?.preflightModeConfidenceReason || '').trim(),

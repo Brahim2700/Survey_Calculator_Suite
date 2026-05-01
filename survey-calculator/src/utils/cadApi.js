@@ -129,7 +129,7 @@ async function buildChunkUploadPlan(file, { signal, onProgress } = {}) {
     chunks,
     processingMode,
     signatureHex: '',
-    fileHashSha256: '',
+    fileHashFNV64: '',
     formatHint: 'unknown',
     processingModeConfidence: 'low',
     processingModeConfidenceReason: `Mode ${processingMode} selected from size thresholds only.`,
@@ -149,8 +149,8 @@ async function uploadCadFileInChunks(file, { signal, onProgress } = {}) {
   if (typeof onProgress === 'function' && plan.signatureHex) {
     onProgress(`File stream preflight signature: ${plan.signatureHex}`);
   }
-  if (typeof onProgress === 'function' && plan.fileHashSha256) {
-    onProgress(`Computed upload integrity hash (sha256): ${plan.fileHashSha256.slice(0, 16)}...`);
+  if (typeof onProgress === 'function' && plan.fileHashFNV64) {
+    onProgress(`Computed upload integrity hash (fnv64): ${plan.fileHashFNV64}`);
   }
 
   for (let index = 0; index < chunks.length; index += 1) {
@@ -200,7 +200,7 @@ async function uploadCadFileInChunks(file, { signal, onProgress } = {}) {
     uploadId,
     totalChunks,
     processingMode: plan.processingMode || 'full',
-    fileHashSha256: plan.fileHashSha256 || '',
+    fileHashFNV64: plan.fileHashFNV64 || '',
     formatHint: plan.formatHint || 'unknown',
     processingModeConfidence: plan.processingModeConfidence || 'low',
     processingModeConfidenceReason: plan.processingModeConfidenceReason || '',
@@ -212,7 +212,7 @@ async function uploadCadAndParseChunked(file, options = {}, signal) {
   const {
     uploadId,
     processingMode,
-    fileHashSha256,
+    fileHashFNV64,
     formatHint,
     processingModeConfidence,
     processingModeConfidenceReason,
@@ -230,7 +230,7 @@ async function uploadCadAndParseChunked(file, options = {}, signal) {
       fileName: file.name,
       pointsOnly: options.pointsOnly ? 'true' : 'false',
       processingMode: options.processingMode || processingMode || 'full',
-      expectedFileHashSha256: fileHashSha256 || '',
+      expectedFileHashFNV64: fileHashFNV64 || '',
       preflightFormatHint: options.preflightFormatHint || formatHint || 'unknown',
       preflightModeConfidence: options.preflightModeConfidence || processingModeConfidence || 'low',
       preflightModeConfidenceReason: options.preflightModeConfidenceReason || processingModeConfidenceReason || '',
@@ -250,7 +250,7 @@ async function uploadCadAndParseDirect(file, options = {}, signal) {
   formData.append('file', file);
   formData.append('pointsOnly', options.pointsOnly ? 'true' : 'false');
   formData.append('processingMode', options.processingMode || 'full');
-  if (options.expectedFileHashSha256) formData.append('expectedFileHashSha256', options.expectedFileHashSha256);
+  if (options.expectedFileHashFNV64) formData.append('expectedFileHashFNV64', options.expectedFileHashFNV64);
   if (options.preflightFormatHint) formData.append('preflightFormatHint', options.preflightFormatHint);
   if (options.preflightModeConfidence) formData.append('preflightModeConfidence', options.preflightModeConfidence);
   if (options.preflightModeConfidenceReason) formData.append('preflightModeConfidenceReason', options.preflightModeConfidenceReason);
@@ -305,7 +305,7 @@ export async function parseCadFileViaBackend(file, options = {}) {
         ? 'preview'
         : 'full';
     const needsDirectPreflight = file.size < CAD_CHUNK_MODE_MIN_BYTES
-      && !attemptOptions?.expectedFileHashSha256;
+      && !attemptOptions?.expectedFileHashFNV64;
     const preflightPlan = needsDirectPreflight
       ? await buildChunkUploadPlan(file, { signal, onProgress }).catch(() => null)
       : null;
@@ -313,7 +313,7 @@ export async function parseCadFileViaBackend(file, options = {}) {
     const nextOptions = {
       ...attemptOptions,
       processingMode: attemptOptions?.processingMode || modeFromSize,
-      expectedFileHashSha256: attemptOptions?.expectedFileHashSha256 || preflightPlan?.fileHashSha256 || '',
+      expectedFileHashFNV64: attemptOptions?.expectedFileHashFNV64 || preflightPlan?.fileHashFNV64 || '',
       preflightFormatHint: attemptOptions?.preflightFormatHint || preflightPlan?.formatHint || 'unknown',
       preflightModeConfidence: attemptOptions?.preflightModeConfidence || preflightPlan?.processingModeConfidence || 'low',
       preflightModeConfidenceReason: attemptOptions?.preflightModeConfidenceReason || preflightPlan?.processingModeConfidenceReason || '',
