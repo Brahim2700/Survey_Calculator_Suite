@@ -212,7 +212,11 @@ const getAxisNormalizationNotice = (crsCode, x, y) => {
   return `Detected source coordinates stored as X=northing and Y=easting for ${crsCode}. The app auto-corrects that axis order before conversion and map display.`;
 };
 
-const buildCadInspectionSummary = (file, rows, status, payload = null) => {
+const getCadExtractionModeLabel = (strictExistingPointsOnly = true) => (
+  strictExistingPointsOnly ? "Existing points only" : "Include inferred points"
+);
+
+const buildCadInspectionSummary = (file, rows, status, payload = null, strictExistingPointsOnly = true) => {
   const xs = rows.map((row) => Number(row.x)).filter(Number.isFinite);
   const ys = rows.map((row) => Number(row.y)).filter(Number.isFinite);
   const zs = rows.map((row) => Number(row.z)).filter(Number.isFinite);
@@ -270,6 +274,7 @@ const buildCadInspectionSummary = (file, rows, status, payload = null) => {
     converterAttemptedModes: Array.isArray(payload?.inspection?.converterAttemptedModes) ? payload.inspection.converterAttemptedModes : [],
     converterAttemptErrors: Array.isArray(payload?.inspection?.converterAttemptErrors) ? payload.inspection.converterAttemptErrors : [],
     processingRoute: route,
+    pointExtractionMode: getCadExtractionModeLabel(strictExistingPointsOnly),
     bounds: {
       minX: xs.length ? Math.min(...xs) : fallbackBounds?.minX ?? null,
       maxX: xs.length ? Math.max(...xs) : fallbackBounds?.maxX ?? null,
@@ -3244,6 +3249,7 @@ const CoordinateConverter = () => {
       nativeDwg: false,
       usedConverter: false,
       processingRoute: null,
+      pointExtractionMode: getCadExtractionModeLabel(cadStrictExistingPointsOnly),
       bounds: null,
       backendMode: cadBackendStatus?.converterMode || "none",
       backendPath: cadBackendStatus?.converterPath || null,
@@ -3328,7 +3334,7 @@ const CoordinateConverter = () => {
         setImportCrsNotice("");
       }
 
-      setCadInspection(buildCadInspectionSummary(file, rows, latestCadStatus, cadPayload));
+      setCadInspection(buildCadInspectionSummary(file, rows, latestCadStatus, cadPayload, cadStrictExistingPointsOnly));
         setCadSourceGeometry(cadPayload?.geometry || null);
         setCadGeometrySourceCrs(sourceCrs || null);
 
@@ -3514,7 +3520,7 @@ const CoordinateConverter = () => {
         if (parsed.length === 0) throw new Error("No valid coordinates in file");
 
         if (["dxf", "dwg"].includes(ext)) {
-          setCadInspection(buildCadInspectionSummary(file, rows, latestCadStatus, cadPayload));
+          setCadInspection(buildCadInspectionSummary(file, rows, latestCadStatus, cadPayload, cadStrictExistingPointsOnly));
 
           const sourceCrsForGeometry = resolveCadSourceCrs(rows, cadPayload);
           setCadSourceGeometry(cadPayload?.geometry || null);
@@ -5141,6 +5147,14 @@ const CoordinateConverter = () => {
                 <div><strong>{cadInspection.fileName}</strong> {cadInspection.extension ? `(${cadInspection.extension})` : ""}</div>
                 <div>Size: {formatBytes(cadInspection.fileSizeBytes)}</div>
                 <div>Route: {cadInspection.processingRoute || "pending"}</div>
+                {cadInspection.pointExtractionMode && (
+                  <div>
+                    Point extraction:
+                    <span style={{ marginLeft: "0.4rem", display: "inline-flex", alignItems: "center", padding: "0.12rem 0.5rem", borderRadius: "999px", fontSize: "0.76rem", fontWeight: 700, background: cadInspection.pointExtractionMode === "Existing points only" ? "#dcfce7" : "#fff7ed", color: cadInspection.pointExtractionMode === "Existing points only" ? "#166534" : "#9a3412", border: cadInspection.pointExtractionMode === "Existing points only" ? "1px solid #86efac" : "1px solid #fed7aa" }}>
+                      {cadInspection.pointExtractionMode}
+                    </span>
+                  </div>
+                )}
                 <div>Rows: {cadInspection.rowCount ?? "pending"}</div>
                 <div>Detected CRS: {cadInspection.detectedFromCrs || "pending"}</div>
                 {cadInspection.axisNormalizationApplied && cadInspection.axisNormalizationNotice && (
