@@ -163,6 +163,11 @@ function buildCadReferenceWarnings(diagnostics) {
   return warnings;
 }
 
+function shouldAllowDegradedDwgFallback() {
+  const raw = String(process.env.CAD_ALLOW_DWG_DEGRADED_FALLBACK || '1').trim().toLowerCase();
+  return raw !== '0' && raw !== 'false' && raw !== 'no';
+}
+
 function replaceTemplateTokens(template, vars) {
   return template.replace(/\{(inputPath|inputDir|inputFileName|outputDir|outputDxfPath|outputBaseName)\}/g, (_, key) => vars[key] || '');
 }
@@ -476,6 +481,7 @@ export async function parseCadUpload({
   let converterAttemptedModes = [];
   let converterAttemptErrors = [];
   let preferredConverterMode = null;
+  let degradedFallback = false;
 
   const availableConverterModes = getAvailableConverterModes();
   const preScanRecommendedEngine = preScan?.recommendedEngine || null;
@@ -499,39 +505,84 @@ export async function parseCadUpload({
     warnings = ['The uploaded .dwg file contained DXF text and was parsed without converter assistance.'];
     processingRoute = 'dwg-dxf-text';
   } else {
-    const conversionResult = await convertDwgBufferToDxfText(Buffer.from(data), originalName, preferredConverterMode);
-    const rawDxfText = conversionResult.dxfText;
-    converterModeUsed = conversionResult.modeUsed;
-    converterAttemptedModes = conversionResult.attemptedModes || [];
-    converterAttemptErrors = conversionResult.attemptErrors || [];
-    // Pre-process DXF text: ensure there is exactly one EOF marker and nothing after it.
-    // Some converters produce extra content after EOF or omit it entirely.
-    const dxfText = sanitizeDxfEof(rawDxfText);
-    const dxfPatched = dxfText !== rawDxfText;
-    let parsedDxf;
     try {
-      parsedDxf = parseDxfTextContent(dxfText, options);
+      const conversionResult = await convertDwgBufferToDxfText(Buffer.from(data), originalName, preferredConverterMode);
+      const rawDxfText = conversionResult.dxfText;
+      converterModeUsed = conversionResult.modeUsed;
+      converterAttemptedModes = conversionResult.attemptedModes || [];
+      converterAttemptErrors = conversionResult.attemptErrors || [];
+      // Pre-process DXF text: ensure there is exactly one EOF marker and nothing after it.
+      // Some converters produce extra content after EOF or omit it entirely.
+      const dxfText = sanitizeDxfEof(rawDxfText);
+      const dxfPatched = dxfText !== rawDxfText;
+      let parsedDxf;
+      try {
+        parsedDxf = parseDxfTextContent(dxfText, options);
+      } catch (err) {
+        // Last-resort: if still failing due to an EOF-related parse error, try once more
+        // without the EOF patch (original text) in case our edit broke something.
+        const isEof = /unexpected end|eof|end of input|after EOF/i.test(String(err.message || err));
+        if (!isEof) throw err;
+        throw new Error(`Failed to parse DXF converted from DWG: ${err.message}`);
+      }
+      rows = parsedDxf.rows;
+      geometry = parsedDxf.geometry || null;
+      diagnostics = parsedDxf.diagnostics || null;
+      if (dxfPatched) {
+        warnings = ['DXF output from converter was malformed (missing or extra content after EOF). File was recovered automatically.'];
+      }
+      if (converterAttemptedModes.length > 1 && converterModeUsed && converterModeUsed !== converterAttemptedModes[0]) {
+        const fallbackReason = converterAttemptErrors[0] || `Primary converter ${converterAttemptedModes[0]} failed.`;
+        warnings.push(`CAD conversion fell back from ${converterAttemptedModes[0]} to ${converterModeUsed} for this file.`);
+        warnings.push(`Fallback reason: ${fallbackReason}`);
+        console.warn(`[CAD] converter fallback ${converterAttemptedModes[0]} -> ${converterModeUsed} for ${originalName}: ${fallbackReason}`);
+      }
+      usedConverter = true;
+      processingRoute = converterModeUsed ? `dwg-converted-${converterModeUsed}` : 'dwg-converted';
     } catch (err) {
-      // Last-resort: if still failing due to an EOF-related parse error, try once more
-      // without the EOF patch (original text) in case our edit broke something.
-      const isEof = /unexpected end|eof|end of input|after EOF/i.test(String(err.message || err));
-      if (!isEof) throw err;
-      throw new Error(`Failed to parse DXF converted from DWG: ${err.message}`);
+      if (!shouldAllowDegradedDwgFallback()) {
+        throw err;
+      }
+
+      degradedFallback = true;
+      rows = [];
+      geometry = {
+        lines: [],
+        polylines: [],
+        texts: [],
+        surfaces: [],
+        layerSummary: null,
+        validation: {
+          notifications: [
+            {
+              severity: 'warning',
+              code: 'cad-conversion-degraded-fallback',
+              message: 'DWG conversion failed. Returned degraded diagnostics-only response so the workflow can continue.',
+            },
+          ],
+        },
+        notifications: [],
+        repairs: null,
+        localPreview: false,
+      };
+      diagnostics = {
+        references: {
+          unresolvedBlockRefs: [],
+          unresolvedXrefs: [],
+          cyclicBlockRefs: [],
+        },
+        resolution: {
+          expandedInsertCount: 0,
+          expandedEntityCount: 0,
+          nestedInsertDepthMax: 0,
+          transformWarnings: [],
+        },
+      };
+      warnings.push(`DWG conversion failed and degraded fallback was applied: ${err.message || String(err)}`);
+      warnings.push('No CAD entities were extracted from this file. Run manual review or alternate converter workflow.');
+      converterAttemptErrors = [err.message || String(err)];
+      processingRoute = 'dwg-conversion-failed-degraded';
     }
-    rows = parsedDxf.rows;
-    geometry = parsedDxf.geometry || null;
-    diagnostics = parsedDxf.diagnostics || null;
-    if (dxfPatched) {
-      warnings = ['DXF output from converter was malformed (missing or extra content after EOF). File was recovered automatically.'];
-    }
-    if (converterAttemptedModes.length > 1 && converterModeUsed && converterModeUsed !== converterAttemptedModes[0]) {
-      const fallbackReason = converterAttemptErrors[0] || `Primary converter ${converterAttemptedModes[0]} failed.`;
-      warnings.push(`CAD conversion fell back from ${converterAttemptedModes[0]} to ${converterModeUsed} for this file.`);
-      warnings.push(`Fallback reason: ${fallbackReason}`);
-      console.warn(`[CAD] converter fallback ${converterAttemptedModes[0]} -> ${converterModeUsed} for ${originalName}: ${fallbackReason}`);
-    }
-    usedConverter = true;
-    processingRoute = converterModeUsed ? `dwg-converted-${converterModeUsed}` : 'dwg-converted';
   }
 
   if (processingMode === 'preview') {
@@ -573,6 +624,7 @@ export async function parseCadUpload({
       converterModeUsed,
       converterAttemptedModes,
       converterAttemptErrors,
+      degradedFallback,
       processingRoute,
       diagnostics,
       detectedFromCrs: diagnostics?.detectedFromCrs || rows.find((row) => row?.detectedFromCrs)?.detectedFromCrs || null,
