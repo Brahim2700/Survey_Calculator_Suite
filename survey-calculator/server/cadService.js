@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 import { exec as execCallback, spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -8,6 +9,11 @@ import fs from 'node:fs/promises';
 import { parseDxfTextContent, isLikelyDxfData, isLikelyNativeDwgData } from '../src/utils/cadShared.js';
 
 const execAsync = promisify(execCallback);
+function computeSha256Hex(bufferLike) {
+  const hash = createHash('sha256');
+  hash.update(bufferLike);
+  return hash.digest('hex');
+}
 const MAX_COMMAND_OUTPUT = 1024 * 1024 * 8;
 const DEFAULT_ODA_PATHS = [
   'C:\\Program Files\\ODA\\ODAFileConverter 27.1.0\\ODAFileConverter.exe',
@@ -394,6 +400,7 @@ async function convertDwgBufferToDxfText(buffer, originalName, preferredMode = n
               dxfText: converterStdout,
               modeUsed: converterMode,
               attemptedModes: attemptOrder,
+              attemptErrors: conversionErrors,
             };
           }
           throw new Error('The DWG converter finished without producing a DXF file.');
@@ -403,6 +410,7 @@ async function convertDwgBufferToDxfText(buffer, originalName, preferredMode = n
           dxfText: await fs.readFile(convertedPath, 'utf8'),
           modeUsed: converterMode,
           attemptedModes: attemptOrder,
+          attemptErrors: conversionErrors,
         };
       } catch (err) {
         conversionErrors.push(`${converterMode}: ${err.message || String(err)}`);
@@ -433,7 +441,18 @@ export function getCadBackendStatus() {
   };
 }
 
-export async function parseCadUpload({ buffer, originalName, fileSizeBytes = 0, pointsOnly = false, processingMode = 'full' }) {
+export async function parseCadUpload({
+  buffer,
+  originalName,
+  fileSizeBytes = 0,
+  pointsOnly = false,
+  processingMode = 'full',
+  expectedFileHashSha256 = '',
+  assembledHashSha256 = '',
+  preflightFormatHint = 'unknown',
+  preflightModeConfidence = 'low',
+  preflightModeConfidenceReason = '',
+}) {
   const ext = getFileExtension(originalName);
   if (!['.dxf', '.dwg'].includes(ext)) {
     const error = new Error(`Unsupported CAD file type: ${ext || 'unknown'}`);
@@ -442,6 +461,7 @@ export async function parseCadUpload({ buffer, originalName, fileSizeBytes = 0, 
   }
 
   const data = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  const resolvedFileHashSha256 = assembledHashSha256 || (expectedFileHashSha256 ? computeSha256Hex(Buffer.from(data)) : '');
   const options = { pointsOnly, returnPayload: true };
   let rows;
   let geometry = null;
@@ -451,6 +471,7 @@ export async function parseCadUpload({ buffer, originalName, fileSizeBytes = 0, 
   let processingRoute = 'client';
   let converterModeUsed = null;
   let converterAttemptedModes = [];
+  let converterAttemptErrors = [];
 
   if (ext === '.dxf') {
     const parsed = parseDxfTextContent(Buffer.from(data).toString('utf8'), options);
@@ -470,6 +491,7 @@ export async function parseCadUpload({ buffer, originalName, fileSizeBytes = 0, 
     const rawDxfText = conversionResult.dxfText;
     converterModeUsed = conversionResult.modeUsed;
     converterAttemptedModes = conversionResult.attemptedModes || [];
+    converterAttemptErrors = conversionResult.attemptErrors || [];
     // Pre-process DXF text: ensure there is exactly one EOF marker and nothing after it.
     // Some converters produce extra content after EOF or omit it entirely.
     const dxfText = sanitizeDxfEof(rawDxfText);
@@ -491,10 +513,23 @@ export async function parseCadUpload({ buffer, originalName, fileSizeBytes = 0, 
       warnings = ['DXF output from converter was malformed (missing or extra content after EOF). File was recovered automatically.'];
     }
     if (converterAttemptedModes.length > 1 && converterModeUsed && converterModeUsed !== converterAttemptedModes[0]) {
+      const fallbackReason = converterAttemptErrors[0] || `Primary converter ${converterAttemptedModes[0]} failed.`;
       warnings.push(`CAD conversion fell back from ${converterAttemptedModes[0]} to ${converterModeUsed} for this file.`);
+      warnings.push(`Fallback reason: ${fallbackReason}`);
+      console.warn(`[CAD] converter fallback ${converterAttemptedModes[0]} -> ${converterModeUsed} for ${originalName}: ${fallbackReason}`);
     }
     usedConverter = true;
     processingRoute = converterModeUsed ? `dwg-converted-${converterModeUsed}` : 'dwg-converted';
+  }
+
+  if (processingMode === 'preview') {
+    warnings.push('Preview mode was used. Output may omit some heavy entities until a full/recovery pass is run.');
+  }
+  if (processingMode === 'recovery') {
+    warnings.push('Recovery mode was used due to file complexity. Review diagnostics and unresolved entities before relying on full fidelity.');
+  }
+  if (pointsOnly) {
+    warnings.push('Points-only extraction was used. Non-point CAD entities can be skipped in this output.');
   }
 
   warnings = [...warnings, ...buildCadReferenceWarnings(diagnostics)];
@@ -509,11 +544,18 @@ export async function parseCadUpload({ buffer, originalName, fileSizeBytes = 0, 
       fileName: originalName,
       extension: ext,
       processingMode,
+      preflightFormatHint,
+      preflightModeConfidence,
+      preflightModeConfidenceReason,
       fileSizeBytes,
+      expectedFileHashSha256: expectedFileHashSha256 || null,
+      assembledHashSha256: resolvedFileHashSha256 || null,
+      integrityVerified: Boolean(expectedFileHashSha256 && resolvedFileHashSha256 && String(expectedFileHashSha256).toLowerCase() === String(resolvedFileHashSha256).toLowerCase()),
       nativeDwg: ext === '.dwg' && isLikelyNativeDwgData(data),
       usedConverter,
       converterModeUsed,
       converterAttemptedModes,
+      converterAttemptErrors,
       processingRoute,
       diagnostics,
       detectedFromCrs: diagnostics?.detectedFromCrs || rows.find((row) => row?.detectedFromCrs)?.detectedFromCrs || null,

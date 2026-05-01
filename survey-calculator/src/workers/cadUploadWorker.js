@@ -1,5 +1,10 @@
 const toHex = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
 
+async function digestSha256Hex(buffer) {
+  const digest = await crypto.subtle.digest('SHA-256', buffer);
+  return toHex(new Uint8Array(digest));
+}
+
 function chooseProcessingMode(fileSize, previewThresholdBytes, recoveryThresholdBytes) {
   if (fileSize >= recoveryThresholdBytes) return 'recovery';
   if (fileSize >= previewThresholdBytes) return 'preview';
@@ -34,6 +39,37 @@ async function readStreamSignature(file) {
   }
 }
 
+function deriveFormatHint(fileName, signatureHex) {
+  const ext = String(fileName || '').toLowerCase().split('.').pop();
+  const sig = String(signatureHex || '').toLowerCase();
+
+  // DWG files typically start with AC10xx in ASCII (hex 41 43 31 30).
+  if (sig.startsWith('41433130')) return 'dwg';
+  if (ext === 'dwg') return 'dwg';
+  if (ext === 'dxf') return 'dxf';
+  return 'unknown';
+}
+
+function deriveModeConfidence(processingMode, formatHint) {
+  // Size-only mode hints are intentionally conservative for DWG/proxy-heavy files.
+  if (formatHint === 'dwg') {
+    return {
+      level: 'low',
+      reason: `Mode ${processingMode} selected from size thresholds only. DWG complexity/proxy content may require fallback to recovery.`,
+    };
+  }
+  if (formatHint === 'dxf') {
+    return {
+      level: 'medium',
+      reason: `Mode ${processingMode} selected from size thresholds and DXF signature hints.`,
+    };
+  }
+  return {
+    level: 'low',
+    reason: `Mode ${processingMode} selected from size thresholds only.`,
+  };
+}
+
 self.onmessage = async (event) => {
   const { taskId, task, payload } = event.data || {};
 
@@ -52,6 +88,10 @@ self.onmessage = async (event) => {
     const processingMode = chooseProcessingMode(file.size, previewThresholdBytes, recoveryThresholdBytes);
     const chunkPlan = buildChunkSpecs(file.size, payload?.chunkBytes);
     const signatureHex = await readStreamSignature(file);
+    const fileBuffer = await file.arrayBuffer();
+    const fileHashSha256 = await digestSha256Hex(fileBuffer);
+    const formatHint = deriveFormatHint(file.name, signatureHex);
+    const confidence = deriveModeConfidence(processingMode, formatHint);
 
     self.postMessage({
       type: 'result',
@@ -60,6 +100,10 @@ self.onmessage = async (event) => {
         ...chunkPlan,
         processingMode,
         signatureHex,
+        fileHashSha256,
+        formatHint,
+        processingModeConfidence: confidence.level,
+        processingModeConfidenceReason: confidence.reason,
       },
     });
   } catch (err) {

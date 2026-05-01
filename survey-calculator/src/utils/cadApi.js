@@ -103,6 +103,9 @@ async function buildChunkUploadPlan(file, { signal, onProgress } = {}) {
   if (workerPlan) {
     if (typeof onProgress === 'function') {
       onProgress(`Upload planner worker ready. Recommended mode: ${workerPlan.processingMode}.`);
+      if (workerPlan.processingModeConfidenceReason) {
+        onProgress(`Preflight confidence: ${workerPlan.processingModeConfidence} (${workerPlan.processingModeConfidenceReason})`);
+      }
     }
     return workerPlan;
   }
@@ -126,6 +129,10 @@ async function buildChunkUploadPlan(file, { signal, onProgress } = {}) {
     chunks,
     processingMode,
     signatureHex: '',
+    fileHashSha256: '',
+    formatHint: 'unknown',
+    processingModeConfidence: 'low',
+    processingModeConfidenceReason: `Mode ${processingMode} selected from size thresholds only.`,
   };
 }
 
@@ -141,6 +148,9 @@ async function uploadCadFileInChunks(file, { signal, onProgress } = {}) {
 
   if (typeof onProgress === 'function' && plan.signatureHex) {
     onProgress(`File stream preflight signature: ${plan.signatureHex}`);
+  }
+  if (typeof onProgress === 'function' && plan.fileHashSha256) {
+    onProgress(`Computed upload integrity hash (sha256): ${plan.fileHashSha256.slice(0, 16)}...`);
   }
 
   for (let index = 0; index < chunks.length; index += 1) {
@@ -190,12 +200,23 @@ async function uploadCadFileInChunks(file, { signal, onProgress } = {}) {
     uploadId,
     totalChunks,
     processingMode: plan.processingMode || 'full',
+    fileHashSha256: plan.fileHashSha256 || '',
+    formatHint: plan.formatHint || 'unknown',
+    processingModeConfidence: plan.processingModeConfidence || 'low',
+    processingModeConfidenceReason: plan.processingModeConfidenceReason || '',
   };
 }
 
 async function uploadCadAndParseChunked(file, options = {}, signal) {
   const { onProgress } = options;
-  const { uploadId, processingMode } = await uploadCadFileInChunks(file, { signal, onProgress });
+  const {
+    uploadId,
+    processingMode,
+    fileHashSha256,
+    formatHint,
+    processingModeConfidence,
+    processingModeConfidenceReason,
+  } = await uploadCadFileInChunks(file, { signal, onProgress });
 
   if (typeof onProgress === 'function') {
     onProgress('Upload complete. Finalizing and parsing CAD geometry...');
@@ -209,6 +230,10 @@ async function uploadCadAndParseChunked(file, options = {}, signal) {
       fileName: file.name,
       pointsOnly: options.pointsOnly ? 'true' : 'false',
       processingMode: options.processingMode || processingMode || 'full',
+      expectedFileHashSha256: fileHashSha256 || '',
+      preflightFormatHint: options.preflightFormatHint || formatHint || 'unknown',
+      preflightModeConfidence: options.preflightModeConfidence || processingModeConfidence || 'low',
+      preflightModeConfidenceReason: options.preflightModeConfidenceReason || processingModeConfidenceReason || '',
     }),
     signal,
   });
@@ -225,6 +250,10 @@ async function uploadCadAndParseDirect(file, options = {}, signal) {
   formData.append('file', file);
   formData.append('pointsOnly', options.pointsOnly ? 'true' : 'false');
   formData.append('processingMode', options.processingMode || 'full');
+  if (options.expectedFileHashSha256) formData.append('expectedFileHashSha256', options.expectedFileHashSha256);
+  if (options.preflightFormatHint) formData.append('preflightFormatHint', options.preflightFormatHint);
+  if (options.preflightModeConfidence) formData.append('preflightModeConfidence', options.preflightModeConfidence);
+  if (options.preflightModeConfidenceReason) formData.append('preflightModeConfidenceReason', options.preflightModeConfidenceReason);
 
   const response = await fetch(`${CAD_API_BASE_URL}/parse`, {
     method: 'POST',
@@ -275,9 +304,19 @@ export async function parseCadFileViaBackend(file, options = {}) {
       : file.size >= CAD_PREVIEW_MODE_MIN_BYTES
         ? 'preview'
         : 'full';
+    const needsDirectPreflight = file.size < CAD_CHUNK_MODE_MIN_BYTES
+      && !attemptOptions?.expectedFileHashSha256;
+    const preflightPlan = needsDirectPreflight
+      ? await buildChunkUploadPlan(file, { signal, onProgress }).catch(() => null)
+      : null;
+
     const nextOptions = {
       ...attemptOptions,
       processingMode: attemptOptions?.processingMode || modeFromSize,
+      expectedFileHashSha256: attemptOptions?.expectedFileHashSha256 || preflightPlan?.fileHashSha256 || '',
+      preflightFormatHint: attemptOptions?.preflightFormatHint || preflightPlan?.formatHint || 'unknown',
+      preflightModeConfidence: attemptOptions?.preflightModeConfidence || preflightPlan?.processingModeConfidence || 'low',
+      preflightModeConfidenceReason: attemptOptions?.preflightModeConfidenceReason || preflightPlan?.processingModeConfidenceReason || '',
     };
 
     if (file.size >= CAD_CHUNK_MODE_MIN_BYTES) {

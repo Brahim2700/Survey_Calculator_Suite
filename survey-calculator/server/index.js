@@ -3,6 +3,7 @@ import cors from 'cors';
 import multer from 'multer';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
@@ -56,14 +57,32 @@ async function writeChunkMeta(uploadId, meta) {
 async function assembleChunksToFile(uploadDir, totalChunks, outputPath) {
   await fs.rm(outputPath, { force: true });
 
-  for (let i = 0; i < totalChunks; i += 1) {
-    const partPath = path.join(uploadDir, `${i}.part`);
-    await fs.access(partPath);
+  try {
+    for (let i = 0; i < totalChunks; i += 1) {
+      const partPath = path.join(uploadDir, `${i}.part`);
+      await fs.access(partPath);
 
-    const readStream = createReadStream(partPath);
-    const writeStream = createWriteStream(outputPath, { flags: i === 0 ? 'w' : 'a' });
-    await pipeline(readStream, writeStream);
+      const readStream = createReadStream(partPath);
+      const writeStream = createWriteStream(outputPath, { flags: i === 0 ? 'w' : 'a' });
+      await pipeline(readStream, writeStream);
+    }
+  } catch (err) {
+    await fs.rm(outputPath, { force: true });
+    throw err;
   }
+}
+
+async function hashFileSha256(filePath) {
+  const hash = createHash('sha256');
+  const rs = createReadStream(filePath);
+  for await (const chunk of rs) {
+    hash.update(chunk);
+  }
+  return hash.digest('hex');
+}
+
+function hashesEqualHex(a, b) {
+  return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 }
 
 app.use(cors({
@@ -147,6 +166,10 @@ app.post('/api/cad/upload/complete', express.json({ limit: '1mb' }), async (req,
   const fileName = String(req.body?.fileName || '').trim();
   const pointsOnly = String(req.body?.pointsOnly || '').toLowerCase() === 'true';
   const processingMode = String(req.body?.processingMode || 'full').trim() || 'full';
+  const expectedFileHashSha256 = String(req.body?.expectedFileHashSha256 || '').trim();
+  const preflightFormatHint = String(req.body?.preflightFormatHint || 'unknown').trim() || 'unknown';
+  const preflightModeConfidence = String(req.body?.preflightModeConfidence || 'low').trim() || 'low';
+  const preflightModeConfidenceReason = String(req.body?.preflightModeConfidenceReason || '').trim();
 
   if (!uploadId || !fileName) {
     res.status(400).json({ message: 'Missing upload completion metadata.' });
@@ -163,6 +186,14 @@ app.post('/api/cad/upload/complete', express.json({ limit: '1mb' }), async (req,
     const expected = Number(meta.totalChunks);
     const assembledPath = path.join(uploadDir, '__assembled.upload');
     await assembleChunksToFile(uploadDir, expected, assembledPath);
+    const assembledHashSha256 = await hashFileSha256(assembledPath);
+
+    if (expectedFileHashSha256 && !hashesEqualHex(assembledHashSha256, expectedFileHashSha256)) {
+      const mismatch = new Error('Chunk integrity check failed: assembled file hash does not match client hash.');
+      mismatch.statusCode = 409;
+      throw mismatch;
+    }
+
     const combined = await fs.readFile(assembledPath);
 
     const result = await parseCadUpload({
@@ -171,6 +202,11 @@ app.post('/api/cad/upload/complete', express.json({ limit: '1mb' }), async (req,
       fileSizeBytes: combined.length,
       pointsOnly,
       processingMode,
+      expectedFileHashSha256,
+      assembledHashSha256,
+      preflightFormatHint,
+      preflightModeConfidence,
+      preflightModeConfidenceReason,
     });
 
     await cleanupUploadDir(uploadId);
@@ -204,6 +240,10 @@ app.post('/api/cad/parse', upload.single('file'), async (req, res) => {
       fileSizeBytes: req.file.size,
       pointsOnly: String(req.body?.pointsOnly || '').toLowerCase() === 'true',
       processingMode: String(req.body?.processingMode || 'full').trim() || 'full',
+      expectedFileHashSha256: String(req.body?.expectedFileHashSha256 || '').trim(),
+      preflightFormatHint: String(req.body?.preflightFormatHint || 'unknown').trim() || 'unknown',
+      preflightModeConfidence: String(req.body?.preflightModeConfidence || 'low').trim() || 'low',
+      preflightModeConfidenceReason: String(req.body?.preflightModeConfidenceReason || '').trim(),
     });
 
     res.json({
