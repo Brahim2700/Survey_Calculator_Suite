@@ -229,6 +229,7 @@ async function uploadCadAndParseChunked(file, options = {}, signal) {
       uploadId,
       fileName: file.name,
       pointsOnly: options.pointsOnly ? 'true' : 'false',
+      strictExistingPointsOnly: options.strictExistingPointsOnly === false ? 'false' : 'true',
       processingMode: options.processingMode || processingMode || 'full',
       expectedFileHashFNV64: fileHashFNV64 || '',
       preflightFormatHint: options.preflightFormatHint || formatHint || 'unknown',
@@ -249,6 +250,7 @@ async function uploadCadAndParseDirect(file, options = {}, signal) {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('pointsOnly', options.pointsOnly ? 'true' : 'false');
+  formData.append('strictExistingPointsOnly', options.strictExistingPointsOnly === false ? 'false' : 'true');
   formData.append('processingMode', options.processingMode || 'full');
   if (options.expectedFileHashFNV64) formData.append('expectedFileHashFNV64', options.expectedFileHashFNV64);
   if (options.preflightFormatHint) formData.append('preflightFormatHint', options.preflightFormatHint);

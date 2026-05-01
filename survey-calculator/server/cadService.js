@@ -451,6 +451,7 @@ export async function parseCadUpload({
   originalName,
   fileSizeBytes = 0,
   pointsOnly = false,
+  strictExistingPointsOnly = true,
   processingMode = 'full',
   expectedFileHashFNV64 = '',
   assembledHashFNV64 = '',
@@ -470,7 +471,7 @@ export async function parseCadUpload({
   const data = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
   const resolvedFileHashSha256 = assembledHashSha256 || computeSha256Hex(Buffer.from(data));
   const resolvedFileHashFNV64 = assembledHashFNV64 || null;
-  const options = { pointsOnly, returnPayload: true };
+  const options = { pointsOnly, strictExistingPointsOnly, returnPayload: true };
   let rows;
   let geometry = null;
   let diagnostics = null;

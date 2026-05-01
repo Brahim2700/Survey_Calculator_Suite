@@ -1477,6 +1477,7 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
   const rows = [];
   let idx = 1;
   const pointsOnly = options.pointsOnly || false;
+  const strictExistingPointsOnly = options.strictExistingPointsOnly === true;
   let detectedFromCrs = detectCrsFromDxf(dxfData);
   const seenCoords = new Map();
   // Reuse pre-computed expanded entities if provided to avoid double processing
@@ -1595,12 +1596,14 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
 
   visitEntities(expandedEntities);
 
-  const inferredCenters = inferPointCentersFromSegments(segments, drawingDiagonal);
-  inferredCenters.forEach((center) => {
-    addRow(center.x, center.y, center.z, null, false, 'inferred-center', null);
-  });
+  if (!strictExistingPointsOnly) {
+    const inferredCenters = inferPointCentersFromSegments(segments, drawingDiagonal);
+    inferredCenters.forEach((center) => {
+      addRow(center.x, center.y, center.z, null, false, 'inferred-center', null);
+    });
+  }
 
-  if (!rows.length && !pointsOnly) {
+  if (!rows.length && !pointsOnly && !strictExistingPointsOnly) {
     collectFallbackVertices(segments, (x, y, z, idHint) => addRow(x, y, z, idHint, false, 'fallback-vertex', null));
   }
 

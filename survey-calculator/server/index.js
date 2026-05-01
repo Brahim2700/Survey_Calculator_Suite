@@ -223,6 +223,7 @@ app.post('/api/cad/upload/complete', express.json({ limit: '1mb' }), async (req,
   const uploadId = String(req.body?.uploadId || '').trim();
   const fileName = String(req.body?.fileName || '').trim();
   const pointsOnly = String(req.body?.pointsOnly || '').toLowerCase() === 'true';
+  const strictExistingPointsOnly = String(req.body?.strictExistingPointsOnly || '').toLowerCase() !== 'false';
   const processingMode = String(req.body?.processingMode || 'full').trim() || 'full';
   const expectedFileHashFNV64 = String(req.body?.expectedFileHashFNV64 || '').trim();
   const preflightFormatHint = String(req.body?.preflightFormatHint || 'unknown').trim() || 'unknown';
@@ -266,6 +267,7 @@ app.post('/api/cad/upload/complete', express.json({ limit: '1mb' }), async (req,
       originalName: fileName,
       fileSizeBytes: combined.length,
       pointsOnly,
+      strictExistingPointsOnly,
       processingMode: effectiveProcessingMode,
       expectedFileHashFNV64,
       assembledHashFNV64,
@@ -315,6 +317,7 @@ app.post('/api/cad/parse', upload.single('file'), async (req, res) => {
       originalName: req.file.originalname,
       fileSizeBytes: req.file.size,
       pointsOnly: String(req.body?.pointsOnly || '').toLowerCase() === 'true',
+      strictExistingPointsOnly: String(req.body?.strictExistingPointsOnly || '').toLowerCase() !== 'false',
       processingMode: effectiveProcessingMode,
       expectedFileHashFNV64: String(req.body?.expectedFileHashFNV64 || '').trim(),
       preflightFormatHint: String(req.body?.preflightFormatHint || 'unknown').trim() || 'unknown',
