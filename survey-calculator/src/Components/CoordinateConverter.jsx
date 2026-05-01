@@ -1096,6 +1096,7 @@ const CoordinateConverter = () => {
   const [bulkProgress, setBulkProgress] = useState(null);
   const [bulkUploadFile, setBulkUploadFile] = useState(null);
   const [fileImportMode, setFileImportMode] = useState("append"); // append | replace
+  const [cadStrictExistingPointsOnly, setCadStrictExistingPointsOnly] = useState(true);
   const [bulkUploadError, setBulkUploadError] = useState("");
   const [cadPreviewLoading, setCadPreviewLoading] = useState(false);
   const [cadBackendStatus, setCadBackendStatus] = useState(null);
@@ -3174,6 +3175,7 @@ const CoordinateConverter = () => {
     // Clear bulk file conversion
     setBulkUploadFile(null);
     setBulkUploadError("");
+    setCadStrictExistingPointsOnly(true);
     setCadInspection(null);
     setCadSourceGeometry(null);
     setCadGeometrySourceCrs(null);
@@ -3293,8 +3295,8 @@ const CoordinateConverter = () => {
     try {
       const latestCadStatus = await refreshCadStatus();
       const cadPayload = ext === 'dxf'
-        ? (setBulkProgress("Parsing DXF file…"), await parseDXFFile(file, { returnPayload: true }))
-        : await parseDWGFile(file, { returnPayload: true, onProgress: (msg) => setBulkProgress(msg) });
+        ? (setBulkProgress("Parsing DXF file…"), await parseDXFFile(file, { returnPayload: true, strictExistingPointsOnly: cadStrictExistingPointsOnly }))
+        : await parseDWGFile(file, { returnPayload: true, strictExistingPointsOnly: cadStrictExistingPointsOnly, onProgress: (msg) => setBulkProgress(msg) });
 
       const rows = Array.isArray(cadPayload?.rows) ? cadPayload.rows : [];
       const hasRenderableGeometry = Boolean(
@@ -3353,7 +3355,7 @@ const CoordinateConverter = () => {
     } finally {
       setCadPreviewLoading(false);
     }
-  }, [ambiguousReferenceNotice, bulkUploadFile, detectLocalReferenceFromRows, fileImportMode, localReferenceNotice, projectCadGeometryToWgs84, projectCadRowsToWgs84, refreshCadStatus, resolveCadSourceCrs]);
+  }, [ambiguousReferenceNotice, bulkUploadFile, cadStrictExistingPointsOnly, detectLocalReferenceFromRows, fileImportMode, localReferenceNotice, projectCadGeometryToWgs84, projectCadRowsToWgs84, refreshCadStatus, resolveCadSourceCrs]);
 
   // Detect CRS immediately when file is selected
   const detectFileFormatsAndCRS = async (file) => {
@@ -3378,9 +3380,9 @@ const CoordinateConverter = () => {
       } else if (ext === "xlsx" || ext === "xls") {
         rows = await parseXLSXFile(file);
       } else if (ext === "dxf") {
-        rows = await parseDXFFile(file);
+        rows = await parseDXFFile(file, { strictExistingPointsOnly: cadStrictExistingPointsOnly });
       } else if (ext === "dwg") {
-        rows = await parseDWGFile(file, { onProgress: (msg) => console.info('[CRS detect]', msg) });
+        rows = await parseDWGFile(file, { strictExistingPointsOnly: cadStrictExistingPointsOnly, onProgress: (msg) => console.info('[CRS detect]', msg) });
       }
       
       if (rows && rows.length > 0) {
@@ -3472,10 +3474,10 @@ const CoordinateConverter = () => {
           rows = await parseXLSXFile(file);
         } else if (ext === "dxf") {
           setBulkProgress("Parsing DXF file…");
-          cadPayload = await parseDXFFile(file, { returnPayload: true });
+          cadPayload = await parseDXFFile(file, { returnPayload: true, strictExistingPointsOnly: cadStrictExistingPointsOnly });
           rows = cadPayload.rows;
         } else if (ext === "dwg") {
-          cadPayload = await parseDWGFile(file, { returnPayload: true, onProgress: (msg) => setBulkProgress(msg) });
+          cadPayload = await parseDWGFile(file, { returnPayload: true, strictExistingPointsOnly: cadStrictExistingPointsOnly, onProgress: (msg) => setBulkProgress(msg) });
           rows = cadPayload.rows;
         } else {
           throw new Error(`Unsupported file type: .${ext}`);
@@ -4995,6 +4997,19 @@ const CoordinateConverter = () => {
               <option value="append">Append to existing map</option>
               <option value="replace">Replace existing map data</option>
             </select>
+            {bulkUploadFile && ["dxf", "dwg"].includes((bulkUploadFile.name.split('.')?.pop() || '').toLowerCase()) && (
+              <>
+                <label style={{ fontSize: "0.84rem", fontWeight: 700, color: "#334155" }}>CAD point extraction</label>
+                <select
+                  value={cadStrictExistingPointsOnly ? "strict" : "legacy"}
+                  onChange={(e) => setCadStrictExistingPointsOnly(e.target.value === "strict")}
+                  style={{ padding: "0.35rem 0.55rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", fontWeight: 600 }}
+                >
+                  <option value="strict">Existing points only</option>
+                  <option value="legacy">Include inferred points</option>
+                </select>
+              </>
+            )}
           </div>
         )}
         <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "0.4rem", padding: "0.55rem 0.6rem", borderRadius: "8px", border: "1px solid #e2e8f0", background: "#f8fafc" }}>
