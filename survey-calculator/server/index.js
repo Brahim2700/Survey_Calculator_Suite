@@ -8,6 +8,7 @@ import { createReadStream, createWriteStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { getCadBackendStatus, parseCadUpload } from './cadService.js';
+import { prescanCadBuffer } from './cadPrescanService.js';
 
 const app = express();
 const port = Number(process.env.PORT || process.env.CAD_API_PORT || 4000);
@@ -85,6 +86,18 @@ function hashesEqualHex(a, b) {
   return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 }
 
+const PROCESSING_MODE_RANK = {
+  full: 0,
+  preview: 1,
+  recovery: 2,
+};
+
+function mergeProcessingMode(clientMode, prescanMode) {
+  const clientRank = PROCESSING_MODE_RANK[clientMode] ?? 0;
+  const prescanRank = PROCESSING_MODE_RANK[prescanMode] ?? 0;
+  return clientRank >= prescanRank ? clientMode : prescanMode;
+}
+
 app.use(cors({
   origin(origin, callback) {
     if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
@@ -97,6 +110,25 @@ app.use(cors({
 
 app.get('/api/cad/health', (_req, res) => {
   res.json(getCadBackendStatus());
+});
+
+app.post('/api/cad/prescan', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      res.status(400).json({ message: 'No CAD file was uploaded for pre-scan.' });
+      return;
+    }
+
+    const result = prescanCadBuffer({
+      buffer: req.file.buffer,
+      originalName: req.file.originalname,
+      fileSizeBytes: req.file.size,
+    });
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ message: err.message || 'CAD pre-scan failed.' });
+  }
 });
 
 app.post('/api/cad/upload/chunk', chunkUpload.single('chunk'), async (req, res) => {
@@ -195,18 +227,25 @@ app.post('/api/cad/upload/complete', express.json({ limit: '1mb' }), async (req,
     }
 
     const combined = await fs.readFile(assembledPath);
+    const preScan = prescanCadBuffer({
+      buffer: combined,
+      originalName: fileName,
+      fileSizeBytes: combined.length,
+    });
+    const effectiveProcessingMode = mergeProcessingMode(processingMode, preScan.recommendedMode);
 
     const result = await parseCadUpload({
       buffer: combined,
       originalName: fileName,
       fileSizeBytes: combined.length,
       pointsOnly,
-      processingMode,
+      processingMode: effectiveProcessingMode,
       expectedFileHashSha256,
       assembledHashSha256,
       preflightFormatHint,
       preflightModeConfidence,
       preflightModeConfidenceReason,
+      preScan,
     });
 
     await cleanupUploadDir(uploadId);
@@ -216,6 +255,7 @@ app.post('/api/cad/upload/complete', express.json({ limit: '1mb' }), async (req,
       geometry: result.geometry || null,
       sourceFormat: result.sourceFormat,
       warnings: result.warnings || [],
+      preScan,
       inspection: result.inspection || null,
     });
   } catch (err) {
@@ -234,16 +274,25 @@ app.post('/api/cad/parse', upload.single('file'), async (req, res) => {
       return;
     }
 
+    const preScan = prescanCadBuffer({
+      buffer: req.file.buffer,
+      originalName: req.file.originalname,
+      fileSizeBytes: req.file.size,
+    });
+    const clientMode = String(req.body?.processingMode || 'full').trim() || 'full';
+    const effectiveProcessingMode = mergeProcessingMode(clientMode, preScan.recommendedMode);
+
     const result = await parseCadUpload({
       buffer: req.file.buffer,
       originalName: req.file.originalname,
       fileSizeBytes: req.file.size,
       pointsOnly: String(req.body?.pointsOnly || '').toLowerCase() === 'true',
-      processingMode: String(req.body?.processingMode || 'full').trim() || 'full',
+      processingMode: effectiveProcessingMode,
       expectedFileHashSha256: String(req.body?.expectedFileHashSha256 || '').trim(),
       preflightFormatHint: String(req.body?.preflightFormatHint || 'unknown').trim() || 'unknown',
       preflightModeConfidence: String(req.body?.preflightModeConfidence || 'low').trim() || 'low',
       preflightModeConfidenceReason: String(req.body?.preflightModeConfidenceReason || '').trim(),
+      preScan,
     });
 
     res.json({
@@ -251,6 +300,7 @@ app.post('/api/cad/parse', upload.single('file'), async (req, res) => {
       geometry: result.geometry || null,
       sourceFormat: result.sourceFormat,
       warnings: result.warnings || [],
+      preScan,
       inspection: result.inspection || null,
     });
   } catch (err) {

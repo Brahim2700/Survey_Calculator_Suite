@@ -452,6 +452,7 @@ export async function parseCadUpload({
   preflightFormatHint = 'unknown',
   preflightModeConfidence = 'low',
   preflightModeConfidenceReason = '',
+  preScan = null,
 }) {
   const ext = getFileExtension(originalName);
   if (!['.dxf', '.dwg'].includes(ext)) {
@@ -472,6 +473,15 @@ export async function parseCadUpload({
   let converterModeUsed = null;
   let converterAttemptedModes = [];
   let converterAttemptErrors = [];
+  let preferredConverterMode = null;
+
+  const availableConverterModes = getAvailableConverterModes();
+  const preScanRecommendedEngine = preScan?.recommendedEngine || null;
+  if (preScanRecommendedEngine && availableConverterModes.includes(preScanRecommendedEngine)) {
+    preferredConverterMode = preScanRecommendedEngine;
+  } else if (preScanRecommendedEngine && !availableConverterModes.includes(preScanRecommendedEngine)) {
+    warnings.push(`Server pre-scan recommended engine ${preScanRecommendedEngine}, but it is not available in this runtime.`);
+  }
 
   if (ext === '.dxf') {
     const parsed = parseDxfTextContent(Buffer.from(data).toString('utf8'), options);
@@ -487,7 +497,7 @@ export async function parseCadUpload({
     warnings = ['The uploaded .dwg file contained DXF text and was parsed without converter assistance.'];
     processingRoute = 'dwg-dxf-text';
   } else {
-    const conversionResult = await convertDwgBufferToDxfText(Buffer.from(data), originalName);
+    const conversionResult = await convertDwgBufferToDxfText(Buffer.from(data), originalName, preferredConverterMode);
     const rawDxfText = conversionResult.dxfText;
     converterModeUsed = conversionResult.modeUsed;
     converterAttemptedModes = conversionResult.attemptedModes || [];
@@ -547,12 +557,14 @@ export async function parseCadUpload({
       preflightFormatHint,
       preflightModeConfidence,
       preflightModeConfidenceReason,
+      preScan,
       fileSizeBytes,
       expectedFileHashSha256: expectedFileHashSha256 || null,
       assembledHashSha256: resolvedFileHashSha256 || null,
       integrityVerified: Boolean(expectedFileHashSha256 && resolvedFileHashSha256 && String(expectedFileHashSha256).toLowerCase() === String(resolvedFileHashSha256).toLowerCase()),
       nativeDwg: ext === '.dwg' && isLikelyNativeDwgData(data),
       usedConverter,
+      preferredConverterMode,
       converterModeUsed,
       converterAttemptedModes,
       converterAttemptErrors,

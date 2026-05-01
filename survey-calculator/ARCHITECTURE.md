@@ -171,10 +171,12 @@ Production system software:
 1. The user imports a DWG file.
 2. The frontend uploads the file to the CAD backend.
 3. Large files switch to chunked upload mode automatically.
-4. The backend converts DWG to DXF using LibreDWG or an available fallback.
-5. The backend parses and normalizes the CAD result.
-6. JSON rows and geometry are returned to the frontend.
-7. The frontend renders the returned geometry and conversion results.
+4. The backend runs a lightweight CAD-aware pre-scan and computes risk score, recommended mode, and recommended engine.
+5. The backend applies authoritative mode routing (full/preview/recovery) and conversion preference (LibreDWG/ODA when available).
+6. The backend converts DWG to DXF using the routed engine path.
+7. The backend parses and normalizes the CAD result.
+8. JSON rows, geometry, and pre-scan/inspection telemetry are returned to the frontend.
+9. The frontend renders results and surfaces pre-scan confidence and recovery guidance.
 
 ## Practical Summary
 
@@ -193,3 +195,6 @@ Production system software:
 - Backend chunk completion now assembles chunk files through Node streams (`pipeline`) instead of buffering all parts in memory first.
 - CAD engine routing now attempts multiple converters in order (LibreDWG first, then ODA/custom when available) and records fallback details in inspection metadata.
 - Staged processing hints (`full`, `preview`, `recovery`) are now propagated from frontend upload flow to backend inspection results.
+- Added server-side CAD pre-scan service with weighted risk scoring and recommended mode/engine outputs.
+- Added `POST /api/cad/prescan` endpoint for lightweight CAD-aware inspection without full conversion.
+- Upload/parse routes now merge client hint mode with server pre-scan mode and use server result as authoritative routing.

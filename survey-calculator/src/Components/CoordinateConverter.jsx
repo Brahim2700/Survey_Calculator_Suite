@@ -83,6 +83,8 @@ const buildCadSummaryHtml = (report) => {
     ["Processing Route", inspection?.processingRoute],
     ["Rows Extracted", inspection?.rowCount],
     ["Detected CRS", inspection?.detectedFromCrs],
+    ["Server Pre-scan Risk", inspection?.preScanRiskScore],
+    ["Server Recommended Engine", inspection?.preScanRecommendedEngine],
     ["CRS Confidence", inspection?.confidenceClass?.label],
     ["Preflight Confidence", inspection?.preflightModeConfidence],
     ["Integrity Verified", inspection?.integrityVerified ? "Yes" : (inspection?.expectedFileHashSha256 ? "No" : null)],
@@ -254,6 +256,10 @@ const buildCadInspectionSummary = (file, rows, status, payload = null) => {
     preflightFormatHint: payload?.inspection?.preflightFormatHint || "unknown",
     preflightModeConfidence: payload?.inspection?.preflightModeConfidence || "low",
     preflightModeConfidenceReason: payload?.inspection?.preflightModeConfidenceReason || "",
+    preScanRiskScore: Number.isFinite(Number(payload?.inspection?.preScan?.riskScore)) ? Number(payload.inspection.preScan.riskScore) : null,
+    preScanRecommendedEngine: payload?.inspection?.preScan?.recommendedEngine || null,
+    preScanRecommendedMode: payload?.inspection?.preScan?.recommendedMode || null,
+    preScanSignals: Array.isArray(payload?.inspection?.preScan?.signals) ? payload.inspection.preScan.signals : [],
     expectedFileHashSha256: payload?.inspection?.expectedFileHashSha256 || null,
     assembledHashSha256: payload?.inspection?.assembledHashSha256 || null,
     integrityVerified: Boolean(payload?.inspection?.integrityVerified),
@@ -346,6 +352,17 @@ const buildCadValidationIssueRows = (inspection) => {
       title: "Low preflight confidence",
       message: inspection.preflightModeConfidenceReason || "Mode selection confidence was low.",
       detail: "Complex DWG or proxy entities may require fallback/manual review.",
+    });
+  }
+
+  if (inspection.preScanRecommendedMode === "recovery") {
+    addIssue({
+      severity: "warning",
+      category: "prescan",
+      code: "cad-prescan-high-risk",
+      title: "High-risk CAD pre-scan",
+      message: "Server pre-scan classified this file as high risk and recommended recovery mode.",
+      detail: "Advanced/proxy-heavy entity patterns were detected before full processing.",
     });
   }
 
