@@ -167,11 +167,23 @@
   font-size: 0.83rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  flex: 0 0 auto;
 }
 .map-toolbar-actions {
   display: flex;
   gap: 0.45rem;
   align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-end;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 0.15rem;
+}
+
+.map-toolbar-actions .btn,
+.map-toolbar-actions .map-tooltip-wrapper {
+  flex: 0 0 auto;
 }
 
 /* ── Toolbar buttons ── */
