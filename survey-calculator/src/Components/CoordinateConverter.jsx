@@ -2299,6 +2299,9 @@ const CoordinateConverter = () => {
       const text = normalizeCadText(value);
       if (!text || text.length > 48) return false;
       if (/^[-+]?\d+(?:[.,]\d+)?$/.test(text)) return false;
+      if (/\.(?:dxf|dwg|kml|kmz|csv|txt|geojson|gpx|json)\b/i.test(text)) return false;
+      if (/[\\/]/.test(text)) return false;
+      if (/:[^\s]/.test(text)) return false;
       return /[A-Za-z]/.test(text) || /[._-]/.test(text);
     };
 
@@ -2419,7 +2422,7 @@ const CoordinateConverter = () => {
         const importedCadElevationText = annotation.elevationText || '';
         const fallbackPointId = String(row?.id || '').trim() || `cad_${index + 1}`;
         const pointId = fallbackPointId;
-        const pointLabel = importedCadName || '';
+        const pointLabel = importedCadName || pointId;
 
         if (useLocalPreview) {
           if (!localPreviewTransform) return null;

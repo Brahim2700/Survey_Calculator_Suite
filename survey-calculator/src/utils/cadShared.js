@@ -556,6 +556,10 @@ const isLikelyPointIdentifier = (value) => {
   if (!text) return false;
   if (text.length > 40) return false;
   if (/^[-+]?\d+(?:[.,]\d+)?$/.test(text)) return false;
+  // Reject obvious file/path-like metadata labels.
+  if (/\.(?:dxf|dwg|kml|kmz|csv|txt|geojson|gpx|json)\b/i.test(text)) return false;
+  if (/[\\/]/.test(text)) return false;
+  if (/:[^\s]/.test(text)) return false;
   // Most point labels include at least one digit or mixed token pattern.
   if (/[0-9]/.test(text)) return true;
   if (/^[A-Za-z]+[-_][A-Za-z0-9]+$/.test(text)) return true;
@@ -649,6 +653,8 @@ const assignNearbyTextNames = (rows, labels, drawingDiagonal = 0) => {
   let assigned = 0;
 
   labels.forEach((label) => {
+    if (!isLikelyPointIdentifier(label?.text)) return;
+
     const ranked = unnamedIndexes
       .filter((idx) => !usedRowIndexes.has(idx))
       .map((idx) => {
