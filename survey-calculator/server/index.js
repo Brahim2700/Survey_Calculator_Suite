@@ -3,7 +3,9 @@ import cors from 'cors';
 import multer from 'multer';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
+import { createReadStream, createWriteStream } from 'node:fs';
 import fs from 'node:fs/promises';
+import { pipeline } from 'node:stream/promises';
 import { getCadBackendStatus, parseCadUpload } from './cadService.js';
 
 const app = express();
@@ -49,6 +51,19 @@ async function writeChunkMeta(uploadId, meta) {
   await fs.mkdir(uploadDir, { recursive: true });
   const metaPath = path.join(uploadDir, 'meta.json');
   await fs.writeFile(metaPath, JSON.stringify(meta), 'utf8');
+}
+
+async function assembleChunksToFile(uploadDir, totalChunks, outputPath) {
+  await fs.rm(outputPath, { force: true });
+
+  for (let i = 0; i < totalChunks; i += 1) {
+    const partPath = path.join(uploadDir, `${i}.part`);
+    await fs.access(partPath);
+
+    const readStream = createReadStream(partPath);
+    const writeStream = createWriteStream(outputPath, { flags: i === 0 ? 'w' : 'a' });
+    await pipeline(readStream, writeStream);
+  }
 }
 
 app.use(cors({
@@ -131,6 +146,7 @@ app.post('/api/cad/upload/complete', express.json({ limit: '1mb' }), async (req,
   const uploadId = String(req.body?.uploadId || '').trim();
   const fileName = String(req.body?.fileName || '').trim();
   const pointsOnly = String(req.body?.pointsOnly || '').toLowerCase() === 'true';
+  const processingMode = String(req.body?.processingMode || 'full').trim() || 'full';
 
   if (!uploadId || !fileName) {
     res.status(400).json({ message: 'Missing upload completion metadata.' });
@@ -145,22 +161,16 @@ app.post('/api/cad/upload/complete', express.json({ limit: '1mb' }), async (req,
     }
 
     const expected = Number(meta.totalChunks);
-    const partBuffers = [];
-    let totalSize = 0;
+    const assembledPath = path.join(uploadDir, '__assembled.upload');
+    await assembleChunksToFile(uploadDir, expected, assembledPath);
+    const combined = await fs.readFile(assembledPath);
 
-    for (let i = 0; i < expected; i += 1) {
-      const partPath = path.join(uploadDir, `${i}.part`);
-      const part = await fs.readFile(partPath);
-      partBuffers.push(part);
-      totalSize += part.length;
-    }
-
-    const combined = Buffer.concat(partBuffers, totalSize);
     const result = await parseCadUpload({
       buffer: combined,
       originalName: fileName,
       fileSizeBytes: combined.length,
       pointsOnly,
+      processingMode,
     });
 
     await cleanupUploadDir(uploadId);
@@ -193,6 +203,7 @@ app.post('/api/cad/parse', upload.single('file'), async (req, res) => {
       originalName: req.file.originalname,
       fileSizeBytes: req.file.size,
       pointsOnly: String(req.body?.pointsOnly || '').toLowerCase() === 'true',
+      processingMode: String(req.body?.processingMode || 'full').trim() || 'full',
     });
 
     res.json({

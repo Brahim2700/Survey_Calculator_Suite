@@ -4,6 +4,8 @@ Client-side CRS conversion and visualization tool built with React + Vite. Suppo
 
 The repo now also includes an optional CAD backend service for native DWG parsing. The frontend stays in this app; DWG conversion happens server-side.
 
+Architecture and stack details: see [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ## Quick Start
 
 - Install: `npm install`

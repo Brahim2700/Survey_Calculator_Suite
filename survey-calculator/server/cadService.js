@@ -44,13 +44,16 @@ function resolveOdaConverterPath() {
   return DEFAULT_ODA_PATHS.find((candidate) => existsSync(candidate)) || null;
 }
 
+function getAvailableConverterModes() {
+  const modes = [];
+  if (resolveDwg2DxfPath()) modes.push('libredwg');
+  if (resolveOdaConverterPath()) modes.push('oda');
+  if (process.env.DWG_CONVERTER_COMMAND) modes.push('custom');
+  return modes;
+}
+
 function getConfiguredConverterMode() {
-  // LibreDWG (dwg2dxf) is preferred — free, open-source, installed in Docker
-  if (resolveDwg2DxfPath()) return 'libredwg';
-  // ODA is fallback for Windows local dev
-  if (resolveOdaConverterPath()) return 'oda';
-  if (process.env.DWG_CONVERTER_COMMAND) return 'custom';
-  return 'none';
+  return getAvailableConverterModes()[0] || 'none';
 }
 
 function buildConverterSetupHint() {
@@ -291,9 +294,70 @@ async function findFirstDxfFile(dirPath, preferredPath) {
   return null;
 }
 
-async function convertDwgBufferToDxfText(buffer, originalName) {
-  const converterMode = getConfiguredConverterMode();
-  if (converterMode === 'none') {
+function buildConversionAttemptOrder(preferredMode = null) {
+  const availableModes = getAvailableConverterModes();
+  if (preferredMode) {
+    return availableModes.includes(preferredMode) ? [preferredMode] : [];
+  }
+
+  // Prefer LibreDWG first for speed/cost, then ODA fallback for advanced files.
+  const ordered = [];
+  if (availableModes.includes('libredwg')) ordered.push('libredwg');
+  if (availableModes.includes('oda')) ordered.push('oda');
+  if (availableModes.includes('custom')) ordered.push('custom');
+  return ordered;
+}
+
+async function executeConversionMode(converterMode, vars, timeoutMs, inputSizeBytes) {
+  let searchDir = vars.outputDir;
+  let preferredPath = vars.outputDxfPath;
+  let converterStdout = '';
+
+  if (converterMode === 'libredwg') {
+    // LibreDWG CLI syntax differs across versions; run converter with fallbacks.
+    const result = await runLibreDwgConverter(vars, timeoutMs);
+    converterStdout = result?.stdout || '';
+    if (result?.outputPath) {
+      preferredPath = result.outputPath;
+      searchDir = path.dirname(result.outputPath);
+    }
+  } else if (converterMode === 'oda') {
+    // Try primary ODA format; if output is suspiciously small, retry older versions.
+    const ODA_FALLBACK_VERSIONS = ['ACAD2018', 'ACAD2010', 'ACAD2000'];
+    let odaSucceeded = false;
+    for (const odaVersion of ODA_FALLBACK_VERSIONS) {
+      await fs.rm(vars.outputDir, { recursive: true, force: true });
+      await fs.mkdir(vars.outputDir, { recursive: true });
+      try {
+        await runOdaConverter(vars, timeoutMs, odaVersion);
+      } catch {
+        // ODA sometimes exits non-zero but still writes a usable DXF.
+      }
+      const candidatePath = await findFirstDxfFile(vars.outputDir, vars.outputDxfPath);
+      if (candidatePath) {
+        const stat = await fs.stat(candidatePath).catch(() => null);
+        const minAcceptableBytes = Math.max(1024, inputSizeBytes * 0.02);
+        if (stat && stat.size >= minAcceptableBytes) {
+          odaSucceeded = true;
+          break;
+        }
+      }
+    }
+    if (!odaSucceeded) {
+      throw new Error('ODA converter failed to produce a usable DXF output for all attempted format versions (ACAD2018, ACAD2010, ACAD2000). The DWG file may contain unsupported entities.');
+    }
+  } else if (converterMode === 'custom') {
+    await runCustomConverter(vars, timeoutMs);
+  } else {
+    throw new Error(`Unsupported converter mode: ${converterMode}`);
+  }
+
+  return { searchDir, preferredPath, converterStdout };
+}
+
+async function convertDwgBufferToDxfText(buffer, originalName, preferredMode = null) {
+  const attemptOrder = buildConversionAttemptOrder(preferredMode);
+  if (attemptOrder.length === 0) {
     const error = new Error(`DWG backend is installed but no converter is configured. ${buildConverterSetupHint()}`);
     error.statusCode = 501;
     throw error;
@@ -318,67 +382,41 @@ async function convertDwgBufferToDxfText(buffer, originalName) {
   };
 
   try {
-    let searchDir = outputDir;
-    let preferredPath = outputDxfPath;
-    let converterStdout = '';
-
-    if (converterMode === 'libredwg') {
-      // LibreDWG CLI syntax differs across versions; run converter with fallbacks.
-      const result = await runLibreDwgConverter(vars, timeoutMs);
-      converterStdout = result?.stdout || '';
-      if (result?.outputPath) {
-        preferredPath = result.outputPath;
-        searchDir = path.dirname(result.outputPath);
-      }
-    } else if (converterMode === 'oda') {
-      // Try primary ODA format; if the output DXF is suspiciously small relative to the DWG
-      // (indication of a partial/failed conversion), retry with older DXF format versions.
-      const ODA_FALLBACK_VERSIONS = ['ACAD2018', 'ACAD2010', 'ACAD2000'];
-      let odaSucceeded = false;
-      for (const odaVersion of ODA_FALLBACK_VERSIONS) {
-        // Clear output dir between attempts so stale partial files don't mislead us.
-        await fs.rm(outputDir, { recursive: true, force: true });
-        await fs.mkdir(outputDir, { recursive: true });
-        try {
-          await runOdaConverter(vars, timeoutMs, odaVersion);
-        } catch (_odaErr) {
-          // ODA sometimes exits non-zero but still produces a usable DXF; check below.
-        }
-        const candidatePath = await findFirstDxfFile(outputDir, outputDxfPath);
-        if (candidatePath) {
-          const stat = await fs.stat(candidatePath).catch(() => null);
-          // Consider the conversion successful if DXF is at least 2% of the DWG input size
-          // (protects against tiny/partial outputs from ODA crashes).
-          const minAcceptableBytes = Math.max(1024, buffer.length * 0.02);
-          if (stat && stat.size >= minAcceptableBytes) {
-            odaSucceeded = true;
-            break;
+    const conversionErrors = [];
+    for (const converterMode of attemptOrder) {
+      try {
+        const { searchDir, preferredPath, converterStdout } = await executeConversionMode(converterMode, vars, timeoutMs, buffer.length);
+        const convertedPath = await findFirstDxfFile(searchDir, preferredPath);
+        if (!convertedPath) {
+          // Some dwg2dxf builds can emit DXF to stdout; accept that as fallback.
+          if (converterMode === 'libredwg' && isLikelyDxfData(converterStdout)) {
+            return {
+              dxfText: converterStdout,
+              modeUsed: converterMode,
+              attemptedModes: attemptOrder,
+            };
           }
+          throw new Error('The DWG converter finished without producing a DXF file.');
         }
+
+        return {
+          dxfText: await fs.readFile(convertedPath, 'utf8'),
+          modeUsed: converterMode,
+          attemptedModes: attemptOrder,
+        };
+      } catch (err) {
+        conversionErrors.push(`${converterMode}: ${err.message || String(err)}`);
       }
-      if (!odaSucceeded) {
-        throw new Error('ODA converter failed to produce a usable DXF output for all attempted format versions (ACAD2018, ACAD2010, ACAD2000). The DWG file may contain unsupported entities.');
-      }
-    } else {
-      await runCustomConverter(vars, timeoutMs);
     }
 
-    const convertedPath = await findFirstDxfFile(searchDir, preferredPath);
-    if (!convertedPath) {
-      // Some dwg2dxf builds can emit DXF to stdout; accept that as fallback.
-      if (converterMode === 'libredwg' && isLikelyDxfData(converterStdout)) {
-        return converterStdout;
-      }
-      throw new Error('The DWG converter finished without producing a DXF file.');
-    }
-
-    return await fs.readFile(convertedPath, 'utf8');
+    throw new Error(`All DWG converter attempts failed. ${conversionErrors.join(' | ')}`);
   } finally {
     await fs.rm(tempRoot, { recursive: true, force: true });
   }
 }
 
 export function getCadBackendStatus() {
+  const availableConverterModes = getAvailableConverterModes();
   const converterMode = getConfiguredConverterMode();
   const converterPath =
     converterMode === 'libredwg' ? resolveDwg2DxfPath() :
@@ -387,6 +425,7 @@ export function getCadBackendStatus() {
   return {
     ok: true,
     converterMode,
+    availableConverterModes,
     dwgEnabled: converterMode !== 'none',
     converterPath,
     uploadLimitMb: Number(process.env.CAD_MAX_UPLOAD_MB || 100),
@@ -394,7 +433,7 @@ export function getCadBackendStatus() {
   };
 }
 
-export async function parseCadUpload({ buffer, originalName, fileSizeBytes = 0, pointsOnly = false }) {
+export async function parseCadUpload({ buffer, originalName, fileSizeBytes = 0, pointsOnly = false, processingMode = 'full' }) {
   const ext = getFileExtension(originalName);
   if (!['.dxf', '.dwg'].includes(ext)) {
     const error = new Error(`Unsupported CAD file type: ${ext || 'unknown'}`);
@@ -410,6 +449,8 @@ export async function parseCadUpload({ buffer, originalName, fileSizeBytes = 0, 
   let warnings = [];
   let usedConverter = false;
   let processingRoute = 'client';
+  let converterModeUsed = null;
+  let converterAttemptedModes = [];
 
   if (ext === '.dxf') {
     const parsed = parseDxfTextContent(Buffer.from(data).toString('utf8'), options);
@@ -425,7 +466,10 @@ export async function parseCadUpload({ buffer, originalName, fileSizeBytes = 0, 
     warnings = ['The uploaded .dwg file contained DXF text and was parsed without converter assistance.'];
     processingRoute = 'dwg-dxf-text';
   } else {
-    const rawDxfText = await convertDwgBufferToDxfText(Buffer.from(data), originalName);
+    const conversionResult = await convertDwgBufferToDxfText(Buffer.from(data), originalName);
+    const rawDxfText = conversionResult.dxfText;
+    converterModeUsed = conversionResult.modeUsed;
+    converterAttemptedModes = conversionResult.attemptedModes || [];
     // Pre-process DXF text: ensure there is exactly one EOF marker and nothing after it.
     // Some converters produce extra content after EOF or omit it entirely.
     const dxfText = sanitizeDxfEof(rawDxfText);
@@ -446,8 +490,11 @@ export async function parseCadUpload({ buffer, originalName, fileSizeBytes = 0, 
     if (dxfPatched) {
       warnings = ['DXF output from converter was malformed (missing or extra content after EOF). File was recovered automatically.'];
     }
+    if (converterAttemptedModes.length > 1 && converterModeUsed && converterModeUsed !== converterAttemptedModes[0]) {
+      warnings.push(`CAD conversion fell back from ${converterAttemptedModes[0]} to ${converterModeUsed} for this file.`);
+    }
     usedConverter = true;
-    processingRoute = 'dwg-converted';
+    processingRoute = converterModeUsed ? `dwg-converted-${converterModeUsed}` : 'dwg-converted';
   }
 
   warnings = [...warnings, ...buildCadReferenceWarnings(diagnostics)];
@@ -461,9 +508,12 @@ export async function parseCadUpload({ buffer, originalName, fileSizeBytes = 0, 
     inspection: {
       fileName: originalName,
       extension: ext,
+      processingMode,
       fileSizeBytes,
       nativeDwg: ext === '.dwg' && isLikelyNativeDwgData(data),
       usedConverter,
+      converterModeUsed,
+      converterAttemptedModes,
       processingRoute,
       diagnostics,
       detectedFromCrs: diagnostics?.detectedFromCrs || rows.find((row) => row?.detectedFromCrs)?.detectedFromCrs || null,

@@ -8,11 +8,15 @@ const CAD_CHUNK_MODE_MIN_BYTES = Number(import.meta.env.VITE_CAD_CHUNK_MODE_MIN_
 const CAD_UPLOAD_CHUNK_BYTES = Number(import.meta.env.VITE_CAD_UPLOAD_CHUNK_MB || 5) * 1024 * 1024;
 const CAD_MAX_CHUNK_RETRIES = 3;
 const CAD_COMPLEX_FILE_BYTES = Number(import.meta.env.VITE_CAD_COMPLEX_FILE_MB || 6) * 1024 * 1024;
+const CAD_PREVIEW_MODE_MIN_BYTES = Number(import.meta.env.VITE_CAD_PREVIEW_MODE_MB || 30) * 1024 * 1024;
+const CAD_RECOVERY_MODE_MIN_BYTES = Number(import.meta.env.VITE_CAD_RECOVERY_MODE_MB || 80) * 1024 * 1024;
 
 // How long to wait for the CAD backend to respond (upload + conversion + parse).
 // Native DWG conversion via ODA/LibreDWG can take 30-90 s for large files.
 const CAD_REQUEST_TIMEOUT_MS = 150_000; // 2.5 minutes
 const CAD_COMPLEX_REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_CAD_COMPLEX_TIMEOUT_MS || 480_000); // 8 minutes
+
+let cadUploadWorkerInstance = null;
 
 function buildBackendUnavailableMessage() {
   return `Native DWG import requires the CAD backend service. Current CAD API target: ${CAD_API_BASE_URL}. Use the hosted CAD API or start "npm run dev:server" for local development.`;
@@ -29,14 +33,119 @@ async function parseJsonSafely(response) {
   }
 }
 
-async function uploadCadFileInChunks(file, { signal, onProgress } = {}) {
-  const uploadId = crypto.randomUUID();
-  const totalChunks = Math.ceil(file.size / CAD_UPLOAD_CHUNK_BYTES);
+function getCadUploadWorker() {
+  if (typeof Worker === 'undefined') return null;
+  if (cadUploadWorkerInstance) return cadUploadWorkerInstance;
+  cadUploadWorkerInstance = new Worker(new URL('../workers/cadUploadWorker.js', import.meta.url), {
+    type: 'module',
+  });
+  return cadUploadWorkerInstance;
+}
 
+function runCadWorkerTask(task, payload = {}, signal) {
+  const worker = getCadUploadWorker();
+  if (!worker) {
+    return Promise.resolve(null);
+  }
+
+  const taskId = crypto.randomUUID();
+
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      worker.removeEventListener('message', onMessage);
+      worker.removeEventListener('error', onError);
+      signal?.removeEventListener('abort', onAbort);
+    };
+
+    const onAbort = () => {
+      cleanup();
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+
+    const onError = (err) => {
+      cleanup();
+      reject(err instanceof Error ? err : new Error('CAD upload worker failed.'));
+    };
+
+    const onMessage = (event) => {
+      const message = event.data || {};
+      if (message.taskId !== taskId) return;
+
+      cleanup();
+      if (message.type === 'result') {
+        resolve(message.payload || null);
+        return;
+      }
+
+      reject(new Error(message.error || 'CAD upload worker task failed.'));
+    };
+
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+
+    worker.addEventListener('message', onMessage);
+    worker.addEventListener('error', onError);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    worker.postMessage({ taskId, task, payload });
+  });
+}
+
+async function buildChunkUploadPlan(file, { signal, onProgress } = {}) {
+  const workerPlan = await runCadWorkerTask('analyze-and-plan', {
+    file,
+    chunkBytes: CAD_UPLOAD_CHUNK_BYTES,
+    previewThresholdBytes: CAD_PREVIEW_MODE_MIN_BYTES,
+    recoveryThresholdBytes: CAD_RECOVERY_MODE_MIN_BYTES,
+  }, signal).catch(() => null);
+
+  if (workerPlan) {
+    if (typeof onProgress === 'function') {
+      onProgress(`Upload planner worker ready. Recommended mode: ${workerPlan.processingMode}.`);
+    }
+    return workerPlan;
+  }
+
+  const totalChunks = Math.ceil(file.size / CAD_UPLOAD_CHUNK_BYTES);
+  const chunks = [];
   for (let index = 0; index < totalChunks; index += 1) {
     const start = index * CAD_UPLOAD_CHUNK_BYTES;
     const end = Math.min(start + CAD_UPLOAD_CHUNK_BYTES, file.size);
-    const chunk = file.slice(start, end);
+    chunks.push({ index, start, end });
+  }
+
+  const processingMode = file.size >= CAD_RECOVERY_MODE_MIN_BYTES
+    ? 'recovery'
+    : file.size >= CAD_PREVIEW_MODE_MIN_BYTES
+      ? 'preview'
+      : 'full';
+
+  return {
+    totalChunks,
+    chunks,
+    processingMode,
+    signatureHex: '',
+  };
+}
+
+async function uploadCadFileInChunks(file, { signal, onProgress } = {}) {
+  const uploadId = crypto.randomUUID();
+  const plan = await buildChunkUploadPlan(file, { signal, onProgress });
+  const totalChunks = Number(plan?.totalChunks || 0);
+  const chunks = Array.isArray(plan?.chunks) ? plan.chunks : [];
+
+  if (totalChunks <= 0 || chunks.length === 0) {
+    throw new Error('Failed to build a valid CAD chunk upload plan.');
+  }
+
+  if (typeof onProgress === 'function' && plan.signatureHex) {
+    onProgress(`File stream preflight signature: ${plan.signatureHex}`);
+  }
+
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunkSpec = chunks[index];
+    const chunk = file.slice(chunkSpec.start, chunkSpec.end);
 
     let success = false;
     for (let attempt = 1; attempt <= CAD_MAX_CHUNK_RETRIES; attempt += 1) {
@@ -44,9 +153,9 @@ async function uploadCadFileInChunks(file, { signal, onProgress } = {}) {
         const formData = new FormData();
         formData.append('uploadId', uploadId);
         formData.append('fileName', file.name);
-        formData.append('chunkIndex', String(index));
+        formData.append('chunkIndex', String(chunkSpec.index));
         formData.append('totalChunks', String(totalChunks));
-        formData.append('chunk', chunk, `${file.name}.part.${index}`);
+        formData.append('chunk', chunk, `${file.name}.part.${chunkSpec.index}`);
 
         const response = await fetch(`${CAD_API_BASE_URL}/upload/chunk`, {
           method: 'POST',
@@ -56,7 +165,7 @@ async function uploadCadFileInChunks(file, { signal, onProgress } = {}) {
 
         if (!response.ok) {
           const payload = await parseJsonSafely(response);
-          throw new Error(payload?.message || `Chunk ${index + 1}/${totalChunks} upload failed.`);
+          throw new Error(payload?.message || `Chunk ${chunkSpec.index + 1}/${totalChunks} upload failed.`);
         }
 
         success = true;
@@ -68,21 +177,25 @@ async function uploadCadFileInChunks(file, { signal, onProgress } = {}) {
     }
 
     if (!success) {
-      throw new Error(`Chunk ${index + 1}/${totalChunks} upload failed.`);
+      throw new Error(`Chunk ${chunkSpec.index + 1}/${totalChunks} upload failed.`);
     }
 
     if (typeof onProgress === 'function') {
-      const pct = Math.round(((index + 1) / totalChunks) * 100);
-      onProgress(`Uploading CAD in chunks (${index + 1}/${totalChunks}) — ${pct}%`);
+      const pct = Math.round(((chunkSpec.index + 1) / totalChunks) * 100);
+      onProgress(`Uploading CAD in chunks (${chunkSpec.index + 1}/${totalChunks}) — ${pct}%`);
     }
   }
 
-  return { uploadId, totalChunks };
+  return {
+    uploadId,
+    totalChunks,
+    processingMode: plan.processingMode || 'full',
+  };
 }
 
 async function uploadCadAndParseChunked(file, options = {}, signal) {
   const { onProgress } = options;
-  const { uploadId } = await uploadCadFileInChunks(file, { signal, onProgress });
+  const { uploadId, processingMode } = await uploadCadFileInChunks(file, { signal, onProgress });
 
   if (typeof onProgress === 'function') {
     onProgress('Upload complete. Finalizing and parsing CAD geometry...');
@@ -95,6 +208,7 @@ async function uploadCadAndParseChunked(file, options = {}, signal) {
       uploadId,
       fileName: file.name,
       pointsOnly: options.pointsOnly ? 'true' : 'false',
+      processingMode: options.processingMode || processingMode || 'full',
     }),
     signal,
   });
@@ -110,6 +224,7 @@ async function uploadCadAndParseDirect(file, options = {}, signal) {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('pointsOnly', options.pointsOnly ? 'true' : 'false');
+  formData.append('processingMode', options.processingMode || 'full');
 
   const response = await fetch(`${CAD_API_BASE_URL}/parse`, {
     method: 'POST',
@@ -155,20 +270,30 @@ export async function parseCadFileViaBackend(file, options = {}) {
     ? CAD_COMPLEX_REQUEST_TIMEOUT_MS
     : CAD_REQUEST_TIMEOUT_MS;
   const runParseAttempt = async (attemptOptions, signal) => {
+    const modeFromSize = file.size >= CAD_RECOVERY_MODE_MIN_BYTES
+      ? 'recovery'
+      : file.size >= CAD_PREVIEW_MODE_MIN_BYTES
+        ? 'preview'
+        : 'full';
+    const nextOptions = {
+      ...attemptOptions,
+      processingMode: attemptOptions?.processingMode || modeFromSize,
+    };
+
     if (file.size >= CAD_CHUNK_MODE_MIN_BYTES) {
       if (typeof onProgress === 'function') {
-        onProgress(`Large CAD detected (${fileSizeMB} MB). Switching to chunked upload mode...`);
+        onProgress(`Large CAD detected (${fileSizeMB} MB). Switching to chunked upload mode (${nextOptions.processingMode}).`);
       }
       try {
-        return await uploadCadAndParseChunked(file, attemptOptions, signal);
+        return await uploadCadAndParseChunked(file, nextOptions, signal);
       } catch {
         if (typeof onProgress === 'function') {
           onProgress('Chunked upload unavailable on current backend. Falling back to direct upload...');
         }
-        return uploadCadAndParseDirect(file, attemptOptions, signal);
+        return uploadCadAndParseDirect(file, nextOptions, signal);
       }
     }
-    return uploadCadAndParseDirect(file, attemptOptions, signal);
+    return uploadCadAndParseDirect(file, nextOptions, signal);
   };
 
   const controller = new AbortController();

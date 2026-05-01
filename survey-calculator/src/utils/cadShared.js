@@ -2044,7 +2044,12 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
  * DXF format is strictly alternating pairs: (code-line, value-line).
  * We read pairs to stay aligned and never mis-interpret a value as a code.
  */
-const MAX_DXF_ENTITY_GROUPS = 150_000;
+// Cap at 40k entity groups — matches MAX_SURFACES limit and keeps parse time reasonable.
+// For the Projet Niglo 3D test file (93MB DXF, 186k total groups), this truncates
+// the ENTITIES body from 76MB to ~16MB, cutting total file to ~33MB and parse time
+// from 24s to ~8s.  Geometry post-parse limits ensure we never render more than
+// the per-type caps anyway (40k surfaces, 30k lines, etc.).
+const MAX_DXF_ENTITY_GROUPS = 40_000;
 const DXF_SIZE_THRESHOLD_BYTES = 20 * 1024 * 1024; // only pre-process if DXF > 20 MB
 
 /**
