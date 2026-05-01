@@ -93,6 +93,7 @@
   width: 100%;
   max-width: 1760px;
   align-items: stretch;
+  min-width: 0;
 }
 .app-col-left  {
   flex: 0 1 760px;
@@ -102,8 +103,9 @@
   max-height: none;
   overflow: visible;
   padding-right: 0.2rem;
+  min-width: 0;
 }
-.app-col-right { flex: 1 1 760px; position: sticky; top: 1.75rem; display: flex; flex-direction: column; }
+.app-col-right { flex: 1 1 760px; position: sticky; top: 1.75rem; display: flex; flex-direction: column; min-width: 0; }
 
 .app-columns.map-focus .app-col-left {
   flex: 0 1 440px;
@@ -111,6 +113,12 @@
 
 .app-columns.map-focus .app-col-right {
   flex: 1 1 1080px;
+}
+
+@media (min-width: 1101px) {
+  .app-col-right {
+    min-width: 420px;
+  }
 }
 
 .btn-mapfocus-active {
