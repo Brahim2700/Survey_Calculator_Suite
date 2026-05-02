@@ -1428,7 +1428,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
           ],
           {
             renderer: canvasRendererRef.current || undefined,
-            color: '#0ea5e9',
+            color: normalizeHexColor(line.colorHex, '#0ea5e9'),
             weight: 2.5,
             opacity: 0.85,
           }
@@ -1469,7 +1469,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         const smoothFactor = getCadPolylineSmoothFactor(currentZoom, totalCadPolylineVertices, latlngs.length);
         const layer = L.polyline(renderLatLngs, {
           renderer: canvasRendererRef.current || undefined,
-          color: '#2563eb',
+          color: normalizeHexColor(poly.colorHex, '#2563eb'),
           weight: 2,
           opacity: 0.8,
           smoothFactor,

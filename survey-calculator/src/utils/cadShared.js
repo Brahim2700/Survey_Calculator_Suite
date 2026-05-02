@@ -78,10 +78,107 @@ const getLayerDescriptor = (layerName, layerRecord = null) => {
   };
 };
 
+// Standard AutoCAD Color Index (ACI) → CSS hex. Indices 0 and 256 mean BYBLOCK/BYLAYER
+// (inherit); they return the fallback so the layer color is used instead. Index 7 is
+// "white" in AutoCAD's dark-background world; we map it to near-black so it's readable
+// on a white Leaflet map. Indices 250–255 are the standard grayscale ramp.
+const ACI_HEX = [
+  /* 0  byblock  */ null,
+  /* 1  */ '#FF0000', /* 2  */ '#FFFF00', /* 3  */ '#00FF00', /* 4  */ '#00FFFF',
+  /* 5  */ '#0000FF', /* 6  */ '#FF00FF', /* 7  */ '#1e293b', /* 8  */ '#808080',
+  /* 9  */ '#C0C0C0',
+  /* 10 */ '#FF0000', /* 11 */ '#FFAAAA', /* 12 */ '#BD0000', /* 13 */ '#BD7E7E',
+  /* 14 */ '#810000', /* 15 */ '#815656', /* 16 */ '#680000', /* 17 */ '#684545',
+  /* 18 */ '#4F0000', /* 19 */ '#4F3535',
+  /* 20 */ '#FF3F00', /* 21 */ '#FFBFAA', /* 22 */ '#BD2E00', /* 23 */ '#BD8D7E',
+  /* 24 */ '#811F00', /* 25 */ '#816056', /* 26 */ '#681900', /* 27 */ '#684D45',
+  /* 28 */ '#4F1300', /* 29 */ '#4F3B35',
+  /* 30 */ '#FF7F00', /* 31 */ '#FFD4AA', /* 32 */ '#BD5E00', /* 33 */ '#BD9D7E',
+  /* 34 */ '#813F00', /* 35 */ '#816B56', /* 36 */ '#683300', /* 37 */ '#685645',
+  /* 38 */ '#4F2700', /* 39 */ '#4F4235',
+  /* 40 */ '#FFBF00', /* 41 */ '#FFEAAA', /* 42 */ '#BD8D00', /* 43 */ '#BDAD7E',
+  /* 44 */ '#815F00', /* 45 */ '#817656', /* 46 */ '#684D00', /* 47 */ '#686045',
+  /* 48 */ '#4F3B00', /* 49 */ '#4F4935',
+  /* 50 */ '#FFFF00', /* 51 */ '#FFFFAA', /* 52 */ '#BDBD00', /* 53 */ '#BDBD7E',
+  /* 54 */ '#818100', /* 55 */ '#818156', /* 56 */ '#686800', /* 57 */ '#686845',
+  /* 58 */ '#4F4F00', /* 59 */ '#4F4F35',
+  /* 60 */ '#BFFF00', /* 61 */ '#EAFFAA', /* 62 */ '#8DBD00', /* 63 */ '#ADBD7E',
+  /* 64 */ '#5F8100', /* 65 */ '#768156', /* 66 */ '#4D6800', /* 67 */ '#606845',
+  /* 68 */ '#3B4F00', /* 69 */ '#494F35',
+  /* 70 */ '#7FFF00', /* 71 */ '#D4FFAA', /* 72 */ '#5EBD00', /* 73 */ '#9DBD7E',
+  /* 74 */ '#3F8100', /* 75 */ '#6B8156', /* 76 */ '#336800', /* 77 */ '#566845',
+  /* 78 */ '#274F00', /* 79 */ '#424F35',
+  /* 80 */ '#3FFF00', /* 81 */ '#BFFFAA', /* 82 */ '#2EBD00', /* 83 */ '#8DBD7E',
+  /* 84 */ '#1F8100', /* 85 */ '#608156', /* 86 */ '#196800', /* 87 */ '#4D6845',
+  /* 88 */ '#134F00', /* 89 */ '#3B4F35',
+  /* 90 */ '#00FF00', /* 91 */ '#AAFFAA', /* 92 */ '#00BD00', /* 93 */ '#7EBD7E',
+  /* 94 */ '#008100', /* 95 */ '#568156', /* 96 */ '#006800', /* 97 */ '#456845',
+  /* 98 */ '#004F00', /* 99 */ '#354F35',
+  /* 100 */ '#00FF3F', /* 101 */ '#AAFFBF', /* 102 */ '#00BD2E', /* 103 */ '#7EBD8D',
+  /* 104 */ '#00811F', /* 105 */ '#568160', /* 106 */ '#006819', /* 107 */ '#45684D',
+  /* 108 */ '#004F13', /* 109 */ '#354F3B',
+  /* 110 */ '#00FF7F', /* 111 */ '#AAFFD4', /* 112 */ '#00BD5E', /* 113 */ '#7EBD9D',
+  /* 114 */ '#00813F', /* 115 */ '#56816B', /* 116 */ '#006833', /* 117 */ '#456856',
+  /* 118 */ '#004F27', /* 119 */ '#354F42',
+  /* 120 */ '#00FFBF', /* 121 */ '#AAFFEA', /* 122 */ '#00BD8D', /* 123 */ '#7EBDAD',
+  /* 124 */ '#00815F', /* 125 */ '#568176', /* 126 */ '#00684D', /* 127 */ '#456860',
+  /* 128 */ '#004F3B', /* 129 */ '#354F49',
+  /* 130 */ '#00FFFF', /* 131 */ '#AAFFFF', /* 132 */ '#00BDBD', /* 133 */ '#7EBDBD',
+  /* 134 */ '#008181', /* 135 */ '#568181', /* 136 */ '#006868', /* 137 */ '#456868',
+  /* 138 */ '#004F4F', /* 139 */ '#354F4F',
+  /* 140 */ '#00BFFF', /* 141 */ '#AAEAFF', /* 142 */ '#008DBD', /* 143 */ '#7EADBD',
+  /* 144 */ '#005F81', /* 145 */ '#567681', /* 146 */ '#004D68', /* 147 */ '#456068',
+  /* 148 */ '#003B4F', /* 149 */ '#35494F',
+  /* 150 */ '#007FFF', /* 151 */ '#AAD4FF', /* 152 */ '#005EBD', /* 153 */ '#7E9DBD',
+  /* 154 */ '#003F81', /* 155 */ '#566B81', /* 156 */ '#003368', /* 157 */ '#455668',
+  /* 158 */ '#00274F', /* 159 */ '#35424F',
+  /* 160 */ '#003FFF', /* 161 */ '#AABFFF', /* 162 */ '#002EBD', /* 163 */ '#7E8DBD',
+  /* 164 */ '#001F81', /* 165 */ '#566081', /* 166 */ '#001968', /* 167 */ '#454D68',
+  /* 168 */ '#00134F', /* 169 */ '#353B4F',
+  /* 170 */ '#0000FF', /* 171 */ '#AAAAFF', /* 172 */ '#0000BD', /* 173 */ '#7E7EBD',
+  /* 174 */ '#000081', /* 175 */ '#565681', /* 176 */ '#000068', /* 177 */ '#454568',
+  /* 178 */ '#00004F', /* 179 */ '#35354F',
+  /* 180 */ '#3F00FF', /* 181 */ '#BFAAFF', /* 182 */ '#2E00BD', /* 183 */ '#8D7EBD',
+  /* 184 */ '#1F0081', /* 185 */ '#605681', /* 186 */ '#190068', /* 187 */ '#4D4568',
+  /* 188 */ '#13004F', /* 189 */ '#3B354F',
+  /* 190 */ '#7F00FF', /* 191 */ '#D4AAFF', /* 192 */ '#5E00BD', /* 193 */ '#9D7EBD',
+  /* 194 */ '#3F0081', /* 195 */ '#6B5681', /* 196 */ '#330068', /* 197 */ '#564568',
+  /* 198 */ '#27004F', /* 199 */ '#42354F',
+  /* 200 */ '#BF00FF', /* 201 */ '#EAAAFF', /* 202 */ '#8D00BD', /* 203 */ '#AD7EBD',
+  /* 204 */ '#5F0081', /* 205 */ '#765681', /* 206 */ '#4D0068', /* 207 */ '#604568',
+  /* 208 */ '#3B004F', /* 209 */ '#49354F',
+  /* 210 */ '#FF00FF', /* 211 */ '#FFAAFF', /* 212 */ '#BD00BD', /* 213 */ '#BD7EBD',
+  /* 214 */ '#810081', /* 215 */ '#815681', /* 216 */ '#680068', /* 217 */ '#684568',
+  /* 218 */ '#4F004F', /* 219 */ '#4F354F',
+  /* 220 */ '#FF00BF', /* 221 */ '#FFAAEA', /* 222 */ '#BD008D', /* 223 */ '#BD7EAD',
+  /* 224 */ '#81005F', /* 225 */ '#815676', /* 226 */ '#68004D', /* 227 */ '#684560',
+  /* 228 */ '#4F003B', /* 229 */ '#4F3549',
+  /* 230 */ '#FF007F', /* 231 */ '#FFAAD4', /* 232 */ '#BD005E', /* 233 */ '#BD7E9D',
+  /* 234 */ '#81003F', /* 235 */ '#81566B', /* 236 */ '#680033', /* 237 */ '#684556',
+  /* 238 */ '#4F0027', /* 239 */ '#4F3542',
+  /* 240 */ '#FF003F', /* 241 */ '#FFAABF', /* 242 */ '#BD002E', /* 243 */ '#BD7E8D',
+  /* 244 */ '#81001F', /* 245 */ '#815660', /* 246 */ '#680019', /* 247 */ '#68454D',
+  /* 248 */ '#4F0013', /* 249 */ '#4F353B',
+  /* 250 */ '#333333', /* 251 */ '#505050', /* 252 */ '#696969', /* 253 */ '#828282',
+  /* 254 */ '#BEBEBE', /* 255 */ '#FFFFFF',
+];
+
+/**
+ * Convert a DXF color value to a CSS hex string.
+ * The value may be:
+ *   - An ACI integer (1–255): looked up in the standard AutoCAD Color Index table.
+ *   - A 24-bit true-colour integer (> 255): treated as 0xRRGGBB.
+ *   - 0 / 256 / null / undefined: BYBLOCK or BYLAYER — returns `fallback`.
+ *   - A string that already looks like '#rrggbb': returned as-is.
+ */
 const cadColorToHex = (value, fallback = '#94a3b8') => {
+  if (typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value.trim())) return value.trim();
   const numeric = Number(value);
-  if (!Number.isFinite(numeric) || numeric <= 0) return fallback;
-  const hex = numeric.toString(16).padStart(6, '0').slice(-6);
+  if (!Number.isFinite(numeric) || numeric <= 0 || numeric === 256) return fallback;
+  // ACI range (1-255) — use the authoritative lookup table.
+  if (numeric <= 255) return ACI_HEX[numeric] || fallback;
+  // True-colour value stored as 0xRRGGBB integer (> 255).
+  const hex = Math.round(numeric).toString(16).padStart(6, '0').slice(-6);
   return `#${hex}`;
 };
 
@@ -1725,7 +1822,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
     normalizedLayerName: 0,
   };
 
-  const addLine = (start, end, layer, sourceType) => {
+  const addLine = (start, end, layer, sourceType, entityColor) => {
     if (geometry.lines.length >= MAX_LINES) return;
     if (!start || !end) return;
     const x1 = Number(start.x);
@@ -1737,6 +1834,9 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
     if (!Number.isFinite(x1) || !Number.isFinite(y1) || !Number.isFinite(x2) || !Number.isFinite(y2)) return;
     const descriptor = getLayerDescriptor(layer || 'LINE', layerTable[layer || 'LINE']);
     if (descriptor.renamed) repairStats.normalizedLayerName += 1;
+    // Resolve colour: entity-level overrides layer-level (CAD "colour by entity" > "colour by layer")
+    const layerColorHex = cadColorToHex(descriptor.color);
+    const colorHex = cadColorToHex(entityColor, layerColorHex);
     geometry.lines.push({
       layer: descriptor.displayName,
       layerOriginal: descriptor.originalName,
@@ -1744,12 +1844,13 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
       layerStandardized: descriptor.standardizedName,
       layerCategory: descriptor.category,
       sourceType: sourceType || 'LINE',
+      colorHex,
       start: [x1, y1, Number.isFinite(z1) ? z1 : 0],
       end: [x2, y2, Number.isFinite(z2) ? z2 : 0],
     });
   };
 
-  const addPolyline = (vertices, layer, sourceType) => {
+  const addPolyline = (vertices, layer, sourceType, entityColor) => {
     if (geometry.polylines.length >= MAX_POLYLINES) return;
     if (!Array.isArray(vertices) || vertices.length < 2) return;
     const coords = vertices
@@ -1777,6 +1878,8 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
 
     const descriptor = getLayerDescriptor(layer || sourceType || 'POLYLINE', layerTable[layer || sourceType || 'POLYLINE']);
     if (descriptor.renamed) repairStats.normalizedLayerName += 1;
+    const layerColorHex = cadColorToHex(descriptor.color);
+    const colorHex = cadColorToHex(entityColor, layerColorHex);
     geometry.polylines.push({
       layer: descriptor.displayName,
       layerOriginal: descriptor.originalName,
@@ -1784,6 +1887,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
       layerStandardized: descriptor.standardizedName,
       layerCategory: descriptor.category,
       sourceType: sourceType || 'POLYLINE',
+      colorHex,
       points: coords,
     });
   };
@@ -1892,10 +1996,10 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
 
     // Add extension lines as geometry lines
     if (defPoint && Number.isFinite(p1x) && Number.isFinite(p1y)) {
-      addLine({ x: p1x, y: p1y, z: 0 }, { x: Number(defPoint.x), y: Number(defPoint.y), z: Number(defPoint.z ?? 0) }, layer, 'DIMENSION');
+      addLine({ x: p1x, y: p1y, z: 0 }, { x: Number(defPoint.x), y: Number(defPoint.y), z: Number(defPoint.z ?? 0) }, layer, 'DIMENSION', entity?.color);
     }
     if (defPoint && Number.isFinite(p2x) && Number.isFinite(p2y)) {
-      addLine({ x: p2x, y: p2y, z: 0 }, { x: Number(defPoint.x), y: Number(defPoint.y), z: Number(defPoint.z ?? 0) }, layer, 'DIMENSION');
+      addLine({ x: p2x, y: p2y, z: 0 }, { x: Number(defPoint.x), y: Number(defPoint.y), z: Number(defPoint.z ?? 0) }, layer, 'DIMENSION', entity?.color);
     }
   };
 
@@ -1936,7 +2040,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
           // Also add as a polyline for map display
           addPolyline(
             [...verts.map(([x, y]) => ({ x, y, z: 0 })), { x: verts[0][0], y: verts[0][1], z: 0 }],
-            layer, 'HATCH'
+            layer, 'HATCH', entity?.color
           );
         }
       }
@@ -2008,11 +2112,11 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
       const layer = ent?.layer || ent?.type;
       switch (ent?.type) {
         case 'LINE':
-          addLine(ent.start || ent?.vertices?.[0], ent.end || ent?.vertices?.[1], layer, 'LINE');
+          addLine(ent.start || ent?.vertices?.[0], ent.end || ent?.vertices?.[1], layer, 'LINE', ent.color);
           break;
         case 'LWPOLYLINE':
         case 'POLYLINE':
-          addPolyline(ent.vertices || [], layer, ent.type);
+          addPolyline(ent.vertices || [], layer, ent.type, ent.color);
           if (String(ent?.type || '').toUpperCase() === 'POLYLINE') {
             addSurface(ent);
           }
@@ -2038,7 +2142,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
           break;
         case '3DLINE':
           // 3DLINE is wireframe entity; render as polyline
-          addPolyline(ent.vertices || [], layer, '3DLINE');
+          addPolyline(ent.vertices || [], layer, '3DLINE', ent.color);
           break;
         default:
           break;
