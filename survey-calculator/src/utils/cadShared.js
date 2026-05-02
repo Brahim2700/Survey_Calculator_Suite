@@ -1075,22 +1075,40 @@ const transformCadEntity = (entity, transform, metadata = {}) => {
     case 'HATCH': {
       const angleOffset = getCadTransformRotationDeg(transform);
       const radialScale = getCadTransformAverageScale(transform);
-      transformed.boundaryPaths = (Array.isArray(entity?.boundaryPaths) ? entity.boundaryPaths : []).map((path) => {
+      const sourcePaths = Array.isArray(entity?.boundaryPaths)
+        ? entity.boundaryPaths
+        : (Array.isArray(entity?.paths)
+          ? entity.paths
+          : (Array.isArray(entity?.loops)
+            ? entity.loops
+            : (Array.isArray(entity?.boundaries) ? entity.boundaries : [])));
+      transformed.boundaryPaths = sourcePaths.map((path) => {
         const nextPath = { ...path };
-        if (Array.isArray(path?.vertices)) {
-          nextPath.vertices = path.vertices.map((vertex) => applyCadTransform(vertex, transform));
+        const pathVertices = Array.isArray(path?.vertices)
+          ? path.vertices
+          : (Array.isArray(path?.polyline?.vertices) ? path.polyline.vertices : []);
+        if (pathVertices.length > 0) {
+          const transformedVertices = pathVertices.map((vertex) => applyCadTransform(vertex, transform));
+          nextPath.vertices = transformedVertices;
+          if (path?.polyline && typeof path.polyline === 'object') {
+            nextPath.polyline = { ...path.polyline, vertices: transformedVertices };
+          }
         }
         if (Array.isArray(path?.edges)) {
           nextPath.edges = path.edges.map((edge) => {
-            const edgeType = String(edge?.type || '').toUpperCase();
-            if (edgeType === 'LINE') {
+            const rawType = edge?.type;
+            const typeCode = Number(rawType);
+            const edgeType = String(rawType || '').toUpperCase();
+            const isLine = edgeType === 'LINE' || typeCode === 1;
+            const isArc = edgeType.includes('ARC') || typeCode === 2;
+            if (isLine) {
               return {
                 ...edge,
-                start: applyCadTransform(edge?.start, transform),
-                end: applyCadTransform(edge?.end, transform),
+                start: applyCadTransform(edge?.start || { x: edge?.startX, y: edge?.startY }, transform),
+                end: applyCadTransform(edge?.end || { x: edge?.endX, y: edge?.endY }, transform),
               };
             }
-            if (edgeType.includes('ARC')) {
+            if (isArc) {
               const center = applyCadTransform(edge?.center || edge?.origin, transform);
               const radius = Number(edge?.radius);
               const startAngle = Number(edge?.startAngle ?? 0);
@@ -2199,8 +2217,14 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
     const patternName = String(entity?.pattern || entity?.patternName || '').trim() || 'HATCH';
     const isSolid = Boolean(entity?.solidFill || patternName === 'SOLID');
 
-    // Extract boundary paths - dxf-parser provides boundaryPaths array
-    const boundaryPaths = Array.isArray(entity?.boundaryPaths) ? entity.boundaryPaths : [];
+    // Extract boundary paths from supported parser variants.
+    const boundaryPaths = Array.isArray(entity?.boundaryPaths)
+      ? entity.boundaryPaths
+      : (Array.isArray(entity?.paths)
+        ? entity.paths
+        : (Array.isArray(entity?.loops)
+          ? entity.loops
+          : (Array.isArray(entity?.boundaries) ? entity.boundaries : [])));
     const hatchPolygons = [];
 
     const sampleHatchArcEdge = (edge) => {
@@ -2253,16 +2277,52 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
           );
         }
       }
+      const polylineVertices = Array.isArray(path?.polyline?.vertices) ? path.polyline.vertices : [];
+      if (polylineVertices.length >= 3) {
+        let verts = polylineVertices
+          .map((v) => {
+            const x = Number(v?.x ?? v?.[0] ?? NaN);
+            const y = Number(v?.y ?? v?.[1] ?? NaN);
+            return Number.isFinite(x) && Number.isFinite(y) ? [x, y] : null;
+          })
+          .filter(Boolean);
+        if (verts.length >= 3) {
+          const first = verts[0];
+          const last = verts[verts.length - 1];
+          if (Math.abs(first[0] - last[0]) > 1e-9 || Math.abs(first[1] - last[1]) > 1e-9) {
+            verts = [...verts, [first[0], first[1]]];
+          }
+        }
+        if (verts.length >= 3) {
+          hatchPolygons.push(verts);
+          addPolyline(
+            [...verts.map(([x, y]) => ({ x, y, z: 0 })), { x: verts[0][0], y: verts[0][1], z: 0 }],
+            layer, 'HATCH', entity?.color
+          );
+        }
+      }
       // Edge-type boundary — collect LINE edges
       if (Array.isArray(path?.edges)) {
         const verts = [];
         path.edges.forEach((edge) => {
-          const edgeType = String(edge?.type || '').toUpperCase();
-          if (edgeType === 'LINE' && edge?.start) {
-            const x = Number(edge.start?.x ?? NaN);
-            const y = Number(edge.start?.y ?? NaN);
+          const rawType = edge?.type;
+          const typeCode = Number(rawType);
+          const edgeType = String(rawType || '').toUpperCase();
+          const isLine = edgeType === 'LINE' || typeCode === 1;
+          const isArc = edgeType.includes('ARC') || typeCode === 2;
+          if (isLine) {
+            const x = Number(edge?.start?.x ?? edge?.startX ?? NaN);
+            const y = Number(edge?.start?.y ?? edge?.startY ?? NaN);
             if (Number.isFinite(x) && Number.isFinite(y)) verts.push([x, y]);
-          } else if (edgeType.includes('ARC')) {
+            const ex = Number(edge?.end?.x ?? edge?.endX ?? NaN);
+            const ey = Number(edge?.end?.y ?? edge?.endY ?? NaN);
+            if (Number.isFinite(ex) && Number.isFinite(ey)) {
+              const prev = verts[verts.length - 1];
+              if (!prev || Math.abs(prev[0] - ex) > 1e-9 || Math.abs(prev[1] - ey) > 1e-9) {
+                verts.push([ex, ey]);
+              }
+            }
+          } else if (isArc) {
             const arcVerts = sampleHatchArcEdge(edge);
             if (arcVerts.length > 0) {
               if (verts.length > 0) {
