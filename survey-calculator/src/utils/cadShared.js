@@ -1442,7 +1442,10 @@ const inferPointCentersFromSegments = (segments, drawingDiagonal = 0) => {
 
 const isBlockPointLike = (block, drawingDiagonal = 0) => {
   const entities = Array.isArray(block?.entities) ? block.entities : [];
-  if (!entities.length || entities.length > 12) return false;
+  // Raised from 12 to 50: many survey point symbols (AutoCAD standard and
+  // national variants) use detailed geometry — cross+circle, triangle, etc. —
+  // that exceeds the old limit and was silently rejected.
+  if (!entities.length || entities.length > 50) return false;
   if (entities.some((entity) => entity?.type === 'POINT')) return true;
 
   const segments = getEntitySegments(entities, `block:${block?.name || 'unnamed'}`);
@@ -1578,7 +1581,12 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
         }
         case 'INSERT': {
           const nameLooksPointLike = /(?:^|[_\-\s])(pt|point|station|survey|node|borne|bench|cross)(?:$|[_\-\s])/i.test(String(ent.name || layer || ''));
-          if ((nameLooksPointLike || ent.__blockPointLike) && ent.__blockResolved) {
+          // Any INSERT that carries ATTRIB children is almost certainly an annotated survey
+          // station block (AutoCAD survey practice: point blocks carry name/elevation ATTRIBs).
+          // Accept these regardless of block name, so French survey files (blocks like
+          // NPI, TER, BM, A15, CIBLE, GP3D, etc.) are not silently discarded.
+          const hasAttribs = Array.isArray(ent.attribs) && ent.attribs.length > 0;
+          if ((nameLooksPointLike || ent.__blockPointLike || hasAttribs) && ent.__blockResolved) {
             const fallbackElevation = extractInsertPointElevation(ent);
             const iz = ent.position?.z ?? ent.z ?? ent.position?.[2] ?? fallbackElevation;
             const pointName = ent.__pointName || extractInsertPointName(ent);
@@ -1609,7 +1617,12 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
     });
   }
 
-  if (!rows.length && !pointsOnly && !strictExistingPointsOnly) {
+  // When no recognized point entities were found at all, fall back to line/polyline
+  // endpoints so the drawing is at least visualized. This handles survey files where
+  // point markers are non-standard INSERT blocks or the file contains only traverse
+  // lines with no explicit POINT entities.
+  // pointsOnly=true is the only case where we should NOT add inferred vertices.
+  if (!rows.length && !pointsOnly) {
     collectFallbackVertices(segments, (x, y, z, idHint) => addRow(x, y, z, idHint, false, 'fallback-vertex', null));
   }
 
