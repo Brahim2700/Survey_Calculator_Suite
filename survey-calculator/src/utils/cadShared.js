@@ -1287,6 +1287,13 @@ const getEntitySegments = (entities, source = 'top-level') => {
   const segments = [];
   if (!Array.isArray(entities)) return segments;
 
+  const isClosedPolylineEntity = (ent) => {
+    if (!ent || typeof ent !== 'object') return false;
+    if (Boolean(ent.closed || ent.shape || ent.isClosed)) return true;
+    const flags = Number(ent.flags);
+    return Number.isFinite(flags) && (Math.trunc(flags) & 1) === 1;
+  };
+
   entities.forEach((ent, entityIndex) => {
     const layer = ent?.layer || ent?.type || source;
     if (ent?.type === 'LINE') {
@@ -1317,6 +1324,20 @@ const getEntitySegments = (entities, source = 'top-level') => {
           start: { x: Number(start.x), y: Number(start.y), z: Number(start.z ?? 0) },
           end: { x: Number(end.x), y: Number(end.y), z: Number(end.z ?? 0) },
         });
+      }
+
+      if (vertices.length >= 3 && isClosedPolylineEntity(ent)) {
+        const start = vertices[vertices.length - 1];
+        const end = vertices[0];
+        if (Number.isFinite(Number(start?.x)) && Number.isFinite(Number(start?.y)) && Number.isFinite(Number(end?.x)) && Number.isFinite(Number(end?.y))) {
+          segments.push({
+            id: `${source}:${layer}:${entityIndex}:seg:close`,
+            layer,
+            type: ent.type,
+            start: { x: Number(start.x), y: Number(start.y), z: Number(start.z ?? 0) },
+            end: { x: Number(end.x), y: Number(end.y), z: Number(end.z ?? 0) },
+          });
+        }
       }
     }
   });
@@ -2028,6 +2049,27 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
     });
   };
 
+  const isClosedPolylineEntity = (entity) => {
+    if (!entity || typeof entity !== 'object') return false;
+    if (Boolean(entity.closed || entity.shape || entity.isClosed)) return true;
+    const flags = Number(entity.flags);
+    return Number.isFinite(flags) && (Math.trunc(flags) & 1) === 1;
+  };
+
+  const closePolylineIfNeeded = (vertices, entity) => {
+    const safe = Array.isArray(vertices) ? vertices : [];
+    if (!isClosedPolylineEntity(entity) || safe.length < 3) return safe;
+    const first = safe[0];
+    const last = safe[safe.length - 1];
+    const fx = Number(first?.x);
+    const fy = Number(first?.y);
+    const lx = Number(last?.x);
+    const ly = Number(last?.y);
+    if (!Number.isFinite(fx) || !Number.isFinite(fy) || !Number.isFinite(lx) || !Number.isFinite(ly)) return safe;
+    if (Math.abs(fx - lx) <= 1e-9 && Math.abs(fy - ly) <= 1e-9) return safe;
+    return [...safe, { ...first }];
+  };
+
   const addText = (entity) => {
     if (geometry.texts.length >= MAX_TEXTS) return;
     const type = String(entity?.type || '').toUpperCase();
@@ -2188,13 +2230,20 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
     boundaryPaths.forEach((path) => {
       // Polyline-type boundary
       if (Array.isArray(path?.vertices) && path.vertices.length >= 3) {
-        const verts = path.vertices
+        let verts = path.vertices
           .map((v) => {
             const x = Number(v?.x ?? v?.[0] ?? NaN);
             const y = Number(v?.y ?? v?.[1] ?? NaN);
             return Number.isFinite(x) && Number.isFinite(y) ? [x, y] : null;
           })
           .filter(Boolean);
+        if (verts.length >= 3) {
+          const first = verts[0];
+          const last = verts[verts.length - 1];
+          if (Math.abs(first[0] - last[0]) > 1e-9 || Math.abs(first[1] - last[1]) > 1e-9) {
+            verts = [...verts, [first[0], first[1]]];
+          }
+        }
         if (verts.length >= 3) {
           hatchPolygons.push(verts);
           // Also add as a polyline for map display
@@ -2228,6 +2277,11 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
           }
         });
         if (verts.length >= 3) {
+          const first = verts[0];
+          const last = verts[verts.length - 1];
+          if (Math.abs(first[0] - last[0]) > 1e-9 || Math.abs(first[1] - last[1]) > 1e-9) {
+            verts.push([first[0], first[1]]);
+          }
           hatchPolygons.push(verts);
           addPolyline(
             [...verts.map(([x, y]) => ({ x, y, z: 0 })), { x: verts[0][0], y: verts[0][1], z: 0 }],
@@ -2295,7 +2349,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
           break;
         case 'LWPOLYLINE':
         case 'POLYLINE':
-          addPolyline(ent.vertices || [], layer, ent.sourceType || ent.type, ent.color);
+          addPolyline(closePolylineIfNeeded(ent.vertices || [], ent), layer, ent.sourceType || ent.type, ent.color);
           if (String(ent?.type || '').toUpperCase() === 'POLYLINE') {
             addSurface(ent);
           }
@@ -2516,6 +2570,7 @@ export function parseDxfTextContent(text, options = {}) {
       geometry.lines.length > 0
       || geometry.polylines.length > 0
       || geometry.texts.length > 0
+      || geometry.hatches.length > 0
       || geometry.surfaces.length > 0
       || (Array.isArray(geometry.dimensions) && geometry.dimensions.length > 0)
     ));
