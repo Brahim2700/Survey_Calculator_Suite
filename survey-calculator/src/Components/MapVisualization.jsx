@@ -4,6 +4,7 @@ import 'leaflet/dist/leaflet.css';
 import { emit } from '../utils/eventBus';
 import { resolveCadWebFont } from '../utils/cadFontMap';
 import { safeGetString, safeSetString } from '../utils/storage';
+import { buildRenderableHatch } from '../lib/render/hatchRenderer.js';
 
 const BASEMAP_STORAGE_KEY = 'survey_calc_basemap';
 const IGN_FRANCE_BOUNDS = L.latLngBounds([41.0, -5.8], [51.5, 9.8]);
@@ -20,6 +21,9 @@ const EMPTY_CAD_GEOMETRY = {
   polylines: [],
   texts: [],
   hatches: [],
+  hatchDiagnostics: [],
+  hatchSummary: null,
+  renderHints: null,
   surfaces: [],
   layerSummary: null,
   validation: null,
@@ -232,6 +236,8 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   const [showPointLayer, setShowPointLayer] = useState(true);
   const [showLineLayer, setShowLineLayer] = useState(true);
   const [showPolylineLayer, setShowPolylineLayer] = useState(true);
+  const [showHatches, setShowHatches] = useState(true);
+  const [solidHatchPreviewOnly, setSolidHatchPreviewOnly] = useState(false);
   const [showTinEdges, setShowTinEdges] = useState(true);
   const [showTinFill, setShowTinFill] = useState(false);
   const [showLabels, setShowLabels] = useState(true);
@@ -1514,25 +1520,44 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       });
     }
 
-    if (showPolylineLayer && cadHatches.length > 0) {
+    if (showHatches && cadHatches.length > 0) {
       const visibleCadHatches = cadHatches.filter((hatch) => isCadLayerVisible(hatch) && isGeometryInBounds(hatch, viewportBounds));
+      const hatchProcessingMode = String(cadGeometry?.renderHints?.processingMode || 'full').toLowerCase();
+      const hatchComplexity = visibleCadHatches.length * 240;
+      const hatchPatternBudget = currentZoom < 13 ? 0 : (currentZoom < 15 ? 500 : (currentZoom < 17 ? 1400 : 2600));
+
       visibleCadHatches.forEach((hatch) => {
-        const polygons = Array.isArray(hatch?.polygons) ? hatch.polygons : [];
+        const renderable = buildRenderableHatch(hatch, {
+          processingMode: hatchProcessingMode,
+          zoom: currentZoom,
+          solidOnly: solidHatchPreviewOnly,
+          complexity: hatchComplexity,
+          maxPatternSegments: hatchPatternBudget,
+        });
+
+        const polygons = Array.isArray(renderable?.polygons) ? renderable.polygons : [];
         polygons.forEach((polygon, polygonIndex) => {
-          const latlngs = (Array.isArray(polygon) ? polygon : [])
+          const outer = Array.isArray(polygon?.outer) ? polygon.outer : [];
+          const holes = Array.isArray(polygon?.holes) ? polygon.holes : [];
+          const outerLatLngs = outer
             .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
             .map((p) => [p[0], p[1]]);
-          if (latlngs.length < 3) return;
+          const holeLatLngs = holes
+            .map((hole) => (Array.isArray(hole) ? hole : [])
+              .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+              .map((p) => [p[0], p[1]]))
+            .filter((hole) => hole.length >= 3);
+          if (outerLatLngs.length < 3) return;
 
-          const layer = L.polygon(latlngs, {
+          const layer = L.polygon([outerLatLngs, ...holeLatLngs], {
             renderer: canvasRendererRef.current || undefined,
             color: normalizeHexColor(hatch.colorHex, '#0284c7'),
             weight: 1,
             opacity: 0.85,
             fillColor: normalizeHexColor(hatch.colorHex, '#0284c7'),
-            fillOpacity: hatch.isSolid ? 0.24 : 0.1,
+            fillOpacity: renderable.renderAsSolid ? 0.24 : 0.08,
           })
-            .bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(hatch.layer || 'CAD hatch')}</b><br/>Pattern: ${escapeHtml(hatch.patternName || 'HATCH')}<br/>Area: ${Number.isFinite(Number(hatch.area)) ? Number(hatch.area).toFixed(3) : 'n/a'} m²</div>`)
+            .bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(hatch.layer || 'CAD hatch')}</b><br/>Pattern: ${escapeHtml(hatch.patternName || 'HATCH')}<br/>Mode: ${escapeHtml(renderable.mode)}${renderable.renderAsSolid ? ' (solid/degraded)' : ''}<br/>Area: ${Number.isFinite(Number(hatch.area)) ? Number(hatch.area).toFixed(3) : 'n/a'} m²</div>`)
             .on('click', () => {
               emit('cad:entityPicked', {
                 type: 'HATCH',
@@ -1548,6 +1573,24 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
           geometryLayersRef.current.push(layer);
           markers.current.push(layer);
         });
+
+        if (!renderable.renderAsSolid && Array.isArray(renderable.patternSegments) && renderable.patternSegments.length > 0) {
+          renderable.patternSegments.forEach((segment) => {
+            const pts = (Array.isArray(segment) ? segment : [])
+              .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+              .map((p) => [p[0], p[1]]);
+            if (pts.length !== 2) return;
+            const line = L.polyline(pts, {
+              renderer: canvasRendererRef.current || undefined,
+              color: normalizeHexColor(hatch.colorHex, '#0369a1'),
+              weight: 1,
+              opacity: 0.45,
+              interactive: false,
+            }).addTo(map.current);
+            geometryLayersRef.current.push(line);
+            markers.current.push(line);
+          });
+        }
       });
     }
 
@@ -1705,7 +1748,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         map.current.off('moveend', handleViewChange);
       }
     };
-  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, onMapInstanceReady, getMarkerColor, getPointLabelMarkup, isCadLayerVisible, isGeometryInBounds, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showTinEdges, showTinFill, showLabels, effectiveShowLabels, annotationsVisible, hiddenCadLayers, pointSymbol, pointSizeScale, removeDuplicates, snapMode, snapRadiusPx, markerStyleConfig]);
+  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, onMapInstanceReady, getMarkerColor, getPointLabelMarkup, isCadLayerVisible, isGeometryInBounds, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showHatches, solidHatchPreviewOnly, showTinEdges, showTinFill, showLabels, effectiveShowLabels, annotationsVisible, hiddenCadLayers, pointSymbol, pointSizeScale, removeDuplicates, snapMode, snapRadiusPx, markerStyleConfig]);
 
   return (
     <div
@@ -1830,6 +1873,34 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
                   }}
                 >
                   Polylines
+                </button>
+                <button
+                  onClick={() => setShowHatches((v) => !v)}
+                  style={{
+                    border: '1px solid rgba(148,163,184,0.55)',
+                    background: showHatches ? 'rgba(2,132,199,0.78)' : 'rgba(15,23,42,0.65)',
+                    color: '#e2e8f0',
+                    borderRadius: '999px',
+                    fontSize: '9px',
+                    padding: '2px 7px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Hatches
+                </button>
+                <button
+                  onClick={() => setSolidHatchPreviewOnly((v) => !v)}
+                  style={{
+                    border: '1px solid rgba(148,163,184,0.55)',
+                    background: solidHatchPreviewOnly ? 'rgba(14,116,144,0.78)' : 'rgba(15,23,42,0.65)',
+                    color: '#e2e8f0',
+                    borderRadius: '999px',
+                    fontSize: '9px',
+                    padding: '2px 7px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Solid Hatch Only
                 </button>
                 <button
                   onClick={() => setShowTinEdges((v) => !v)}

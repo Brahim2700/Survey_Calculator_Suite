@@ -10,6 +10,13 @@ const SIGNAL_WEIGHTS = {
   coordinateAnomaly: 10,
   highInsertDensity: 10,
   malformedStructure: 10,
+  hatchEntitiesDetected: 6,
+  hatchPatternDetected: 6,
+  hatchEdgePathDetected: 10,
+  hatchNestedIslandDetected: 8,
+  hatchAssociativeDetected: 5,
+  hatchUnsupportedEdgeRisk: 12,
+  hatchBoundaryMissingRisk: 12,
 };
 
 function toAsciiSnippet(buffer) {
@@ -163,6 +170,69 @@ function collectPrescanSignals({ text, fileSizeBytes, versionCode }) {
     });
   }
 
+  const hatchEntityCount = safeCountRegex(normalized, /\bHATCH\b/g);
+  if (hatchEntityCount > 0) {
+    signals.push({
+      code: 'has-hatch-entities',
+      weight: SIGNAL_WEIGHTS.hatchEntitiesDetected,
+      detail: `Detected ${hatchEntityCount} hatch marker(s).`,
+    });
+  }
+
+  const hatchPatternCount = safeCountRegex(normalized, /\bANSI31\b|\bANSI32\b|\bANSI33\b|\bCROSS\b|\bAR-\w+\b/g);
+  if (hatchPatternCount > 0) {
+    signals.push({
+      code: 'has-pattern-hatches',
+      weight: SIGNAL_WEIGHTS.hatchPatternDetected,
+      detail: `Detected ${hatchPatternCount} pattern hatch marker(s).`,
+    });
+  }
+
+  const hatchEdgePathCount = safeCountRegex(normalized, /\bEDGEPATH\b|\bSPLINEEDGE\b|\bELLIPSEEDGE\b|\bARCEDGE\b/g);
+  if (hatchEdgePathCount > 0) {
+    signals.push({
+      code: 'has-edge-path-hatches',
+      weight: SIGNAL_WEIGHTS.hatchEdgePathDetected,
+      detail: `Detected ${hatchEdgePathCount} edge-path hatch marker(s).`,
+    });
+  }
+
+  const nestedIslandCount = safeCountRegex(normalized, /\bISLAND\b|\bOUTERMOST\b|\bEXTERNAL\b/g);
+  if (nestedIslandCount > 0) {
+    signals.push({
+      code: 'has-nested-hatch-islands',
+      weight: SIGNAL_WEIGHTS.hatchNestedIslandDetected,
+      detail: `Detected ${nestedIslandCount} hatch island marker(s).`,
+    });
+  }
+
+  const associativeCount = safeCountRegex(normalized, /\bASSOCIATIVE\b|\bASSOC\b/g);
+  if (associativeCount > 0 && hatchEntityCount > 0) {
+    signals.push({
+      code: 'has-associative-hatches',
+      weight: SIGNAL_WEIGHTS.hatchAssociativeDetected,
+      detail: `Detected ${associativeCount} associative hatch marker(s).`,
+    });
+  }
+
+  const unsupportedEdgeRiskCount = safeCountRegex(normalized, /\bSPLINEEDGE\b|\bELLIPSEEDGE\b/g);
+  if (unsupportedEdgeRiskCount > 0) {
+    signals.push({
+      code: 'has-unsupported-hatch-edges',
+      weight: SIGNAL_WEIGHTS.hatchUnsupportedEdgeRisk,
+      detail: `Detected ${unsupportedEdgeRiskCount} hatch edge marker(s) likely requiring approximation.`,
+    });
+  }
+
+  const boundaryPathCount = safeCountRegex(normalized, /\bBOUNDARYPATH\b|\bLWPOLYLINE\b|\bEDGEPATH\b/g);
+  if (hatchEntityCount > 0 && boundaryPathCount === 0) {
+    signals.push({
+      code: 'hatch-boundary-missing',
+      weight: SIGNAL_WEIGHTS.hatchBoundaryMissingRisk,
+      detail: 'Detected hatch records with weak/possibly missing boundary markers in sampled text.',
+    });
+  }
+
   return {
     signals,
     approximateEntityCount,
@@ -175,7 +245,9 @@ function buildRecommendedEngine(mode, signals) {
   const shouldUseOda =
     mode === 'recovery'
     || codes.has('proxy-entity-detected')
-    || codes.has('advanced-3d-marker');
+    || codes.has('advanced-3d-marker')
+    || codes.has('has-unsupported-hatch-edges')
+    || codes.has('hatch-boundary-missing');
   return shouldUseOda ? 'oda' : 'libredwg';
 }
 

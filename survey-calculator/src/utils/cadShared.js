@@ -1,5 +1,6 @@
 import DxfParser from 'dxf-parser';
 import { detectCRS, assessReferenceSystem } from './crsDetection.js';
+import { normalizeHatchEntity } from '../lib/cad/hatchModel.js';
 
 const CAD_TEXT_DECODER = new TextDecoder('utf-8', { fatal: false });
 const DEFAULT_TEXT_HEIGHT = 2.5;
@@ -373,6 +374,8 @@ const buildCadValidationSummary = ({ rows, geometry, diagnostics, dxfData, heade
   const extremeCoordinateCount = rawPoints.filter((point) => Math.abs(point.x) > 1e8 || Math.abs(point.y) > 1e8).length;
   const originClusterCount = rawPoints.filter((point) => Math.abs(point.x) <= 1e-6 && Math.abs(point.y) <= 1e-6).length;
   const textCount = Array.isArray(geometry?.texts) ? geometry.texts.length : 0;
+  const hatchCount = Array.isArray(geometry?.hatches) ? geometry.hatches.length : 0;
+  const hatchSummary = geometry?.hatchSummary || null;
   const surfaceCount = Array.isArray(geometry?.surfaces) ? geometry.surfaces.length : 0;
   const triangleCount = (Array.isArray(geometry?.surfaces) ? geometry.surfaces : []).reduce(
     (sum, surface) => sum + (Array.isArray(surface?.triangles) ? surface.triangles.length : 0),
@@ -459,6 +462,33 @@ const buildCadValidationSummary = ({ rows, geometry, diagnostics, dxfData, heade
       code: 'cad-text-imported',
       title: 'CAD text imported',
       message: `${textCount} CAD text annotation${textCount === 1 ? '' : 's'} prepared for map display with style fallback support.`,
+    });
+  }
+
+  if (hatchCount > 0) {
+    notifications.push({
+      severity: 'info',
+      code: 'cad-hatches-imported',
+      title: 'CAD hatches imported',
+      message: `${hatchCount} CAD hatch entity${hatchCount === 1 ? '' : 'ies'} extracted for preview rendering.`,
+    });
+  }
+
+  if ((hatchSummary?.degraded || 0) > 0) {
+    notifications.push({
+      severity: 'warning',
+      code: 'cad-hatch-degraded',
+      title: 'Degraded hatch rendering applied',
+      message: `${hatchSummary.degraded} hatch${hatchSummary.degraded === 1 ? '' : 'es'} required degraded rendering or fallback diagnostics.`,
+    });
+  }
+
+  if ((hatchSummary?.unsupportedEdges || 0) > 0) {
+    notifications.push({
+      severity: 'warning',
+      code: 'cad-hatch-unsupported-edge',
+      title: 'Unsupported hatch edges detected',
+      message: `${hatchSummary.unsupportedEdges} hatch${hatchSummary.unsupportedEdges === 1 ? '' : 'es'} include unsupported edge types and were approximated.`,
     });
   }
 
@@ -1307,7 +1337,7 @@ const getEntitySegments = (entities, source = 'top-level') => {
 
   const isClosedPolylineEntity = (ent) => {
     if (!ent || typeof ent !== 'object') return false;
-    if (Boolean(ent.closed || ent.shape || ent.isClosed)) return true;
+    if (ent.closed || ent.shape || ent.isClosed) return true;
     const flags = Number(ent.flags);
     return Number.isFinite(flags) && (Math.trunc(flags) & 1) === 1;
   };
@@ -1983,6 +2013,9 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
     texts: [],
     dimensions: [],
     hatches: [],
+    hatchDiagnostics: [],
+    hatchSummary: null,
+    renderHints: null,
     surfaces: [],
   };
   // Reuse pre-computed expanded entities to avoid double processing on large files
@@ -2069,7 +2102,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
 
   const isClosedPolylineEntity = (entity) => {
     if (!entity || typeof entity !== 'object') return false;
-    if (Boolean(entity.closed || entity.shape || entity.isClosed)) return true;
+    if (entity.closed || entity.shape || entity.isClosed) return true;
     const flags = Number(entity.flags);
     return Number.isFinite(flags) && (Math.trunc(flags) & 1) === 1;
   };
@@ -2211,171 +2244,111 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
     return Math.abs(area) / 2;
   };
 
+  const computeHatchSummary = () => {
+    const byLayer = new Map();
+    let approximated = 0;
+    let unsupportedEdges = 0;
+    let degraded = 0;
+
+    geometry.hatches.forEach((hatch) => {
+      const key = String(hatch?.layerStandardized || hatch?.layerNormalized || hatch?.layer || 'UNASSIGNED');
+      byLayer.set(key, (byLayer.get(key) || 0) + 1);
+      if (hatch?.renderHints?.approximated) approximated += 1;
+      if (hatch?.renderHints?.hasUnsupportedEdges) unsupportedEdges += 1;
+      if (hatch?.renderHints?.degraded) degraded += 1;
+    });
+
+    return {
+      total: geometry.hatches.length,
+      approximated,
+      unsupportedEdges,
+      degraded,
+      perLayer: [...byLayer.entries()].map(([layer, count]) => ({ layer, count })),
+      diagnostics: {
+        total: geometry.hatchDiagnostics.length,
+        warnings: geometry.hatchDiagnostics.filter((diag) => String(diag?.severity || '').toLowerCase() === 'warning').length,
+        errors: geometry.hatchDiagnostics.filter((diag) => String(diag?.severity || '').toLowerCase() === 'error').length,
+      },
+    };
+  };
+
   const addHatch = (entity) => {
     const layer = entity?.layer || 'HATCH';
     const descriptor = getLayerDescriptor(layer, layerTable[layer]);
-    const patternName = String(entity?.pattern || entity?.patternName || '').trim() || 'HATCH';
-    const isSolid = Boolean(entity?.solidFill || patternName === 'SOLID');
-
-    // Extract boundary paths from supported parser variants.
-    const boundaryPaths = Array.isArray(entity?.boundaryPaths)
-      ? entity.boundaryPaths
-      : (Array.isArray(entity?.paths)
-        ? entity.paths
-        : (Array.isArray(entity?.loops)
-          ? entity.loops
-          : (Array.isArray(entity?.boundaries) ? entity.boundaries : [])));
-    const hatchPolygons = [];
-
-    const sampleHatchArcEdge = (edge) => {
-      const center = edge?.center || edge?.origin;
-      const cx = Number(center?.x ?? edge?.centerX);
-      const cy = Number(center?.y ?? edge?.centerY);
-      const radius = Number(edge?.radius);
-      const startAngle = Number(edge?.startAngle ?? 0);
-      const endAngle = Number(edge?.endAngle ?? 0);
-      const ccw = edge?.isCounterClockwise !== false;
-      if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(radius) || radius <= 0) return [];
-      if (!Number.isFinite(startAngle) || !Number.isFinite(endAngle)) return [];
-      let sweep = endAngle - startAngle;
-      if (ccw && sweep < 0) sweep += 360;
-      if (!ccw && sweep > 0) sweep -= 360;
-      if (Math.abs(sweep) < 1e-9) return [];
-      const steps = Math.max(8, Math.min(120, Math.ceil((Math.abs(sweep) / 360) * 72)));
-      const vertices = [];
-      for (let i = 0; i <= steps; i += 1) {
-        const t = i / steps;
-        const angle = (startAngle + (sweep * t)) * (Math.PI / 180);
-        vertices.push([cx + (radius * Math.cos(angle)), cy + (radius * Math.sin(angle))]);
-      }
-      return vertices;
-    };
-
-    boundaryPaths.forEach((path) => {
-      // Polyline-type boundary
-      if (Array.isArray(path?.vertices) && path.vertices.length >= 3) {
-        let verts = path.vertices
-          .map((v) => {
-            const x = Number(v?.x ?? v?.[0] ?? NaN);
-            const y = Number(v?.y ?? v?.[1] ?? NaN);
-            return Number.isFinite(x) && Number.isFinite(y) ? [x, y] : null;
-          })
-          .filter(Boolean);
-        if (verts.length >= 3) {
-          const first = verts[0];
-          const last = verts[verts.length - 1];
-          if (Math.abs(first[0] - last[0]) > 1e-9 || Math.abs(first[1] - last[1]) > 1e-9) {
-            verts = [...verts, [first[0], first[1]]];
-          }
-        }
-        if (verts.length >= 3) {
-          hatchPolygons.push(verts);
-          // Also add as a polyline for map display
-          addPolyline(
-            [...verts.map(([x, y]) => ({ x, y, z: 0 })), { x: verts[0][0], y: verts[0][1], z: 0 }],
-            layer, 'HATCH', entity?.color
-          );
-        }
-      }
-      const polylineVertices = Array.isArray(path?.polyline?.vertices) ? path.polyline.vertices : [];
-      if (polylineVertices.length >= 3) {
-        let verts = polylineVertices
-          .map((v) => {
-            const x = Number(v?.x ?? v?.[0] ?? NaN);
-            const y = Number(v?.y ?? v?.[1] ?? NaN);
-            return Number.isFinite(x) && Number.isFinite(y) ? [x, y] : null;
-          })
-          .filter(Boolean);
-        if (verts.length >= 3) {
-          const first = verts[0];
-          const last = verts[verts.length - 1];
-          if (Math.abs(first[0] - last[0]) > 1e-9 || Math.abs(first[1] - last[1]) > 1e-9) {
-            verts = [...verts, [first[0], first[1]]];
-          }
-        }
-        if (verts.length >= 3) {
-          hatchPolygons.push(verts);
-          addPolyline(
-            [...verts.map(([x, y]) => ({ x, y, z: 0 })), { x: verts[0][0], y: verts[0][1], z: 0 }],
-            layer, 'HATCH', entity?.color
-          );
-        }
-      }
-      // Edge-type boundary — collect LINE edges
-      if (Array.isArray(path?.edges)) {
-        const verts = [];
-        path.edges.forEach((edge) => {
-          const rawType = edge?.type;
-          const typeCode = Number(rawType);
-          const edgeType = String(rawType || '').toUpperCase();
-          const isLine = edgeType === 'LINE' || typeCode === 1;
-          const isArc = edgeType.includes('ARC') || typeCode === 2;
-          if (isLine) {
-            const x = Number(edge?.start?.x ?? edge?.startX ?? NaN);
-            const y = Number(edge?.start?.y ?? edge?.startY ?? NaN);
-            if (Number.isFinite(x) && Number.isFinite(y)) verts.push([x, y]);
-            const ex = Number(edge?.end?.x ?? edge?.endX ?? NaN);
-            const ey = Number(edge?.end?.y ?? edge?.endY ?? NaN);
-            if (Number.isFinite(ex) && Number.isFinite(ey)) {
-              const prev = verts[verts.length - 1];
-              if (!prev || Math.abs(prev[0] - ex) > 1e-9 || Math.abs(prev[1] - ey) > 1e-9) {
-                verts.push([ex, ey]);
-              }
-            }
-          } else if (isArc) {
-            const arcVerts = sampleHatchArcEdge(edge);
-            if (arcVerts.length > 0) {
-              if (verts.length > 0) {
-                const firstArc = arcVerts[0];
-                const prev = verts[verts.length - 1];
-                if (Math.abs(prev[0] - firstArc[0]) <= 1e-9 && Math.abs(prev[1] - firstArc[1]) <= 1e-9) {
-                  arcVerts.shift();
-                }
-              }
-              verts.push(...arcVerts);
-            }
-          }
-        });
-        if (verts.length >= 3) {
-          const first = verts[0];
-          const last = verts[verts.length - 1];
-          if (Math.abs(first[0] - last[0]) > 1e-9 || Math.abs(first[1] - last[1]) > 1e-9) {
-            verts.push([first[0], first[1]]);
-          }
-          hatchPolygons.push(verts);
-          addPolyline(
-            [...verts.map(([x, y]) => ({ x, y, z: 0 })), { x: verts[0][0], y: verts[0][1], z: 0 }],
-            layer, 'HATCH', entity?.color
-          );
-        }
-      }
+    const normalized = normalizeHatchEntity(entity, {
+      sourceEngine: 'custom',
+      preserveRaw: true,
+      tolerance: 1e-5,
+      processingMode: String(expandedCad?.processingMode || 'full'),
     });
 
-    if (hatchPolygons.length === 0) return;
+    const loopPolygons = (Array.isArray(normalized?.loops) ? normalized.loops : [])
+      .filter((loop) => loop?.closed && Array.isArray(loop?.points) && loop.points.length >= 4)
+      .map((loop) => loop.points.map((point) => [point.x, point.y]));
 
-    // Compute total area (outer boundary only — first polygon)
-    const outerVerts = hatchPolygons[0];
-    const area = shoelaceArea(outerVerts);
-    const centroid = outerVerts.length > 0
+    loopPolygons.forEach((verts) => {
+      if (verts.length < 4) return;
+      addPolyline(
+        verts.map(([x, y]) => ({ x, y, z: Number(normalized?.elevation || 0) })),
+        layer,
+        'HATCH',
+        entity?.color
+      );
+    });
+
+    const outerPolygon = loopPolygons.find((poly) => poly.length >= 4) || null;
+    const area = outerPolygon ? shoelaceArea(outerPolygon) : null;
+    const centroid = outerPolygon && outerPolygon.length > 0
       ? [
-        outerVerts.reduce((s, v) => s + v[0], 0) / outerVerts.length,
-        outerVerts.reduce((s, v) => s + v[1], 0) / outerVerts.length,
+        outerPolygon.reduce((sum, point) => sum + point[0], 0) / outerPolygon.length,
+        outerPolygon.reduce((sum, point) => sum + point[1], 0) / outerPolygon.length,
       ]
       : null;
 
-    geometry.hatches.push({
+    const hatchRecord = {
+      id: normalized.id,
+      handle: normalized.handle || entity?.handle || null,
       layer: descriptor.displayName,
       layerOriginal: descriptor.originalName,
       layerNormalized: descriptor.normalizedName,
       layerStandardized: descriptor.standardizedName,
+      layerCategory: descriptor.category,
       sourceType: 'HATCH',
-      patternName,
-      isSolid,
+      patternName: normalized.patternName || 'HATCH',
+      patternType: normalized.patternType || 'unknown',
+      isSolid: normalized.patternType === 'solid',
+      patternAngle: normalized.patternAngle,
+      patternScale: normalized.patternScale,
+      patternDouble: normalized.patternDouble,
       area,
       centroid,
-      polygons: hatchPolygons,
-      boundaryCount: hatchPolygons.length,
-      colorHex: cadColorToHex(entity?.color, cadColorToHex(descriptor.color)),
+      polygons: loopPolygons,
+      loops: normalized.loops || [],
+      boundaryCount: loopPolygons.length,
+      colorHex: cadColorToHex(normalized?.color ?? entity?.color, cadColorToHex(descriptor.color)),
+      warnings: Array.isArray(normalized?.warnings) ? normalized.warnings : [],
+      diagnostics: Array.isArray(normalized?.diagnostics) ? normalized.diagnostics : [],
+      renderHints: normalized?.renderHints || {
+        hasUnsupportedEdges: false,
+        approximated: false,
+        degraded: false,
+        solidOnly: false,
+      },
+      bounds: normalized?.bounds || null,
+      rawHatch: normalized?.raw || null,
+    };
+
+    geometry.hatches.push(hatchRecord);
+    (Array.isArray(hatchRecord.diagnostics) ? hatchRecord.diagnostics : []).forEach((diag) => {
+      geometry.hatchDiagnostics.push({
+        hatchId: hatchRecord.id,
+        handle: hatchRecord.handle,
+        severity: diag?.severity || 'info',
+        code: diag?.code || 'HATCH_RENDER_DEGRADED',
+        confidence: diag?.confidence || 'low',
+        fallbackUsed: Boolean(diag?.fallbackUsed),
+        recommendation: diag?.recommendation || '',
+      });
     });
   };
 
@@ -2444,6 +2417,17 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
   };
 
   visitEntities(expandedEntities);
+
+  geometry.hatchSummary = computeHatchSummary();
+  geometry.renderHints = {
+    processingMode: String(expandedCad?.processingMode || 'full'),
+    hatch: {
+      solidOnly: String(expandedCad?.processingMode || 'full') !== 'full',
+      approximated: (geometry.hatchSummary?.approximated || 0) > 0,
+      hasUnsupportedEdges: (geometry.hatchSummary?.unsupportedEdges || 0) > 0,
+      degraded: (geometry.hatchSummary?.degraded || 0) > 0,
+    },
+  };
 
   geometry.layerSummary = buildLayerSummary(dxfData, expandedEntities, geometry.texts);
   geometry.repairs = repairStats;
@@ -2578,6 +2562,7 @@ export function parseDxfTextContent(text, options = {}) {
   let expandedCad;
   try {
     expandedCad = expandCadEntities(dxf, options);
+    expandedCad.processingMode = String(options?.processingMode || 'full');
   } catch (err) {
     if (String(err?.message || err).includes('stack') || String(err?.message || err).includes('recursion')) {
       throw new Error(`DXF file too complex to parse: ${err.message || 'Block nesting or entity count too high. Try splitting the file.'}`);
@@ -2596,6 +2581,17 @@ export function parseDxfTextContent(text, options = {}) {
       texts: [],
       dimensions: [],
       hatches: [],
+      hatchDiagnostics: [],
+      hatchSummary: null,
+      renderHints: {
+        processingMode: String(options?.processingMode || 'full'),
+        hatch: {
+          solidOnly: String(options?.processingMode || 'full') !== 'full',
+          approximated: false,
+          hasUnsupportedEdges: false,
+          degraded: false,
+        },
+      },
       surfaces: [],
       layerSummary: null,
       repairs: {},
@@ -2624,6 +2620,15 @@ export function parseDxfTextContent(text, options = {}) {
   geometry.validation = validation;
   geometry.notifications = validation.notifications;
   geometry.headerCrsHint = headerCrsHint;
+  geometry.renderHints = {
+    ...(geometry.renderHints || {}),
+    processingMode: String(options?.processingMode || geometry?.renderHints?.processingMode || 'full'),
+    hatch: {
+      ...(geometry?.renderHints?.hatch || {}),
+      solidOnly: String(options?.processingMode || geometry?.renderHints?.processingMode || 'full') !== 'full'
+        || Boolean(geometry?.renderHints?.hatch?.solidOnly),
+    },
+  };
 
   const hasRenderableCad = rows.length > 0
     || (!options.pointsOnly && (

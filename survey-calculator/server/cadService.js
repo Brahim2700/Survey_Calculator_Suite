@@ -471,7 +471,7 @@ export async function parseCadUpload({
   const data = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
   const resolvedFileHashSha256 = assembledHashSha256 || computeSha256Hex(Buffer.from(data));
   const resolvedFileHashFNV64 = assembledHashFNV64 || null;
-  const options = { pointsOnly, strictExistingPointsOnly, returnPayload: true };
+  const options = { pointsOnly, strictExistingPointsOnly, returnPayload: true, processingMode };
   let rows;
   let geometry = null;
   let diagnostics = null;
@@ -631,6 +631,17 @@ export async function parseCadUpload({
       detectedFromCrs: diagnostics?.detectedFromCrs || rows.find((row) => row?.detectedFromCrs)?.detectedFromCrs || null,
       validation: geometry?.validation || diagnostics?.validation || null,
       layerSummary: geometry?.layerSummary || diagnostics?.layerSummary || null,
+      hatchSummary: geometry?.hatchSummary || null,
+      hatchDiagnosticsSummary: geometry?.hatchSummary?.diagnostics || {
+        total: Array.isArray(geometry?.hatchDiagnostics) ? geometry.hatchDiagnostics.length : 0,
+        warnings: Array.isArray(geometry?.hatchDiagnostics)
+          ? geometry.hatchDiagnostics.filter((diag) => String(diag?.severity || '').toLowerCase() === 'warning').length
+          : 0,
+        errors: Array.isArray(geometry?.hatchDiagnostics)
+          ? geometry.hatchDiagnostics.filter((diag) => String(diag?.severity || '').toLowerCase() === 'error').length
+          : 0,
+      },
+      hatchRenderHints: geometry?.renderHints?.hatch || null,
       repairs: geometry?.repairs || diagnostics?.repairs || null,
       unresolvedXrefs: diagnostics?.references?.unresolvedXrefs || [],
       missingBlockRefs: diagnostics?.references?.unresolvedBlockRefs || [],
