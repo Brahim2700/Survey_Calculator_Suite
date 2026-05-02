@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef, useId } from 'react';
 import CRS_LIST from '../crsList';
 import '../styles/CrsSearchSelector.css';
+import { safeGetJSON, safeSetJSON } from '../utils/storage';
 
 const COUNTRY_PATTERNS = {
   France: ['france', 'corsica', 'metropolitaine'],
@@ -146,20 +147,8 @@ export default function CrsSearchSelector({ value, onChange, label }) {
   const [countryFilter, setCountryFilter] = useState('all'); // all or specific country
   const [recommendedOnly, setRecommendedOnly] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
-  const [favorites, setFavorites] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('crs_favorites') || '[]');
-    } catch {
-      return [];
-    }
-  });
-  const [recent, setRecent] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('crs_recent') || '[]');
-    } catch {
-      return [];
-    }
-  });
+  const [favorites, setFavorites] = useState(() => safeGetJSON('crs_favorites', []));
+  const [recent, setRecent] = useState(() => safeGetJSON('crs_recent', []));
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const containerRef = useRef(null);
   const scrollContainerRef = useRef(null);
@@ -298,7 +287,7 @@ export default function CrsSearchSelector({ value, onChange, label }) {
       const newFavorites = prev.includes(crsCode)
         ? prev.filter(c => c !== crsCode)
         : [...prev, crsCode];
-      localStorage.setItem('crs_favorites', JSON.stringify(newFavorites));
+      safeSetJSON('crs_favorites', newFavorites);
       return newFavorites;
     });
   };
@@ -310,7 +299,7 @@ export default function CrsSearchSelector({ value, onChange, label }) {
     // Add to recent
     setRecent(prev => {
       const newRecent = [crsCode, ...prev.filter(c => c !== crsCode)].slice(0, 10);
-      localStorage.setItem('crs_recent', JSON.stringify(newRecent));
+      safeSetJSON('crs_recent', newRecent);
       return newRecent;
     });
 

@@ -3,6 +3,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { emit } from '../utils/eventBus';
 import { resolveCadWebFont } from '../utils/cadFontMap';
+import { safeGetString, safeSetString } from '../utils/storage';
 
 const BASEMAP_STORAGE_KEY = 'survey_calc_basemap';
 const IGN_FRANCE_BOUNDS = L.latLngBounds([41.0, -5.8], [51.5, 9.8]);
@@ -870,7 +871,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         ),
       };
 
-      const savedBasemap = localStorage.getItem(BASEMAP_STORAGE_KEY);
+      const savedBasemap = safeGetString(BASEMAP_STORAGE_KEY);
       const initialBasemap = savedBasemap && basemapLayers.current[savedBasemap]
         ? savedBasemap
         : 'Street (OSM)';
@@ -989,7 +990,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
 
     const handleBasemapChange = (e) => {
       if (e?.name) {
-        localStorage.setItem(BASEMAP_STORAGE_KEY, e.name);
+        safeSetString(BASEMAP_STORAGE_KEY, e.name);
 
         if (e.name === 'IGN Plan (France)' || e.name === 'IGN Ortho (France)') {
           const currentCenter = map.current?.getCenter?.();

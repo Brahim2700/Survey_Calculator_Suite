@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import { rateLimit } from 'express-rate-limit';
 import multer from 'multer';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
@@ -124,9 +126,17 @@ function mergeProcessingMode(clientMode, prescanMode) {
   return clientRank >= prescanRank ? clientMode : prescanMode;
 }
 
+app.use(helmet());
+
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+    // When no origins are configured, only allow requests with no origin (same-origin / server-to-server).
+    // Set CAD_ALLOWED_ORIGINS to explicitly permit browser origins.
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    if (allowedOrigins.length > 0 && allowedOrigins.includes(origin)) {
       callback(null, true);
       return;
     }
@@ -134,11 +144,34 @@ app.use(cors({
   },
 }));
 
-app.get('/api/cad/health', (_req, res) => {
+const parseRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many CAD parse requests. Please wait before retrying.' },
+});
+
+const uploadRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many upload requests. Please wait before retrying.' },
+});
+
+const generalRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.get('/api/cad/health', generalRateLimit, (_req, res) => {
   res.json(getCadBackendStatus());
 });
 
-app.post('/api/cad/prescan', upload.single('file'), async (req, res) => {
+app.post('/api/cad/prescan', uploadRateLimit, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       res.status(400).json({ message: 'No CAD file was uploaded for pre-scan.' });
@@ -157,7 +190,7 @@ app.post('/api/cad/prescan', upload.single('file'), async (req, res) => {
   }
 });
 
-app.post('/api/cad/upload/chunk', chunkUpload.single('chunk'), async (req, res) => {
+app.post('/api/cad/upload/chunk', uploadRateLimit, chunkUpload.single('chunk'), async (req, res) => {
   try {
     if (!req.file) {
       res.status(400).json({ message: 'No chunk data was uploaded.' });
@@ -219,7 +252,7 @@ app.post('/api/cad/upload/chunk', chunkUpload.single('chunk'), async (req, res) 
   }
 });
 
-app.post('/api/cad/upload/complete', express.json({ limit: '1mb' }), async (req, res) => {
+app.post('/api/cad/upload/complete', uploadRateLimit, express.json({ limit: '1mb' }), async (req, res) => {
   const uploadId = String(req.body?.uploadId || '').trim();
   const fileName = String(req.body?.fileName || '').trim();
   const pointsOnly = String(req.body?.pointsOnly || '').toLowerCase() === 'true';
@@ -297,7 +330,7 @@ app.post('/api/cad/upload/complete', express.json({ limit: '1mb' }), async (req,
   }
 });
 
-app.post('/api/cad/parse', upload.single('file'), async (req, res) => {
+app.post('/api/cad/parse', parseRateLimit, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       res.status(400).json({ message: 'No CAD file was uploaded.' });
@@ -341,6 +374,29 @@ app.post('/api/cad/parse', upload.single('file'), async (req, res) => {
     });
   }
 });
+
+// Periodically remove orphaned chunk directories older than 2 hours.
+const CHUNK_CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
+const CHUNK_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+setInterval(async () => {
+  try {
+    const entries = await fs.readdir(chunkRootDir, { withFileTypes: true }).catch(() => []);
+    const now = Date.now();
+    await Promise.all(
+      entries
+        .filter((e) => e.isDirectory())
+        .map(async (e) => {
+          const dirPath = path.join(chunkRootDir, e.name);
+          const stat = await fs.stat(dirPath).catch(() => null);
+          if (stat && now - stat.mtimeMs > CHUNK_MAX_AGE_MS) {
+            await fs.rm(dirPath, { recursive: true, force: true });
+          }
+        }),
+    );
+  } catch {
+    // Cleanup errors are non-fatal.
+  }
+}, CHUNK_CLEANUP_INTERVAL_MS);
 
 app.listen(port, () => {
   console.log(`CAD backend listening on http://localhost:${port}`);

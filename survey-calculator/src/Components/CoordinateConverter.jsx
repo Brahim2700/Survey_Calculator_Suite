@@ -15,6 +15,7 @@ import { exportAsCSV, exportAsGeoJSON, exportAsKML, exportAsGPX, exportAsXLSX, e
 // Import the map visualization component
 import MapVisualization from "./MapVisualization";
 import { on, emit } from "../utils/eventBus";
+import { safeGetJSON, safeGetString, safeSetJSON, safeSetString, safeRemove } from "../utils/storage";
 
 // Lazy-load geoid utilities only when requested so the main bundle stays small
 let geoidModulePromise = null;
@@ -2721,7 +2722,7 @@ const CoordinateConverter = () => {
         setLastDetectInput({ x: xNum, y: yNum });
       
         if (suggestions && suggestions.length > 0) {
-          localStorage.setItem("survey_calc_last_detected_crs", suggestions[0].code);
+          safeSetString("survey_calc_last_detected_crs", suggestions[0].code);
         }
     } catch (err) {
       setError(err.message || "CRS detection failed");
@@ -2734,17 +2735,17 @@ const CoordinateConverter = () => {
   
   // Load last detected CRS from localStorage on mount
   useEffect(() => {
-    const lastDetected = localStorage.getItem("survey_calc_last_detected_crs");
+    const lastDetected = safeGetString("survey_calc_last_detected_crs");
     if (lastDetected && CRS_LIST.find((c) => c.code === lastDetected)) {
-      console.log(`[Init] Loaded last detected CRS from localStorage: ${lastDetected}`);
+      // last detected CRS restored silently
     }
   }, []);
 
   useEffect(() => {
     try {
       const key = getPresetStorageKey();
-      const saved = JSON.parse(localStorage.getItem(key) || "[]");
-      const savedDefault = localStorage.getItem(`${key}_default`) || "";
+      const saved = safeGetJSON(key, []);
+      const savedDefault = safeGetString(`${key}_default`);
       if (Array.isArray(saved)) {
         setPresets(saved);
         setSelectedPresetId(savedDefault || saved[0]?.id || "");
@@ -3978,10 +3979,8 @@ const CoordinateConverter = () => {
     const next = [preset, ...presets].slice(0, 20);
     setPresets(next);
     setSelectedPresetId(preset.id);
-    localStorage.setItem(getPresetStorageKey(), JSON.stringify(next));
+    safeSetJSON(getPresetStorageKey(), next);
   };
-
-  const loadPreset = (id) => {
     const preset = presets.find((p) => p.id === id);
     if (!preset) return;
     pushHistory();
@@ -3999,10 +3998,10 @@ const CoordinateConverter = () => {
     const next = presets.filter((p) => p.id !== id);
     setPresets(next);
     if (selectedPresetId === id) setSelectedPresetId(next[0]?.id || "");
-    localStorage.setItem(getPresetStorageKey(), JSON.stringify(next));
+    safeSetJSON(getPresetStorageKey(), next);
     if (defaultPresetId === id) {
       setDefaultPresetId("");
-      localStorage.removeItem(`${getPresetStorageKey()}_default`);
+      safeRemove(`${getPresetStorageKey()}_default`);
     }
   };
 
@@ -4013,7 +4012,7 @@ const CoordinateConverter = () => {
     const next = [copy, ...presets].slice(0, 20);
     setPresets(next);
     setSelectedPresetId(copy.id);
-    localStorage.setItem(getPresetStorageKey(), JSON.stringify(next));
+    safeSetJSON(getPresetStorageKey(), next);
   };
 
   const renamePreset = (id) => {
@@ -4023,12 +4022,12 @@ const CoordinateConverter = () => {
     if (!name) return;
     const next = presets.map((p) => (p.id === id ? { ...p, name } : p));
     setPresets(next);
-    localStorage.setItem(getPresetStorageKey(), JSON.stringify(next));
+    safeSetJSON(getPresetStorageKey(), next);
   };
 
   const setAsDefaultPreset = (id) => {
     setDefaultPresetId(id);
-    localStorage.setItem(`${getPresetStorageKey()}_default`, id);
+    safeSetString(`${getPresetStorageKey()}_default`, id);
   };
 
   const exportPresetsJson = () => {
@@ -4052,7 +4051,7 @@ const CoordinateConverter = () => {
       const next = [...normalized, ...presets].slice(0, 20);
       setPresets(next);
       setSelectedPresetId(next[0]?.id || "");
-      localStorage.setItem(getPresetStorageKey(), JSON.stringify(next));
+      safeSetJSON(getPresetStorageKey(), next);
     } catch (err) {
       alert(`Preset import failed: ${err.message}`);
     }

@@ -50,13 +50,28 @@ export default defineConfig(({ mode }) => {
           manualChunks: {
             proj4: ['proj4'],
             geotiff: ['geotiff'],
-            cesium: ['cesium']
+            cesium: ['cesium'],
+            three: ['three', 'react-globe.gl'],
+            leaflet: ['leaflet', 'react-leaflet'],
+            xlsxParsers: ['shpjs', 'jszip', 'xlsx'],
+            mathjs: ['mathjs'],
           }
         }
       },
       // Cesium/geospatial libraries produce intentionally large chunks in this app.
       // Raise the warning limit so Vercel logs focus on actionable issues.
       chunkSizeWarningLimit: 5000
+    },
+    test: {
+      environment: 'jsdom',
+      globals: true,
+      setupFiles: ['./src/test/setup.js'],
+      include: ['src/**/*.test.{js,jsx}'],
+      coverage: {
+        provider: 'v8',
+        include: ['src/utils/**', 'src/Components/**'],
+        exclude: ['src/test/**'],
+      },
     }
   };
 })
