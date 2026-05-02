@@ -3981,6 +3981,8 @@ const CoordinateConverter = () => {
     setSelectedPresetId(preset.id);
     safeSetJSON(getPresetStorageKey(), next);
   };
+
+  const applyPreset = (id) => {
     const preset = presets.find((p) => p.id === id);
     if (!preset) return;
     pushHistory();
