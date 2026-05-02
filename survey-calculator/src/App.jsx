@@ -37,6 +37,7 @@ const EMPTY_CAD_GEOMETRY = {
   lines: [],
   polylines: [],
   texts: [],
+  hatches: [],
   surfaces: [],
   layerSummary: null,
   validation: null,
@@ -142,11 +143,12 @@ function App() {
 
   useEffect(() => {
     const off = on("converter:cadGeometryForMap", ({ geometry, append = false, sourceKey = null }) => {
-      if (geometry && (Array.isArray(geometry.lines) || Array.isArray(geometry.polylines) || Array.isArray(geometry.texts) || Array.isArray(geometry.surfaces))) {
+      if (geometry && (Array.isArray(geometry.lines) || Array.isArray(geometry.polylines) || Array.isArray(geometry.texts) || Array.isArray(geometry.hatches) || Array.isArray(geometry.surfaces))) {
         const normalizedGeometry = {
           lines: (Array.isArray(geometry.lines) ? geometry.lines : []).map((line) => ({ ...line, sourceFileKey: sourceKey || line?.sourceFileKey || null })),
           polylines: (Array.isArray(geometry.polylines) ? geometry.polylines : []).map((polyline) => ({ ...polyline, sourceFileKey: sourceKey || polyline?.sourceFileKey || null })),
           texts: (Array.isArray(geometry.texts) ? geometry.texts : []).map((text) => ({ ...text, sourceFileKey: sourceKey || text?.sourceFileKey || null })),
+          hatches: (Array.isArray(geometry.hatches) ? geometry.hatches : []).map((hatch) => ({ ...hatch, sourceFileKey: sourceKey || hatch?.sourceFileKey || null })),
           surfaces: (Array.isArray(geometry.surfaces) ? geometry.surfaces : []).map((surface) => ({ ...surface, sourceFileKey: sourceKey || surface?.sourceFileKey || null })),
           layerSummary: geometry.layerSummary || null,
           validation: geometry.validation || null,
@@ -160,6 +162,7 @@ function App() {
             lines: [...(Array.isArray(prev?.lines) ? prev.lines : []), ...normalizedGeometry.lines],
             polylines: [...(Array.isArray(prev?.polylines) ? prev.polylines : []), ...normalizedGeometry.polylines],
             texts: [...(Array.isArray(prev?.texts) ? prev.texts : []), ...normalizedGeometry.texts],
+            hatches: [...(Array.isArray(prev?.hatches) ? prev.hatches : []), ...normalizedGeometry.hatches],
             surfaces: [...(Array.isArray(prev?.surfaces) ? prev.surfaces : []), ...normalizedGeometry.surfaces],
             layerSummary: normalizedGeometry.layerSummary || prev?.layerSummary || null,
             validation: normalizedGeometry.validation || prev?.validation || null,
@@ -284,6 +287,7 @@ function App() {
           lineCount: 0,
           polylineCount: 0,
           textCount: 0,
+          hatchCount: 0,
         });
       }
       return stats.get(key);
@@ -304,6 +308,10 @@ function App() {
     (Array.isArray(cadGeometry?.texts) ? cadGeometry.texts : []).forEach((text) => {
       const layer = touchLayer(text?.sourceFileKey || null);
       layer.textCount += 1;
+    });
+    (Array.isArray(cadGeometry?.hatches) ? cadGeometry.hatches : []).forEach((hatch) => {
+      const layer = touchLayer(hatch?.sourceFileKey || null);
+      layer.hatchCount += 1;
     });
     (Array.isArray(cadGeometry?.surfaces) ? cadGeometry.surfaces : []).forEach((surface) => {
       const layer = touchLayer(surface?.sourceFileKey || null);
@@ -337,6 +345,7 @@ function App() {
       lines: (Array.isArray(cadGeometry?.lines) ? cadGeometry.lines : []).filter((line) => isFileVisible(line?.sourceFileKey) && isDxfLayerVisible(line)),
       polylines: (Array.isArray(cadGeometry?.polylines) ? cadGeometry.polylines : []).filter((polyline) => isFileVisible(polyline?.sourceFileKey) && isDxfLayerVisible(polyline)),
       texts: (Array.isArray(cadGeometry?.texts) ? cadGeometry.texts : []).filter((text) => isFileVisible(text?.sourceFileKey) && isDxfLayerVisible(text)),
+      hatches: (Array.isArray(cadGeometry?.hatches) ? cadGeometry.hatches : []).filter((hatch) => isFileVisible(hatch?.sourceFileKey) && isDxfLayerVisible(hatch)),
       surfaces: (Array.isArray(cadGeometry?.surfaces) ? cadGeometry.surfaces : []).filter((surface) => isFileVisible(surface?.sourceFileKey) && isDxfLayerVisible(surface)),
     };
   }, [cadGeometry, hiddenLayerKeys, hiddenDxfLayers]);

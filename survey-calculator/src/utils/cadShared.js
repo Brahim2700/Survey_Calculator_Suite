@@ -949,6 +949,47 @@ const pushUniqueReference = (target, item, key) => {
   target.push({ key, ...item });
 };
 
+const sampleArcLikeVertices = (entity, transform, forceClosed = false) => {
+  const center = entity?.center || entity?.position || entity?.insertionPoint;
+  const cx = Number(center?.x);
+  const cy = Number(center?.y);
+  const cz = Number(center?.z ?? entity?.elevation ?? entity?.z ?? 0);
+  const radius = Number(entity?.radius);
+  if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(radius) || radius <= 0) return [];
+
+  const startRaw = Number(entity?.startAngle ?? 0);
+  const endRaw = Number(entity?.endAngle ?? (forceClosed ? 360 : 0));
+  const startDeg = Number.isFinite(startRaw) ? startRaw : 0;
+  let sweepDeg = forceClosed ? 360 : (Number.isFinite(endRaw) ? (endRaw - startDeg) : 0);
+  if (!forceClosed && Math.abs(sweepDeg) < 1e-9) sweepDeg = 360;
+  if (sweepDeg < 0) sweepDeg += 360;
+  if (!Number.isFinite(sweepDeg) || sweepDeg <= 0) return [];
+
+  const segmentCount = Math.max(16, Math.min(144, Math.ceil((sweepDeg / 360) * 72)));
+  const vertices = [];
+  for (let i = 0; i <= segmentCount; i += 1) {
+    const t = i / segmentCount;
+    const angleDeg = startDeg + (sweepDeg * t);
+    const rad = (angleDeg * Math.PI) / 180;
+    const local = {
+      x: cx + (radius * Math.cos(rad)),
+      y: cy + (radius * Math.sin(rad)),
+      z: Number.isFinite(cz) ? cz : 0,
+    };
+    vertices.push(applyCadTransform(local, transform));
+  }
+
+  if (forceClosed && vertices.length > 1) {
+    const first = vertices[0];
+    const last = vertices[vertices.length - 1];
+    if (Math.abs(first.x - last.x) > 1e-9 || Math.abs(first.y - last.y) > 1e-9) {
+      vertices.push({ ...first });
+    }
+  }
+
+  return vertices;
+};
+
 const transformCadEntity = (entity, transform, metadata = {}) => {
   const type = String(entity?.type || '').toUpperCase();
   const transformed = {
@@ -980,6 +1021,33 @@ const transformCadEntity = (entity, transform, metadata = {}) => {
         };
       });
       return transformed;
+    case '3DLINE':
+      transformed.vertices = (Array.isArray(entity?.vertices) ? entity.vertices : [entity?.start, entity?.end])
+        .filter(Boolean)
+        .map((vertex) => applyCadTransform(vertex, transform));
+      return transformed;
+    case 'CIRCLE': {
+      const vertices = sampleArcLikeVertices(entity, transform, true);
+      if (vertices.length < 3) return null;
+      return {
+        ...transformed,
+        type: 'LWPOLYLINE',
+        sourceType: 'CIRCLE',
+        closed: true,
+        vertices,
+      };
+    }
+    case 'ARC': {
+      const vertices = sampleArcLikeVertices(entity, transform, false);
+      if (vertices.length < 2) return null;
+      return {
+        ...transformed,
+        type: 'LWPOLYLINE',
+        sourceType: 'ARC',
+        closed: false,
+        vertices,
+      };
+    }
     case '3DFACE':
     case 'FACE3D': {
       const directVertices = Array.isArray(entity?.vertices) ? entity.vertices : [];
@@ -2025,6 +2093,30 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
     const boundaryPaths = Array.isArray(entity?.boundaryPaths) ? entity.boundaryPaths : [];
     const hatchPolygons = [];
 
+    const sampleHatchArcEdge = (edge) => {
+      const center = edge?.center || edge?.origin;
+      const cx = Number(center?.x ?? edge?.centerX);
+      const cy = Number(center?.y ?? edge?.centerY);
+      const radius = Number(edge?.radius);
+      const startAngle = Number(edge?.startAngle ?? 0);
+      const endAngle = Number(edge?.endAngle ?? 0);
+      const ccw = edge?.isCounterClockwise !== false;
+      if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(radius) || radius <= 0) return [];
+      if (!Number.isFinite(startAngle) || !Number.isFinite(endAngle)) return [];
+      let sweep = endAngle - startAngle;
+      if (ccw && sweep < 0) sweep += 360;
+      if (!ccw && sweep > 0) sweep -= 360;
+      if (Math.abs(sweep) < 1e-9) return [];
+      const steps = Math.max(8, Math.min(120, Math.ceil((Math.abs(sweep) / 360) * 72)));
+      const vertices = [];
+      for (let i = 0; i <= steps; i += 1) {
+        const t = i / steps;
+        const angle = (startAngle + (sweep * t)) * (Math.PI / 180);
+        vertices.push([cx + (radius * Math.cos(angle)), cy + (radius * Math.sin(angle))]);
+      }
+      return vertices;
+    };
+
     boundaryPaths.forEach((path) => {
       // Polyline-type boundary
       if (Array.isArray(path?.vertices) && path.vertices.length >= 3) {
@@ -2053,9 +2145,27 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
             const x = Number(edge.start?.x ?? NaN);
             const y = Number(edge.start?.y ?? NaN);
             if (Number.isFinite(x) && Number.isFinite(y)) verts.push([x, y]);
+          } else if (edgeType.includes('ARC')) {
+            const arcVerts = sampleHatchArcEdge(edge);
+            if (arcVerts.length > 0) {
+              if (verts.length > 0) {
+                const firstArc = arcVerts[0];
+                const prev = verts[verts.length - 1];
+                if (Math.abs(prev[0] - firstArc[0]) <= 1e-9 && Math.abs(prev[1] - firstArc[1]) <= 1e-9) {
+                  arcVerts.shift();
+                }
+              }
+              verts.push(...arcVerts);
+            }
           }
         });
-        if (verts.length >= 3) hatchPolygons.push(verts);
+        if (verts.length >= 3) {
+          hatchPolygons.push(verts);
+          addPolyline(
+            [...verts.map(([x, y]) => ({ x, y, z: 0 })), { x: verts[0][0], y: verts[0][1], z: 0 }],
+            layer, 'HATCH', entity?.color
+          );
+        }
       }
     });
 
@@ -2081,6 +2191,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
       isSolid,
       area,
       centroid,
+      polygons: hatchPolygons,
       boundaryCount: hatchPolygons.length,
       colorHex: cadColorToHex(entity?.color, descriptor.colorHex || '#94a3b8'),
     });
@@ -2116,7 +2227,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
           break;
         case 'LWPOLYLINE':
         case 'POLYLINE':
-          addPolyline(ent.vertices || [], layer, ent.type, ent.color);
+          addPolyline(ent.vertices || [], layer, ent.sourceType || ent.type, ent.color);
           if (String(ent?.type || '').toUpperCase() === 'POLYLINE') {
             addSurface(ent);
           }

@@ -19,6 +19,7 @@ const EMPTY_CAD_GEOMETRY = {
   lines: [],
   polylines: [],
   texts: [],
+  hatches: [],
   surfaces: [],
   layerSummary: null,
   validation: null,
@@ -551,6 +552,17 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       return (Array.isArray(firstPt) && bounds.contains(firstPt)) 
         || (Array.isArray(lastPt) && bounds.contains(lastPt));
     }
+    if (Array.isArray(geometry.polygons) && geometry.polygons.length > 0) {
+      for (let i = 0; i < geometry.polygons.length; i += 1) {
+        const polygon = geometry.polygons[i];
+        if (!Array.isArray(polygon) || polygon.length === 0) continue;
+        const step = Math.max(1, Math.floor(polygon.length / 80));
+        for (let j = 0; j < polygon.length; j += step) {
+          const pt = polygon[j];
+          if (Array.isArray(pt) && bounds.contains(pt)) return true;
+        }
+      }
+    }
     return false;
   }, []);
 
@@ -1060,6 +1072,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     const rawCadLines = Array.isArray(cadGeometry?.lines) ? cadGeometry.lines : [];
     const rawCadPolylines = Array.isArray(cadGeometry?.polylines) ? cadGeometry.polylines : [];
     const cadTexts = Array.isArray(cadGeometry?.texts) ? cadGeometry.texts : [];
+    const cadHatches = Array.isArray(cadGeometry?.hatches) ? cadGeometry.hatches : [];
     const cadSurfaces = Array.isArray(cadGeometry?.surfaces) ? cadGeometry.surfaces : [];
 
     const dedupeResult = removeDuplicates
@@ -1389,6 +1402,15 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
             }
           });
         });
+        cadHatches.forEach((hatch) => {
+          (Array.isArray(hatch?.polygons) ? hatch.polygons : []).forEach((polygon) => {
+            (Array.isArray(polygon) ? polygon : []).forEach((pt) => {
+              if (Array.isArray(pt) && Number.isFinite(pt[0]) && Number.isFinite(pt[1])) {
+                snapCandidates.push({ lat: pt[0], lng: pt[1], type: 'hatch-vertex' });
+              }
+            });
+          });
+        });
         cadSurfaces.forEach((surface) => {
           (Array.isArray(surface?.vertices) ? surface.vertices : []).forEach((vertex) => {
             if (Array.isArray(vertex) && Number.isFinite(vertex[0]) && Number.isFinite(vertex[1])) {
@@ -1489,6 +1511,43 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
           .addTo(map.current);
         geometryLayersRef.current.push(layer);
         markers.current.push(layer);
+      });
+    }
+
+    if (showPolylineLayer && cadHatches.length > 0) {
+      const visibleCadHatches = cadHatches.filter((hatch) => isCadLayerVisible(hatch) && isGeometryInBounds(hatch, viewportBounds));
+      visibleCadHatches.forEach((hatch) => {
+        const polygons = Array.isArray(hatch?.polygons) ? hatch.polygons : [];
+        polygons.forEach((polygon, polygonIndex) => {
+          const latlngs = (Array.isArray(polygon) ? polygon : [])
+            .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+            .map((p) => [p[0], p[1]]);
+          if (latlngs.length < 3) return;
+
+          const layer = L.polygon(latlngs, {
+            renderer: canvasRendererRef.current || undefined,
+            color: normalizeHexColor(hatch.colorHex, '#0284c7'),
+            weight: 1,
+            opacity: 0.85,
+            fillColor: normalizeHexColor(hatch.colorHex, '#0284c7'),
+            fillOpacity: hatch.isSolid ? 0.24 : 0.1,
+          })
+            .bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(hatch.layer || 'CAD hatch')}</b><br/>Pattern: ${escapeHtml(hatch.patternName || 'HATCH')}<br/>Area: ${Number.isFinite(Number(hatch.area)) ? Number(hatch.area).toFixed(3) : 'n/a'} m²</div>`)
+            .on('click', () => {
+              emit('cad:entityPicked', {
+                type: 'HATCH',
+                layer: hatch.layer || '',
+                colorHex: hatch.colorHex || '#0284c7',
+                sourceType: hatch.sourceType || 'HATCH',
+                handle: hatch.handle || null,
+                polygonIndex,
+                boundaryCount: Number(hatch.boundaryCount || polygons.length),
+              });
+            })
+            .addTo(map.current);
+          geometryLayersRef.current.push(layer);
+          markers.current.push(layer);
+        });
       });
     }
 
@@ -1612,6 +1671,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       cadLines.map((l) => `${l?.start?.[0] ?? ''},${l?.start?.[1] ?? ''}->${l?.end?.[0] ?? ''},${l?.end?.[1] ?? ''}`).join('|'),
       cadPolylines.map((pl) => (pl?.points || []).map((p) => `${p?.[0] ?? ''},${p?.[1] ?? ''}`).join(';')).join('|'),
       cadTexts.map((textEntity) => `${textEntity?.position?.[0] ?? ''},${textEntity?.position?.[1] ?? ''}:${textEntity?.text ?? ''}`).join('|'),
+      cadHatches.map((hatch) => `${hatch?.layer || ''}:${(hatch?.polygons || []).length}:${hatch?.area || ''}`).join('|'),
       cadSurfaces.map((surface) => `${surface?.layer || ''}:${surface?.vertexCount || (surface?.vertices || []).length}:${surface?.triangleCount || (surface?.triangles || []).length}`).join('|'),
     ].join('||');
     const fitSignature = `${pointsSignature}__${geometrySignature}`;

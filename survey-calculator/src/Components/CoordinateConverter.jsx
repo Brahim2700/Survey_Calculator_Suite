@@ -2121,6 +2121,7 @@ const CoordinateConverter = () => {
       lines: Array.isArray(geometry?.lines) ? geometry.lines : [],
       polylines: Array.isArray(geometry?.polylines) ? geometry.polylines : [],
       texts: Array.isArray(geometry?.texts) ? geometry.texts : [],
+      hatches: Array.isArray(geometry?.hatches) ? geometry.hatches : [],
       surfaces: Array.isArray(geometry?.surfaces) ? geometry.surfaces : [],
       layerSummary: geometry?.layerSummary || null,
       validation: geometry?.validation || null,
@@ -2128,8 +2129,8 @@ const CoordinateConverter = () => {
       repairs: geometry?.repairs || null,
     };
 
-    if (!safeGeometry.lines.length && !safeGeometry.polylines.length && !safeGeometry.texts.length && !safeGeometry.surfaces.length) {
-      return { lines: [], polylines: [], texts: [], surfaces: [], layerSummary: null, validation: null, notifications: [], repairs: null };
+    if (!safeGeometry.lines.length && !safeGeometry.polylines.length && !safeGeometry.texts.length && !safeGeometry.hatches.length && !safeGeometry.surfaces.length) {
+      return { lines: [], polylines: [], texts: [], hatches: [], surfaces: [], layerSummary: null, validation: null, notifications: [], repairs: null };
     }
 
     const collectRawCadPoints = (rowsForPreview = [], geometryForPreview = null) => {
@@ -2158,6 +2159,15 @@ const CoordinateConverter = () => {
         if (Number.isFinite(Number(position[0])) && Number.isFinite(Number(position[1]))) {
           points.push({ x: Number(position[0]), y: Number(position[1]), z: Number(position[2] ?? 0) });
         }
+      });
+      (Array.isArray(geometryForPreview?.hatches) ? geometryForPreview.hatches : []).forEach((hatch) => {
+        (Array.isArray(hatch?.polygons) ? hatch.polygons : []).forEach((polygon) => {
+          (Array.isArray(polygon) ? polygon : []).forEach((vertex) => {
+            if (Number.isFinite(Number(vertex?.[0])) && Number.isFinite(Number(vertex?.[1]))) {
+              points.push({ x: Number(vertex[0]), y: Number(vertex[1]), z: Number(vertex[2] ?? 0) });
+            }
+          });
+        });
       });
       (Array.isArray(geometryForPreview?.surfaces) ? geometryForPreview.surfaces : []).forEach((surface) => {
         (Array.isArray(surface?.vertices) ? surface.vertices : []).forEach((vertex) => {
@@ -2247,6 +2257,18 @@ const CoordinateConverter = () => {
       })
       .filter(Boolean);
 
+    const hatches = safeGeometry.hatches
+      .map((hatch) => {
+        const polygons = (Array.isArray(hatch?.polygons) ? hatch.polygons : [])
+          .map((polygon) => (Array.isArray(polygon) ? polygon : [])
+            .map((vertex) => toLatLng(Number(vertex?.[0]), Number(vertex?.[1]), Number(vertex?.[2] ?? 0)))
+            .filter(Boolean))
+          .filter((polygon) => polygon.length >= 3);
+        if (!polygons.length) return null;
+        return { ...hatch, polygons };
+      })
+      .filter(Boolean);
+
     const surfaces = safeGeometry.surfaces
       .map((surface) => {
         const vertices = (Array.isArray(surface?.vertices) ? surface.vertices : [])
@@ -2273,6 +2295,7 @@ const CoordinateConverter = () => {
       lines,
       polylines,
       texts,
+      hatches,
       surfaces,
       layerSummary: safeGeometry.layerSummary,
       validation: safeGeometry.validation,
@@ -3223,7 +3246,7 @@ const CoordinateConverter = () => {
     setBulkIsConverting(false);
     bulkCancelRef.current = false;
     emit("converter:pointsForMap", { points: [] });
-    emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [], texts: [], surfaces: [] } });
+    emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [], texts: [], hatches: [], surfaces: [] } });
     emit("converter:resetAll");
   };
 
@@ -3313,6 +3336,7 @@ const CoordinateConverter = () => {
         cadPayload?.geometry?.lines?.length
         || cadPayload?.geometry?.polylines?.length
         || cadPayload?.geometry?.texts?.length
+        || cadPayload?.geometry?.hatches?.length
         || cadPayload?.geometry?.surfaces?.length
       );
       if (!rows.length && !hasRenderableGeometry) {
@@ -3551,7 +3575,7 @@ const CoordinateConverter = () => {
           setCadSourceGeometry(null);
           setCadGeometrySourceCrs(null);
           if (fileImportMode !== "append") {
-            emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [], texts: [], surfaces: [] } });
+            emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [], texts: [], hatches: [], surfaces: [] } });
           }
         }
         
