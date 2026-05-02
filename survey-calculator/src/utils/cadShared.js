@@ -2025,7 +2025,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
     });
   };
 
-  const addPolyline = (vertices, layer, sourceType, entityColor) => {
+  const addPolyline = (vertices, layer, sourceType, entityColor, isClosed = false) => {
     if (geometry.polylines.length >= MAX_POLYLINES) return;
     if (!Array.isArray(vertices) || vertices.length < 2) return;
     const coords = vertices
@@ -2063,6 +2063,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
       layerCategory: descriptor.category,
       sourceType: sourceType || 'POLYLINE',
       colorHex,
+      closed: Boolean(isClosed),
       points: coords,
     });
   };
@@ -2273,7 +2274,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
           // Also add as a polyline for map display
           addPolyline(
             [...verts.map(([x, y]) => ({ x, y, z: 0 })), { x: verts[0][0], y: verts[0][1], z: 0 }],
-            layer, 'HATCH', entity?.color
+            layer, 'HATCH', entity?.color, true
           );
         }
       }
@@ -2297,7 +2298,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
           hatchPolygons.push(verts);
           addPolyline(
             [...verts.map(([x, y]) => ({ x, y, z: 0 })), { x: verts[0][0], y: verts[0][1], z: 0 }],
-            layer, 'HATCH', entity?.color
+            layer, 'HATCH', entity?.color, true
           );
         }
       }
@@ -2345,7 +2346,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
           hatchPolygons.push(verts);
           addPolyline(
             [...verts.map(([x, y]) => ({ x, y, z: 0 })), { x: verts[0][0], y: verts[0][1], z: 0 }],
-            layer, 'HATCH', entity?.color
+            layer, 'HATCH', entity?.color, true
           );
         }
       }
@@ -2409,7 +2410,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
           break;
         case 'LWPOLYLINE':
         case 'POLYLINE':
-          addPolyline(closePolylineIfNeeded(ent.vertices || [], ent), layer, ent.sourceType || ent.type, ent.color);
+          addPolyline(closePolylineIfNeeded(ent.vertices || [], ent), layer, ent.sourceType || ent.type, ent.color, isClosedPolylineEntity(ent));
           if (String(ent?.type || '').toUpperCase() === 'POLYLINE') {
             addSurface(ent);
           }
@@ -2435,7 +2436,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
           break;
         case '3DLINE':
           // 3DLINE is wireframe entity; render as polyline
-          addPolyline(ent.vertices || [], layer, '3DLINE', ent.color);
+          addPolyline(ent.vertices || [], layer, '3DLINE', ent.color, false);
           break;
         default:
           break;
@@ -2555,6 +2556,123 @@ function limitDxfTextSize(dxfText) {
   return dxfText;
 }
 
+const extractFallbackHatchesFromRawDxfText = (dxfText, dxfData) => {
+  if (typeof dxfText !== 'string' || dxfText.length === 0) return [];
+  const lines = dxfText.split(/\r?\n/);
+  const layerTable = dxfData?.tables?.layer?.layers || {};
+  const hatches = [];
+
+  const finalizeHatch = (entity) => {
+    if (!entity || !Array.isArray(entity.vertices) || entity.vertices.length < 3) return;
+    const verts = [...entity.vertices];
+    const first = verts[0];
+    const last = verts[verts.length - 1];
+    if (Math.abs(first[0] - last[0]) > 1e-9 || Math.abs(first[1] - last[1]) > 1e-9) {
+      verts.push([first[0], first[1]]);
+    }
+    if (verts.length < 4) return;
+
+    let area = 0;
+    for (let i = 0; i < verts.length - 1; i += 1) {
+      area += (verts[i][0] * verts[i + 1][1]) - (verts[i + 1][0] * verts[i][1]);
+    }
+    area = Math.abs(area) / 2;
+
+    const descriptor = getLayerDescriptor(entity.layer || 'HATCH', layerTable[entity.layer || 'HATCH']);
+    const centroid = [
+      verts.reduce((sum, v) => sum + v[0], 0) / verts.length,
+      verts.reduce((sum, v) => sum + v[1], 0) / verts.length,
+    ];
+
+    hatches.push({
+      layer: descriptor.displayName,
+      layerOriginal: descriptor.originalName,
+      layerNormalized: descriptor.normalizedName,
+      layerStandardized: descriptor.standardizedName,
+      sourceType: 'HATCH',
+      patternName: entity.patternName || 'HATCH',
+      isSolid: Boolean(entity.isSolid),
+      area,
+      centroid,
+      polygons: [verts],
+      boundaryCount: 1,
+      colorHex: cadColorToHex(entity.color, cadColorToHex(descriptor.color)),
+      _rawFallback: true,
+    });
+  };
+
+  let inHatch = false;
+  let current = null;
+  let pendingX = null;
+
+  for (let i = 0; i < lines.length - 1; i += 2) {
+    const code = String(lines[i] || '').trim();
+    const value = String(lines[i + 1] || '').trim();
+
+    if (code === '0') {
+      const keyword = value.toUpperCase();
+      if (keyword === 'HATCH') {
+        if (inHatch) finalizeHatch(current);
+        inHatch = true;
+        current = {
+          layer: 'HATCH',
+          color: null,
+          patternName: 'HATCH',
+          isSolid: false,
+          vertices: [],
+        };
+        pendingX = null;
+        continue;
+      }
+
+      if (inHatch) {
+        finalizeHatch(current);
+        inHatch = false;
+        current = null;
+        pendingX = null;
+      }
+      continue;
+    }
+
+    if (!inHatch || !current) continue;
+
+    if (code === '8') {
+      current.layer = value || current.layer;
+      continue;
+    }
+    if (code === '62') {
+      const c = Number(value);
+      if (Number.isFinite(c)) current.color = c;
+      continue;
+    }
+    if (code === '2') {
+      current.patternName = value || current.patternName;
+      if (String(value).toUpperCase() === 'SOLID') current.isSolid = true;
+      continue;
+    }
+    if (code === '70') {
+      const n = Number(value);
+      if (Number.isFinite(n) && n === 1) current.isSolid = true;
+      continue;
+    }
+    if (code === '10') {
+      const x = Number(value);
+      pendingX = Number.isFinite(x) ? x : null;
+      continue;
+    }
+    if (code === '20' && Number.isFinite(pendingX)) {
+      const y = Number(value);
+      if (Number.isFinite(y)) {
+        current.vertices.push([pendingX, y]);
+      }
+      pendingX = null;
+    }
+  }
+
+  if (inHatch) finalizeHatch(current);
+  return hatches;
+};
+
 export function parseDxfTextContent(text, options = {}) {
   const parser = new DxfParser();
   let dxf;
@@ -2601,6 +2719,27 @@ export function parseDxfTextContent(text, options = {}) {
       repairs: {},
     }
     : collectCadGeometryFromDxf(dxf, expandedCad);
+
+  if (!options.pointsOnly && Array.isArray(geometry?.hatches) && geometry.hatches.length === 0 && /\n\s*HATCH\s*\r?\n/i.test(text)) {
+    const rawFallbackHatches = extractFallbackHatchesFromRawDxfText(text, dxf);
+    if (rawFallbackHatches.length > 0) {
+      geometry.hatches = rawFallbackHatches;
+      rawFallbackHatches.forEach((hatch) => {
+        const polygon = Array.isArray(hatch?.polygons?.[0]) ? hatch.polygons[0] : null;
+        if (!polygon || polygon.length < 3) return;
+        geometry.polylines.push({
+          layer: hatch.layer,
+          layerOriginal: hatch.layerOriginal,
+          layerNormalized: hatch.layerNormalized,
+          layerStandardized: hatch.layerStandardized,
+          sourceType: 'HATCH',
+          colorHex: hatch.colorHex,
+          closed: true,
+          points: polygon.map((v) => [Number(v[0]), Number(v[1]), 0]),
+        });
+      });
+    }
+  }
 
   const headerCrsHint = extractDxfHeaderCrsHint(dxf);
   const validation = buildCadValidationSummary({

@@ -1489,13 +1489,25 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
         const renderLatLngs = decimateLatLngs(latlngs, decimationStep);
         if (renderLatLngs.length < 2) return;
         const smoothFactor = getCadPolylineSmoothFactor(currentZoom, totalCadPolylineVertices, latlngs.length);
-        const layer = L.polyline(renderLatLngs, {
-          renderer: canvasRendererRef.current || undefined,
-          color: normalizeHexColor(poly.colorHex, '#2563eb'),
-          weight: 2,
-          opacity: 0.8,
-          smoothFactor,
-        })
+        const isClosed = Boolean(poly?.closed) || (renderLatLngs.length >= 3
+          && Math.abs(renderLatLngs[0][0] - renderLatLngs[renderLatLngs.length - 1][0]) <= 1e-9
+          && Math.abs(renderLatLngs[0][1] - renderLatLngs[renderLatLngs.length - 1][1]) <= 1e-9);
+        const layer = (isClosed
+          ? L.polygon(renderLatLngs, {
+            renderer: canvasRendererRef.current || undefined,
+            color: normalizeHexColor(poly.colorHex, '#2563eb'),
+            weight: 2,
+            opacity: 0.8,
+            fillOpacity: 0,
+            smoothFactor,
+          })
+          : L.polyline(renderLatLngs, {
+            renderer: canvasRendererRef.current || undefined,
+            color: normalizeHexColor(poly.colorHex, '#2563eb'),
+            weight: 2,
+            opacity: 0.8,
+            smoothFactor,
+          }))
           .bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(poly.layer || 'CAD polyline')}</b><br/>Type: ${escapeHtml(poly.sourceType || 'POLYLINE')}</div>`)
           .on('click', () => {
             emit('cad:entityPicked', {
