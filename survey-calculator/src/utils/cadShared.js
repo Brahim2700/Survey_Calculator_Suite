@@ -990,11 +990,35 @@ const sampleArcLikeVertices = (entity, transform, forceClosed = false) => {
   return vertices;
 };
 
+const getCadTransformRotationDeg = (transform) => {
+  const a = Number(transform?.a ?? 1);
+  const b = Number(transform?.b ?? 0);
+  return (Math.atan2(b, a) * 180) / Math.PI;
+};
+
+const getCadTransformAverageScale = (transform) => {
+  const sx = Math.hypot(Number(transform?.a ?? 1), Number(transform?.b ?? 0));
+  const sy = Math.hypot(Number(transform?.c ?? 0), Number(transform?.d ?? 1));
+  const avg = (sx + sy) / 2;
+  return Number.isFinite(avg) && avg > 0 ? avg : 1;
+};
+
 const transformCadEntity = (entity, transform, metadata = {}) => {
   const type = String(entity?.type || '').toUpperCase();
+  const entityLayer = String(entity?.layer || '').trim();
+  const inheritedLayer = String(metadata?.inheritedLayer || '').trim();
+  const resolvedLayer = (entityLayer && entityLayer !== '0')
+    ? entityLayer
+    : (inheritedLayer || entity?.layer || metadata.layer || entity?.type);
+  const entityColor = Number(entity?.color);
+  const inheritedColor = Number(metadata?.inheritedColor);
+  const resolvedColor = (entityColor === 0 && Number.isFinite(inheritedColor) && inheritedColor > 0)
+    ? inheritedColor
+    : entity?.color;
   const transformed = {
     ...entity,
-    layer: entity?.layer || metadata.layer || entity?.type,
+    layer: resolvedLayer,
+    color: resolvedColor,
     __depth: metadata.depth || 0,
     __sourceBlock: metadata.sourceBlock || null,
   };
@@ -1047,6 +1071,45 @@ const transformCadEntity = (entity, transform, metadata = {}) => {
         closed: false,
         vertices,
       };
+    }
+    case 'HATCH': {
+      const angleOffset = getCadTransformRotationDeg(transform);
+      const radialScale = getCadTransformAverageScale(transform);
+      transformed.boundaryPaths = (Array.isArray(entity?.boundaryPaths) ? entity.boundaryPaths : []).map((path) => {
+        const nextPath = { ...path };
+        if (Array.isArray(path?.vertices)) {
+          nextPath.vertices = path.vertices.map((vertex) => applyCadTransform(vertex, transform));
+        }
+        if (Array.isArray(path?.edges)) {
+          nextPath.edges = path.edges.map((edge) => {
+            const edgeType = String(edge?.type || '').toUpperCase();
+            if (edgeType === 'LINE') {
+              return {
+                ...edge,
+                start: applyCadTransform(edge?.start, transform),
+                end: applyCadTransform(edge?.end, transform),
+              };
+            }
+            if (edgeType.includes('ARC')) {
+              const center = applyCadTransform(edge?.center || edge?.origin, transform);
+              const radius = Number(edge?.radius);
+              const startAngle = Number(edge?.startAngle ?? 0);
+              const endAngle = Number(edge?.endAngle ?? 0);
+              return {
+                ...edge,
+                center,
+                origin: center,
+                radius: Number.isFinite(radius) ? radius * radialScale : radius,
+                startAngle: Number.isFinite(startAngle) ? startAngle + angleOffset : edge?.startAngle,
+                endAngle: Number.isFinite(endAngle) ? endAngle + angleOffset : edge?.endAngle,
+              };
+            }
+            return edge;
+          });
+        }
+        return nextPath;
+      });
+      return transformed;
     }
     case '3DFACE':
     case 'FACE3D': {
@@ -1106,12 +1169,14 @@ const expandCadEntities = (dxfData, options = {}) => {
       depth: 0,
       ancestry: [],
       sourceBlock: null,
+      inheritedLayer: null,
+      inheritedColor: null,
     },
   ];
 
   while (workQueue.length > 0) {
     const work = workQueue.pop(); // pop() is O(1); shift() is O(n) for large queues
-    const { entities, transform, depth, ancestry, sourceBlock } = work;
+    const { entities, transform, depth, ancestry, sourceBlock, inheritedLayer, inheritedColor } = work;
 
     if (!Array.isArray(entities)) continue;
     diagnostics.resolution.nestedInsertDepthMax = Math.max(diagnostics.resolution.nestedInsertDepthMax, depth);
@@ -1127,6 +1192,7 @@ const expandCadEntities = (dxfData, options = {}) => {
           ...entity,
           position: applyCadTransform(entity?.position || entity?.insertionPoint || {}, transform),
           layer: entity?.layer || entity?.type,
+          color: entity?.color,
           __depth: depth,
           __sourceBlock: sourceBlock,
           __blockResolved: Boolean(block),
@@ -1198,11 +1264,13 @@ const expandCadEntities = (dxfData, options = {}) => {
           depth: depth + 1,
           ancestry: [...ancestry, insertName],
           sourceBlock: insertName,
+          inheritedLayer: insertEntity.layer,
+          inheritedColor: Number.isFinite(Number(insertEntity.color)) ? Number(insertEntity.color) : inheritedColor,
         });
         continue;
       }
 
-      const transformed = transformCadEntity(entity, transform, { depth, sourceBlock });
+      const transformed = transformCadEntity(entity, transform, { depth, sourceBlock, inheritedLayer, inheritedColor });
       if (!transformed) {
         markSkipped(type);
         continue;
@@ -2193,7 +2261,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
       centroid,
       polygons: hatchPolygons,
       boundaryCount: hatchPolygons.length,
-      colorHex: cadColorToHex(entity?.color, descriptor.colorHex || '#94a3b8'),
+      colorHex: cadColorToHex(entity?.color, cadColorToHex(descriptor.color)),
     });
   };
 
