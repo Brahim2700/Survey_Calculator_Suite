@@ -16,6 +16,7 @@ import HatchAreaPanel from "./Components/HatchAreaPanel";
 import DxfDiffPanel from "./Components/DxfDiffPanel";
 import EntityTypeBreakdown from "./Components/EntityTypeBreakdown";
 import CadEntityPicker from "./Components/CadEntityPicker";
+import CadSurface3DViewer from "./Components/CadSurface3DViewer";
 import proj4 from "proj4";
 import { calculateAllDistances, calculateGeodesicDistance, getUTMZone } from "./utils/calculations";
 import { on } from "./utils/eventBus";
@@ -104,6 +105,7 @@ function App() {
   const [showDxfDiffPanel, setShowDxfDiffPanel] = useState(false);
   const [showEntityBreakdown, setShowEntityBreakdown] = useState(false);
   const [showEntityPicker, setShowEntityPicker] = useState(false);
+  const [mapViewMode, setMapViewMode] = useState('2d'); // '2d' | '3d'
   const [markerStyleConfig, setMarkerStyleConfig] = useState({ elevationRules: [], pointSizeScale: 1.0, customIcons: {}, showLegend: true });
 
   const resetAppWorkspace = ({ remountConverter = false } = {}) => {
@@ -787,6 +789,21 @@ function App() {
                   </button>
                 </MapToolTip>
 
+                {/* ── 3D Surface View ── */}
+                {visibleCadGeometry.surfaces.length > 0 && (
+                  <MapToolTip
+                    title={mapViewMode === '3d' ? '2D Map' : '3D Surface View'}
+                    description="Switch between the 2D Leaflet map and a 3D Three.js surface viewer that renders 3DFACE / TIN triangles with elevation colour-coding. Drag to orbit, right-drag to pan, scroll to zoom."
+                  >
+                    <button
+                      className={`btn btn-tool-toggle${mapViewMode === '3d' ? ' active' : ''}`}
+                      onClick={() => setMapViewMode((v) => v === '3d' ? '2d' : '3d')}
+                    >
+                      {mapViewMode === '3d' ? '🗺' : '🏔'}
+                    </button>
+                  </MapToolTip>
+                )}
+
                 {/* ── Map Focus / Balanced View ── */}
                 <MapToolTip
                   title={mapFocusMode ? "Balanced View" : "Map Focus"}
@@ -912,21 +929,25 @@ function App() {
               </div>
             )}
 
-            {/* Leaflet map */}
-            <div style={{ width: "100%", height: mapFocusMode ? "72vh" : "520px", flexShrink: 0 }}>
-              <MapVisualization
-                points={allPoints}
-                cadGeometry={visibleCadGeometry}
-                isVisible={true}
-                measureMode={measureMode}
-                measurePoints={measurePoints}
-                onPointSelect={handleMapPointSelect}
-                onMapContainerReady={setMapExportRoot}
-                onMapMetricsChange={setMapMetrics}
-                onMapInstanceReady={setMapInstance}
-                              markerStyleConfig={markerStyleConfig}
-              />
-            </div>
+            {/* Map / 3D viewer */}
+            {mapViewMode === '3d' && visibleCadGeometry.surfaces.length > 0 ? (
+              <CadSurface3DViewer surfaces={visibleCadGeometry.surfaces} />
+            ) : (
+              <div style={{ width: "100%", height: mapFocusMode ? "72vh" : "520px", flexShrink: 0 }}>
+                <MapVisualization
+                  points={allPoints}
+                  cadGeometry={visibleCadGeometry}
+                  isVisible={true}
+                  measureMode={measureMode}
+                  measurePoints={measurePoints}
+                  onPointSelect={handleMapPointSelect}
+                  onMapContainerReady={setMapExportRoot}
+                  onMapMetricsChange={setMapMetrics}
+                  onMapInstanceReady={setMapInstance}
+                  markerStyleConfig={markerStyleConfig}
+                />
+              </div>
+            )}
 
             {layerEntries.length > 0 && (
               <div className="map-layers-panel fade-slide-in">
