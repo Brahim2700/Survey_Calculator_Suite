@@ -294,6 +294,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   const [pointSizeScale, setPointSizeScale] = useState(0.7);
   const [pointBaseColor, setPointBaseColor] = useState('#3b82f6');
   const [legendCollapsed, setLegendCollapsed] = useState(true);
+  const [showAdvancedTools, setShowAdvancedTools] = useState(false);
   const [labelsTouched, setLabelsTouched] = useState(false);
   const [hiddenCadLayers, setHiddenCadLayers] = useState({});
   const [robustFitDebug, setRobustFitDebug] = useState({ active: false, message: '' });
@@ -2015,20 +2016,6 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
                   Hatches
                 </button>
                 <button
-                  onClick={() => setSolidHatchPreviewOnly((v) => !v)}
-                  style={{
-                    border: '1px solid rgba(148,163,184,0.55)',
-                    background: solidHatchPreviewOnly ? 'rgba(14,116,144,0.78)' : 'rgba(15,23,42,0.65)',
-                    color: '#e2e8f0',
-                    borderRadius: '999px',
-                    fontSize: '9px',
-                    padding: '2px 7px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Solid Hatch Only
-                </button>
-                <button
                   onClick={() => setShowTinEdges((v) => !v)}
                   style={{
                     border: '1px solid rgba(148,163,184,0.55)',
@@ -2041,20 +2028,6 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
                   }}
                 >
                   TIN Edges
-                </button>
-                <button
-                  onClick={() => setShowTinFill((v) => !v)}
-                  style={{
-                    border: '1px solid rgba(148,163,184,0.55)',
-                    background: showTinFill ? 'rgba(14,116,144,0.78)' : 'rgba(15,23,42,0.65)',
-                    color: '#e2e8f0',
-                    borderRadius: '999px',
-                    fontSize: '9px',
-                    padding: '2px 7px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  TIN Fill
                 </button>
                 <button
                   onClick={() => {
@@ -2072,6 +2045,58 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
                   }}
                 >
                   Names + Altitude
+                </button>
+              </div>
+
+              <button
+                onClick={() => setShowAdvancedTools((v) => !v)}
+                style={{
+                  width: '100%',
+                  border: '1px solid rgba(148,163,184,0.55)',
+                  background: showAdvancedTools ? 'rgba(30,64,175,0.62)' : 'rgba(15,23,42,0.65)',
+                  color: '#e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: '9px',
+                  fontWeight: 700,
+                  letterSpacing: '0.02em',
+                  padding: '4px 8px',
+                  marginBottom: '8px',
+                  cursor: 'pointer',
+                }}
+              >
+                {showAdvancedTools ? 'Hide Advanced Tools' : 'Show Advanced Tools'}
+              </button>
+
+              {showAdvancedTools && (
+                <>
+              <div style={{ marginTop: '0px', marginBottom: '8px', display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => setSolidHatchPreviewOnly((v) => !v)}
+                  style={{
+                    border: '1px solid rgba(148,163,184,0.55)',
+                    background: solidHatchPreviewOnly ? 'rgba(14,116,144,0.78)' : 'rgba(15,23,42,0.65)',
+                    color: '#e2e8f0',
+                    borderRadius: '999px',
+                    fontSize: '9px',
+                    padding: '2px 7px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Solid Hatch Only
+                </button>
+                <button
+                  onClick={() => setShowTinFill((v) => !v)}
+                  style={{
+                    border: '1px solid rgba(148,163,184,0.55)',
+                    background: showTinFill ? 'rgba(14,116,144,0.78)' : 'rgba(15,23,42,0.65)',
+                    color: '#e2e8f0',
+                    borderRadius: '999px',
+                    fontSize: '9px',
+                    padding: '2px 7px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  TIN Fill
                 </button>
                 <button
                   onClick={() => setRemoveDuplicates((v) => !v)}
@@ -2210,6 +2235,8 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
                     </div>
                   )}
                 </div>
+              )}
+                </>
               )}
             </>
           )}
