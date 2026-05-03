@@ -264,11 +264,12 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     const mesh = new THREE.Mesh(geo, mat);
     scene.add(mesh);
 
-    // Wireframe overlay (thin, low opacity)
+    // Wireframe overlay — skip for large meshes to preserve performance
+    const showWireframe = transformedTriangles.length <= 30000;
     const wireMat = new THREE.LineBasicMaterial({ color: '#1e293b', transparent: true, opacity: 0.25 });
-    const wireGeo = new THREE.WireframeGeometry(geo);
+    const wireGeo = showWireframe ? new THREE.WireframeGeometry(geo) : new THREE.BufferGeometry();
     const wire = new THREE.LineSegments(wireGeo, wireMat);
-    scene.add(wire);
+    if (showWireframe) scene.add(wire);
 
     // ── Fit camera ─────────────────────────────────────────────────────────
     geo.computeBoundingBox();
@@ -319,6 +320,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
       orbitState.lastY = e.clientY;
       orbitState.button = e.button;
       renderer.domElement.setPointerCapture(e.pointerId);
+      needsRender = true;
     };
     const onUp = () => { orbitState.isDown = false; };
     const onMove = (e) => {
@@ -343,12 +345,17 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
         orbitState.target.addScaledVector(up, dy * speed);
       }
       updateCamera();
+      needsRender = true;
     };
     const onWheel = (e) => {
       e.preventDefault();
-      orbitState.radius *= 1 + e.deltaY * 0.001;
-      orbitState.radius = Math.max(maxDim * 0.005, Math.min(maxDim * 20, orbitState.radius));
+      // Normalize across deltaMode (0=pixel, 1=line≈30px, 2=page≈600px) and clamp to avoid runaway jumps
+      const pixelDelta = e.deltaMode === 1 ? e.deltaY * 30 : e.deltaMode === 2 ? e.deltaY * 600 : e.deltaY;
+      const clamped = Math.max(-200, Math.min(200, pixelDelta));
+      orbitState.radius *= Math.pow(1.001, clamped);
+      orbitState.radius = Math.max(maxDim * 0.005, Math.min(maxDim * 50, orbitState.radius));
       updateCamera();
+      needsRender = true;
     };
 
     const dom = renderer.domElement;
@@ -358,10 +365,13 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     dom.addEventListener('wheel', onWheel, { passive: false });
     dom.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    // ── Render loop ────────────────────────────────────────────────────────
+    // ── Render loop (on-demand) ────────────────────────────────────────────
     let animId;
+    let needsRender = true;
     const animate = () => {
       animId = requestAnimationFrame(animate);
+      if (!needsRender) return;
+      needsRender = false;
       renderer.render(scene, camera);
     };
     animate();
@@ -373,6 +383,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
         renderer.setSize(w, H);
         camera.aspect = w / H;
         camera.updateProjectionMatrix();
+        needsRender = true;
       }
     });
     obs.observe(el);
