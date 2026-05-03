@@ -1,9 +1,15 @@
-import { useEffect, useRef, useMemo } from 'react';
+import { useEffect, useRef, useMemo, useState } from 'react';
 import * as THREE from 'three';
 
 const EARTH_RADIUS_M = 6378137;
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+const getViewAngles = (preset) => {
+  if (preset === 'top') return { theta: 0, phi: 0.12 };
+  if (preset === 'side') return { theta: Math.PI / 2, phi: Math.PI / 2.2 };
+  return { theta: -Math.PI / 6, phi: Math.PI / 3.5 };
+};
 
 const normalizeVertex = (vertex) => {
   if (Array.isArray(vertex) && vertex.length >= 3) {
@@ -50,6 +56,9 @@ const normalizeTriangle = (tri, vertices) => {
  */
 const CadSurface3DViewer = ({ surfaces = [] }) => {
   const containerRef = useRef(null);
+  const [zScalePreset, setZScalePreset] = useState('auto'); // auto | 1 | 2 | 5 | 10
+  const [viewPreset, setViewPreset] = useState('iso'); // iso | top | side
+  const [cameraResetToken, setCameraResetToken] = useState(0);
 
   // Flatten all triangles from all surfaces
   const allTriangles = useMemo(() => {
@@ -83,9 +92,9 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     return { minZ: min, maxZ: max };
   }, [allTriangles]);
 
-  const { transformedTriangles, zExaggeration } = useMemo(() => {
+  const { transformedTriangles, zExaggeration, autoExaggeration } = useMemo(() => {
     if (allTriangles.length === 0) {
-      return { transformedTriangles: [], zExaggeration: 1 };
+      return { transformedTriangles: [], zExaggeration: 1, autoExaggeration: 1 };
     }
 
     let minLat = Infinity;
@@ -113,13 +122,16 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     const latSpanM = (maxLat - minLat) * degToRad * EARTH_RADIUS_M;
     const xySpan = Math.max(1, lonSpanM, latSpanM);
     const zSpan = Math.max(0.1, maxZ - minZ);
-    const autoExaggeration = clamp((xySpan / zSpan) * 0.08, 1, 120);
+    const computedAutoExaggeration = clamp((xySpan / zSpan) * 0.08, 1, 120);
+    const selectedExaggeration = zScalePreset === 'auto'
+      ? computedAutoExaggeration
+      : clamp(Number(zScalePreset) || 1, 0.1, 200);
 
     const projectVertex = (v) => {
       const x = (v.y - centerLng) * degToRad * EARTH_RADIUS_M * cosLat;
       const y = (v.x - centerLat) * degToRad * EARTH_RADIUS_M;
       const rawZ = Number(v.z) || 0;
-      const z = (rawZ - centerZ) * autoExaggeration;
+      const z = (rawZ - centerZ) * selectedExaggeration;
       return { x, y, z, rawZ };
     };
 
@@ -129,9 +141,10 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
         v2: projectVertex(v2),
         v3: projectVertex(v3),
       })),
-      zExaggeration: autoExaggeration,
+      zExaggeration: selectedExaggeration,
+      autoExaggeration: computedAutoExaggeration,
     };
-  }, [allTriangles, minZ, maxZ]);
+  }, [allTriangles, minZ, maxZ, zScalePreset]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -214,9 +227,10 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     gridHelper.scale.setScalar(Math.max(size.x, size.y, 1));
     gridHelper.position.set(center.x, center.y, box.min.z);
 
+    const initialAngles = getViewAngles(viewPreset);
     const orbitState = {
-      theta: -Math.PI / 6,
-      phi: Math.PI / 3.5,
+      theta: initialAngles.theta,
+      phi: initialAngles.phi,
       radius: maxDim * 2.2,
       target: center.clone(),
       isDown: false,
@@ -316,7 +330,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
       renderer.dispose();
       if (el.contains(dom)) el.removeChild(dom);
     };
-  }, [transformedTriangles, minZ, maxZ]);
+  }, [transformedTriangles, minZ, maxZ, viewPreset, cameraResetToken]);
 
   if (transformedTriangles.length === 0) {
     return (
@@ -361,11 +375,71 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
         </div>
         <div style={{ color: '#64748b', fontSize: '0.71rem' }}>
           Vertical scale x{zExaggeration.toFixed(1)}
+          {zScalePreset !== 'auto' ? ` (Auto x${autoExaggeration.toFixed(1)})` : ''}
         </div>
         <div style={{ color: '#475569', fontSize: '0.68rem', marginTop: '0.2rem', lineHeight: 1.4 }}>
           Drag: orbit<br />
           Right-drag: pan<br />
           Scroll: zoom
+        </div>
+      </div>
+
+      {/* 3D controls */}
+      <div style={{
+        position: 'absolute', top: 12, right: 12,
+        background: 'rgba(15,23,42,0.82)', borderRadius: 8, padding: '0.45rem',
+        color: '#e2e8f0', fontSize: '0.74rem', border: '1px solid #1e293b',
+        display: 'grid', gap: '0.35rem', minWidth: 210,
+      }}>
+        <div style={{ fontWeight: 700, color: '#cbd5e1' }}>3D Controls</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
+          <span style={{ color: '#94a3b8' }}>Z scale</span>
+          {['auto', '1', '2', '5', '10'].map((value) => (
+            <button
+              key={`z-${value}`}
+              type="button"
+              onClick={() => setZScalePreset(value)}
+              style={{
+                padding: '0.16rem 0.4rem', borderRadius: 999, fontSize: '0.68rem', fontWeight: 700,
+                border: zScalePreset === value ? '1px solid #60a5fa' : '1px solid #334155',
+                background: zScalePreset === value ? '#1d4ed8' : '#0f172a',
+                color: zScalePreset === value ? '#dbeafe' : '#94a3b8',
+                cursor: 'pointer',
+              }}
+            >
+              {value === 'auto' ? 'Auto' : `x${value}`}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
+          <span style={{ color: '#94a3b8' }}>View</span>
+          {[{ key: 'iso', label: 'Iso' }, { key: 'top', label: 'Top' }, { key: 'side', label: 'Side' }].map((view) => (
+            <button
+              key={`view-${view.key}`}
+              type="button"
+              onClick={() => setViewPreset(view.key)}
+              style={{
+                padding: '0.16rem 0.45rem', borderRadius: 999, fontSize: '0.68rem', fontWeight: 700,
+                border: viewPreset === view.key ? '1px solid #34d399' : '1px solid #334155',
+                background: viewPreset === view.key ? '#047857' : '#0f172a',
+                color: viewPreset === view.key ? '#d1fae5' : '#94a3b8',
+                cursor: 'pointer',
+              }}
+            >
+              {view.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setCameraResetToken((v) => v + 1)}
+            style={{
+              marginLeft: '0.2rem', padding: '0.16rem 0.5rem', borderRadius: 999,
+              fontSize: '0.68rem', fontWeight: 700, border: '1px solid #334155',
+              background: '#1e293b', color: '#e2e8f0', cursor: 'pointer',
+            }}
+          >
+            Reset
+          </button>
         </div>
       </div>
 
