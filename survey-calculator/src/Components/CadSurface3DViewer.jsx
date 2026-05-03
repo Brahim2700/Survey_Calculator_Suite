@@ -1,6 +1,10 @@
 import { useEffect, useRef, useMemo } from 'react';
 import * as THREE from 'three';
 
+const EARTH_RADIUS_M = 6378137;
+
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
 const normalizeVertex = (vertex) => {
   if (Array.isArray(vertex) && vertex.length >= 3) {
     const x = Number(vertex[0]);
@@ -79,9 +83,59 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     return { minZ: min, maxZ: max };
   }, [allTriangles]);
 
+  const { transformedTriangles, zExaggeration } = useMemo(() => {
+    if (allTriangles.length === 0) {
+      return { transformedTriangles: [], zExaggeration: 1 };
+    }
+
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    let minLng = Infinity;
+    let maxLng = -Infinity;
+
+    allTriangles.forEach(({ v1, v2, v3 }) => {
+      [v1, v2, v3].forEach((v) => {
+        if (v.x < minLat) minLat = v.x;
+        if (v.x > maxLat) maxLat = v.x;
+        if (v.y < minLng) minLng = v.y;
+        if (v.y > maxLng) maxLng = v.y;
+      });
+    });
+
+    const centerLat = (minLat + maxLat) / 2;
+    const centerLng = (minLng + maxLng) / 2;
+    const centerZ = (minZ + maxZ) / 2;
+
+    const degToRad = Math.PI / 180;
+    const cosLat = Math.max(0.01, Math.cos(centerLat * degToRad));
+
+    const lonSpanM = (maxLng - minLng) * degToRad * EARTH_RADIUS_M * cosLat;
+    const latSpanM = (maxLat - minLat) * degToRad * EARTH_RADIUS_M;
+    const xySpan = Math.max(1, lonSpanM, latSpanM);
+    const zSpan = Math.max(0.1, maxZ - minZ);
+    const autoExaggeration = clamp((xySpan / zSpan) * 0.08, 1, 120);
+
+    const projectVertex = (v) => {
+      const x = (v.y - centerLng) * degToRad * EARTH_RADIUS_M * cosLat;
+      const y = (v.x - centerLat) * degToRad * EARTH_RADIUS_M;
+      const rawZ = Number(v.z) || 0;
+      const z = (rawZ - centerZ) * autoExaggeration;
+      return { x, y, z, rawZ };
+    };
+
+    return {
+      transformedTriangles: allTriangles.map(({ v1, v2, v3 }) => ({
+        v1: projectVertex(v1),
+        v2: projectVertex(v2),
+        v3: projectVertex(v3),
+      })),
+      zExaggeration: autoExaggeration,
+    };
+  }, [allTriangles, minZ, maxZ]);
+
   useEffect(() => {
     const el = containerRef.current;
-    if (!el || allTriangles.length === 0) return;
+    if (!el || transformedTriangles.length === 0) return;
 
     const W = el.clientWidth || 800;
     const H = 520;
@@ -96,6 +150,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
 
     // ── Camera ─────────────────────────────────────────────────────────────
     const camera = new THREE.PerspectiveCamera(45, W / H, 1e-3, 1e7);
+    camera.up.set(0, 0, 1);
 
     // ── Renderer ───────────────────────────────────────────────────────────
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -122,10 +177,10 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     const positions = [];
     const colors = [];
 
-    allTriangles.forEach(({ v1, v2, v3 }) => {
+    transformedTriangles.forEach(({ v1, v2, v3 }) => {
       [v1, v2, v3].forEach((v) => {
         positions.push(Number(v.x) || 0, Number(v.y) || 0, Number(v.z) || 0);
-        const c = getColor(Number(v.z));
+        const c = getColor(Number(v.rawZ));
         colors.push(c.r, c.g, c.b);
       });
     });
@@ -155,8 +210,9 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     const maxDim = Math.max(size.x, size.y, size.z) || 1;
 
     // Position grid at the min Z level
-    gridHelper.scale.setScalar(maxDim);
-    gridHelper.position.set(center.x, minZ, center.y); // GridHelper is in XZ by default
+    gridHelper.rotation.x = Math.PI / 2; // Put grid on XY plane for Z-up scenes
+    gridHelper.scale.setScalar(Math.max(size.x, size.y, 1));
+    gridHelper.position.set(center.x, center.y, box.min.z);
 
     const orbitState = {
       theta: -Math.PI / 6,
@@ -172,9 +228,9 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     const updateCamera = () => {
       const { theta, phi, radius, target } = orbitState;
       camera.position.set(
-        target.x + radius * Math.sin(phi) * Math.sin(theta),
-        target.y + radius * Math.cos(phi),
-        target.z + radius * Math.sin(phi) * Math.cos(theta),
+        target.x + radius * Math.sin(phi) * Math.cos(theta),
+        target.y + radius * Math.sin(phi) * Math.sin(theta),
+        target.z + radius * Math.cos(phi),
       );
       camera.lookAt(target);
       sun.position.copy(camera.position).normalize();
@@ -199,7 +255,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
 
       if (orbitState.button === 0) {
         // Orbit
-        orbitState.theta -= dx * 0.006;
+        orbitState.theta += dx * 0.006;
         orbitState.phi = Math.max(0.05, Math.min(Math.PI - 0.05, orbitState.phi - dy * 0.006));
       } else if (orbitState.button === 2) {
         // Pan
@@ -260,9 +316,9 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
       renderer.dispose();
       if (el.contains(dom)) el.removeChild(dom);
     };
-  }, [allTriangles, minZ, maxZ]);
+  }, [transformedTriangles, minZ, maxZ]);
 
-  if (allTriangles.length === 0) {
+  if (transformedTriangles.length === 0) {
     return (
       <div style={{
         height: 520, display: 'flex', flexDirection: 'column', alignItems: 'center',
@@ -301,7 +357,10 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
           <span style={{ color: '#3b82f6', fontWeight: 600 }}>{minZ.toFixed(1)}</span>
         </div>
         <div style={{ marginTop: '0.5rem', color: '#64748b', fontSize: '0.71rem', borderTop: '1px solid #1e293b', paddingTop: '0.4rem' }}>
-          {allTriangles.length.toLocaleString()} triangles
+          {transformedTriangles.length.toLocaleString()} triangles
+        </div>
+        <div style={{ color: '#64748b', fontSize: '0.71rem' }}>
+          Vertical scale x{zExaggeration.toFixed(1)}
         </div>
         <div style={{ color: '#475569', fontSize: '0.68rem', marginTop: '0.2rem', lineHeight: 1.4 }}>
           Drag: orbit<br />
