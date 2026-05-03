@@ -11,6 +11,34 @@ const getViewAngles = (preset) => {
   return { theta: -Math.PI / 6, phi: Math.PI / 3.5 };
 };
 
+const computeBoundsFromTriangles = (triangles) => {
+  if (!Array.isArray(triangles) || triangles.length === 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let minZ = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let maxZ = -Infinity;
+
+  triangles.forEach(({ v1, v2, v3 }) => {
+    [v1, v2, v3].forEach((v) => {
+      if (!v) return;
+      if (v.x < minX) minX = v.x;
+      if (v.y < minY) minY = v.y;
+      if (v.z < minZ) minZ = v.z;
+      if (v.x > maxX) maxX = v.x;
+      if (v.y > maxY) maxY = v.y;
+      if (v.z > maxZ) maxZ = v.z;
+    });
+  });
+
+  if (![minX, minY, minZ, maxX, maxY, maxZ].every(Number.isFinite)) return null;
+  return new THREE.Box3(
+    new THREE.Vector3(minX, minY, minZ),
+    new THREE.Vector3(maxX, maxY, maxZ)
+  );
+};
+
 const normalizeVertex = (vertex) => {
   if (Array.isArray(vertex) && vertex.length >= 3) {
     const x = Number(vertex[0]);
@@ -59,20 +87,31 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
   const [zScalePreset, setZScalePreset] = useState('auto'); // auto | 1 | 2 | 5 | 10
   const [viewPreset, setViewPreset] = useState('iso'); // iso | top | side
   const [cameraResetToken, setCameraResetToken] = useState(0);
+  const [selectedFitLayerKey, setSelectedFitLayerKey] = useState('__all__');
+  const [fitLayerKey, setFitLayerKey] = useState('__all__');
 
-  // Flatten all triangles from all surfaces
-  const allTriangles = useMemo(() => {
-    const tris = [];
-    surfaces.forEach((surface) => {
+  const normalizedSurfaces = useMemo(() => {
+    const next = [];
+    surfaces.forEach((surface, surfaceIndex) => {
       if (!Array.isArray(surface?.triangles)) return;
       const vertices = Array.isArray(surface?.vertices) ? surface.vertices : [];
+      const triangles = [];
       surface.triangles.forEach((tri) => {
         const normalized = normalizeTriangle(tri, vertices);
-        if (normalized) tris.push(normalized);
+        if (normalized) triangles.push(normalized);
+      });
+      if (triangles.length === 0) return;
+      const layerLabel = String(surface?.layerStandardized || surface?.layerNormalized || surface?.layer || `Surface ${surfaceIndex + 1}`);
+      next.push({
+        layerKey: `${layerLabel}::${surfaceIndex}`,
+        layerLabel,
+        triangles,
       });
     });
-    return tris;
+    return next;
   }, [surfaces]);
+
+  const allTriangles = useMemo(() => normalizedSurfaces.flatMap((surface) => surface.triangles), [normalizedSurfaces]);
 
   const { minZ, maxZ } = useMemo(() => {
     let min = Infinity;
@@ -92,9 +131,15 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     return { minZ: min, maxZ: max };
   }, [allTriangles]);
 
-  const { transformedTriangles, zExaggeration, autoExaggeration } = useMemo(() => {
+  const { transformedSurfaces, transformedTriangles, zExaggeration, autoExaggeration, fitLayerOptions } = useMemo(() => {
     if (allTriangles.length === 0) {
-      return { transformedTriangles: [], zExaggeration: 1, autoExaggeration: 1 };
+      return {
+        transformedSurfaces: [],
+        transformedTriangles: [],
+        zExaggeration: 1,
+        autoExaggeration: 1,
+        fitLayerOptions: [],
+      };
     }
 
     let minLat = Infinity;
@@ -135,16 +180,28 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
       return { x, y, z, rawZ };
     };
 
-    return {
-      transformedTriangles: allTriangles.map(({ v1, v2, v3 }) => ({
+    const nextSurfaces = normalizedSurfaces.map((surface) => ({
+      layerKey: surface.layerKey,
+      layerLabel: surface.layerLabel,
+      triangles: surface.triangles.map(({ v1, v2, v3 }) => ({
         v1: projectVertex(v1),
         v2: projectVertex(v2),
         v3: projectVertex(v3),
       })),
+    }));
+
+    return {
+      transformedSurfaces: nextSurfaces,
+      transformedTriangles: nextSurfaces.flatMap((surface) => surface.triangles),
       zExaggeration: selectedExaggeration,
       autoExaggeration: computedAutoExaggeration,
+      fitLayerOptions: nextSurfaces.map((surface) => ({
+        layerKey: surface.layerKey,
+        layerLabel: surface.layerLabel,
+        triangleCount: surface.triangles.length,
+      })),
     };
-  }, [allTriangles, minZ, maxZ, zScalePreset]);
+  }, [allTriangles, minZ, maxZ, zScalePreset, normalizedSurfaces]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -216,16 +273,20 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     // ── Fit camera ─────────────────────────────────────────────────────────
     geo.computeBoundingBox();
     const box = geo.boundingBox;
+    const focusTriangles = fitLayerKey === '__all__'
+      ? transformedTriangles
+      : (transformedSurfaces.find((surface) => surface.layerKey === fitLayerKey)?.triangles || transformedTriangles);
+    const focusBox = computeBoundsFromTriangles(focusTriangles) || box;
     const center = new THREE.Vector3();
-    box.getCenter(center);
+    focusBox.getCenter(center);
     const size = new THREE.Vector3();
-    box.getSize(size);
+    focusBox.getSize(size);
     const maxDim = Math.max(size.x, size.y, size.z) || 1;
 
     // Position grid at the min Z level
     gridHelper.rotation.x = Math.PI / 2; // Put grid on XY plane for Z-up scenes
     gridHelper.scale.setScalar(Math.max(size.x, size.y, 1));
-    gridHelper.position.set(center.x, center.y, box.min.z);
+    gridHelper.position.set(center.x, center.y, focusBox.min.z);
 
     const initialAngles = getViewAngles(viewPreset);
     const orbitState = {
@@ -330,7 +391,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
       renderer.dispose();
       if (el.contains(dom)) el.removeChild(dom);
     };
-  }, [transformedTriangles, minZ, maxZ, viewPreset, cameraResetToken]);
+  }, [transformedTriangles, transformedSurfaces, fitLayerKey, minZ, maxZ, viewPreset, cameraResetToken]);
 
   if (transformedTriangles.length === 0) {
     return (
@@ -439,6 +500,49 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
             }}
           >
             Reset
+          </button>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+          <span style={{ color: '#94a3b8' }}>Fit</span>
+          <select
+            value={selectedFitLayerKey}
+            onChange={(e) => setSelectedFitLayerKey(e.target.value)}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              background: '#0f172a',
+              color: '#cbd5e1',
+              border: '1px solid #334155',
+              borderRadius: 6,
+              padding: '0.2rem 0.3rem',
+              fontSize: '0.68rem',
+            }}
+          >
+            <option value="__all__">All surfaces</option>
+            {fitLayerOptions.map((layer) => (
+              <option key={layer.layerKey} value={layer.layerKey}>
+                {layer.layerLabel} ({layer.triangleCount})
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => {
+              setFitLayerKey(selectedFitLayerKey);
+              setCameraResetToken((v) => v + 1);
+            }}
+            style={{
+              padding: '0.16rem 0.5rem',
+              borderRadius: 999,
+              fontSize: '0.68rem',
+              fontWeight: 700,
+              border: '1px solid #334155',
+              background: '#1e293b',
+              color: '#e2e8f0',
+              cursor: 'pointer',
+            }}
+          >
+            Apply
           </button>
         </div>
       </div>
