@@ -7,6 +7,7 @@ import { safeGetString, safeSetString } from '../utils/storage';
 import { buildRenderableHatch } from '../lib/render/hatchRenderer.js';
 
 const BASEMAP_STORAGE_KEY = 'survey_calc_basemap';
+const MAP_ADVANCED_TOOLS_STORAGE_KEY = 'survey_calc_map_advanced_tools';
 const IGN_FRANCE_BOUNDS = L.latLngBounds([41.0, -5.8], [51.5, 9.8]);
 const LABEL_AUTO_HIDE_THRESHOLD = 300;
 const CAD_HEAVY_VERTEX_THRESHOLD = 90000;
@@ -294,7 +295,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   const [pointSizeScale, setPointSizeScale] = useState(0.7);
   const [pointBaseColor, setPointBaseColor] = useState('#3b82f6');
   const [legendCollapsed, setLegendCollapsed] = useState(true);
-  const [showAdvancedTools, setShowAdvancedTools] = useState(false);
+  const [showAdvancedTools, setShowAdvancedTools] = useState(() => safeGetString(MAP_ADVANCED_TOOLS_STORAGE_KEY) === '1');
   const [labelsTouched, setLabelsTouched] = useState(false);
   const [hiddenCadLayers, setHiddenCadLayers] = useState({});
   const [robustFitDebug, setRobustFitDebug] = useState({ active: false, message: '' });
@@ -328,6 +329,10 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       setPointBaseColor(externalPointColor);
     }
   }, [markerStyleConfig?.pointColor]);
+
+  useEffect(() => {
+    safeSetString(MAP_ADVANCED_TOOLS_STORAGE_KEY, showAdvancedTools ? '1' : '0');
+  }, [showAdvancedTools]);
 
   useEffect(() => {
     if (typeof onMapContainerReady !== 'function') return;
