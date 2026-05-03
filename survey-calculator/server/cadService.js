@@ -446,6 +446,182 @@ export function getCadBackendStatus() {
   };
 }
 
+function createNullBounds() {
+  return {
+    minX: null,
+    maxX: null,
+    minY: null,
+    maxY: null,
+    minZ: null,
+    maxZ: null,
+  };
+}
+
+function normalizeCadGeometry(geometry) {
+  return {
+    lines: Array.isArray(geometry?.lines) ? geometry.lines : [],
+    polylines: Array.isArray(geometry?.polylines) ? geometry.polylines : [],
+    texts: Array.isArray(geometry?.texts) ? geometry.texts : [],
+    hatches: Array.isArray(geometry?.hatches) ? geometry.hatches : [],
+    surfaces: Array.isArray(geometry?.surfaces) ? geometry.surfaces : [],
+  };
+}
+
+function buildSceneIssues({ warnings = [], inspection = null, preScan = null, geometry = null }) {
+  const issues = [];
+  let issueSeq = 1;
+
+  for (const warning of warnings) {
+    issues.push({
+      id: `warn-${issueSeq++}`,
+      code: 'cad-warning',
+      severity: 'warning',
+      title: 'CAD warning',
+      detail: String(warning || '').trim() || 'CAD warning generated during import.',
+      entityRef: null,
+    });
+  }
+
+  const validationNotifications = Array.isArray(geometry?.validation?.notifications)
+    ? geometry.validation.notifications
+    : [];
+  for (const item of validationNotifications) {
+    const severity = String(item?.severity || 'info').toLowerCase();
+    issues.push({
+      id: `validation-${issueSeq++}`,
+      code: String(item?.code || 'cad-validation'),
+      severity: severity === 'error' || severity === 'warning' ? severity : 'info',
+      title: String(item?.message || item?.code || 'CAD validation').slice(0, 120),
+      detail: String(item?.detail || item?.message || '').trim() || 'Validation notice emitted by CAD parser.',
+      entityRef: null,
+    });
+  }
+
+  const preScanSignals = Array.isArray(preScan?.signals) ? preScan.signals : [];
+  for (const signal of preScanSignals) {
+    const signalWeight = Number(signal?.weight || 0);
+    const signalSeverity = signalWeight >= 12 ? 'warning' : 'info';
+    issues.push({
+      id: `prescan-${issueSeq++}`,
+      code: String(signal?.code || 'cad-prescan-signal'),
+      severity: signalSeverity,
+      title: 'CAD pre-scan signal',
+      detail: String(signal?.detail || signal?.code || 'CAD pre-scan signal detected.'),
+      entityRef: null,
+    });
+  }
+
+  if (inspection?.degradedFallback) {
+    issues.push({
+      id: `degraded-${issueSeq++}`,
+      code: 'cad-degraded-fallback',
+      severity: 'error',
+      title: 'Degraded CAD fallback',
+      detail: 'DWG conversion failed and degraded diagnostics-only fallback was returned.',
+      entityRef: null,
+    });
+  }
+
+  return issues;
+}
+
+function summarizeIssueSeverities(issues = []) {
+  const buckets = { error: 0, warning: 0, info: 0 };
+  for (const issue of issues) {
+    const severity = String(issue?.severity || 'info').toLowerCase();
+    if (severity === 'error') buckets.error += 1;
+    else if (severity === 'warning') buckets.warning += 1;
+    else buckets.info += 1;
+  }
+  return buckets;
+}
+
+function computeSceneQualityScore({ issues = [], degradedFallback = false }) {
+  const buckets = summarizeIssueSeverities(issues);
+  const penalty = (buckets.error * 18) + (buckets.warning * 6) + (buckets.info * 2) + (degradedFallback ? 20 : 0);
+  return Math.max(0, Math.min(100, 100 - penalty));
+}
+
+function buildCanonicalCadScene({ sourceFormat, originalName, rows, geometry, inspection, preScan, warnings }) {
+  const normalizedGeometry = normalizeCadGeometry(geometry);
+  const sourceBounds = {
+    minX: Number.isFinite(inspection?.bounds?.minX) ? inspection.bounds.minX : null,
+    maxX: Number.isFinite(inspection?.bounds?.maxX) ? inspection.bounds.maxX : null,
+    minY: Number.isFinite(inspection?.bounds?.minY) ? inspection.bounds.minY : null,
+    maxY: Number.isFinite(inspection?.bounds?.maxY) ? inspection.bounds.maxY : null,
+    minZ: Number.isFinite(inspection?.bounds?.minZ) ? inspection.bounds.minZ : null,
+    maxZ: Number.isFinite(inspection?.bounds?.maxZ) ? inspection.bounds.maxZ : null,
+  };
+
+  const issues = buildSceneIssues({ warnings, inspection, preScan, geometry });
+  const severityBuckets = summarizeIssueSeverities(issues);
+  const qualityScore = computeSceneQualityScore({ issues, degradedFallback: Boolean(inspection?.degradedFallback) });
+
+  const sourceCrsCandidate = rows.find((row) => row?.sourceCrs)?.sourceCrs
+    || rows.find((row) => row?.fromCrs)?.fromCrs
+    || null;
+
+  const knownLosses = issues
+    .filter((item) => item.severity === 'error' || item.severity === 'warning')
+    .map((item) => `${item.code}: ${item.detail}`)
+    .slice(0, 30);
+
+  return {
+    sceneId: randomUUID(),
+    createdAt: new Date().toISOString(),
+    source: {
+      fileName: originalName,
+      fileHashSha256: inspection?.assembledHashSha256 || null,
+      sourceFormat: String(sourceFormat || 'unknown'),
+      processingRoute: String(inspection?.processingRoute || 'unknown'),
+      converterModeUsed: inspection?.converterModeUsed || null,
+      converterAttemptedModes: Array.isArray(inspection?.converterAttemptedModes) ? inspection.converterAttemptedModes : [],
+      degradedFallback: Boolean(inspection?.degradedFallback),
+    },
+    georef: {
+      sourceCrs: sourceCrsCandidate,
+      detectedFromCrs: inspection?.detectedFromCrs || null,
+      axisNormalized: false,
+      transformConfidence: 'low',
+      transformReason: '',
+      boundsSource: sourceBounds,
+      boundsWgs84: createNullBounds(),
+    },
+    entities: {
+      points: Array.isArray(rows) ? rows : [],
+      lines: normalizedGeometry.lines,
+      polylines: normalizedGeometry.polylines,
+      texts: normalizedGeometry.texts,
+      hatches: normalizedGeometry.hatches,
+      surfaces: normalizedGeometry.surfaces,
+    },
+    topology: {
+      unresolvedXrefs: Array.isArray(inspection?.unresolvedXrefs) ? inspection.unresolvedXrefs : [],
+      missingBlockRefs: Array.isArray(inspection?.missingBlockRefs) ? inspection.missingBlockRefs : [],
+      cyclicBlockRefs: Array.isArray(inspection?.cyclicBlockRefs) ? inspection.cyclicBlockRefs : [],
+      insertsExpanded: Number(inspection?.diagnostics?.resolution?.expandedInsertCount || 0),
+    },
+    diagnostics: {
+      qualityScore,
+      validationSummary: inspection?.validation || null,
+      hatchSummary: inspection?.hatchSummary || null,
+      issues,
+      severityBuckets,
+    },
+    display: {
+      layerSummary: inspection?.layerSummary || null,
+      styleHints: {},
+      lodHints2d: {},
+      lodHints3d: {},
+    },
+    exportHints: {
+      preferredExportFormat: 'dxf',
+      knownLosses,
+      roundtripSafe: !inspection?.degradedFallback && severityBuckets.error === 0,
+    },
+  };
+}
+
 export async function parseCadUpload({
   buffer,
   originalName,
@@ -598,55 +774,70 @@ export async function parseCadUpload({
 
   warnings = [...warnings, ...buildCadReferenceWarnings(diagnostics)];
 
+  const inspection = {
+    fileName: originalName,
+    extension: ext,
+    processingMode,
+    preflightFormatHint,
+    preflightModeConfidence,
+    preflightModeConfidenceReason,
+    preScan,
+    fileSizeBytes,
+    expectedFileHashFNV64: expectedFileHashFNV64 || null,
+    expectedFileHashSha256: null,
+    assembledHashFNV64: resolvedFileHashFNV64,
+    assembledHashSha256: resolvedFileHashSha256 || null,
+    fileHashAlgorithm: expectedFileHashFNV64 ? 'fnv1a64' : 'none',
+    integrityVerified: Boolean(expectedFileHashFNV64 && resolvedFileHashFNV64 && String(expectedFileHashFNV64).toLowerCase() === String(resolvedFileHashFNV64).toLowerCase()),
+    nativeDwg: ext === '.dwg' && isLikelyNativeDwgData(data),
+    usedConverter,
+    preferredConverterMode,
+    converterModeUsed,
+    converterAttemptedModes,
+    converterAttemptErrors,
+    degradedFallback,
+    processingRoute,
+    diagnostics,
+    detectedFromCrs: diagnostics?.detectedFromCrs || rows.find((row) => row?.detectedFromCrs)?.detectedFromCrs || null,
+    validation: geometry?.validation || diagnostics?.validation || null,
+    layerSummary: geometry?.layerSummary || diagnostics?.layerSummary || null,
+    hatchSummary: geometry?.hatchSummary || null,
+    hatchDiagnosticsSummary: geometry?.hatchSummary?.diagnostics || {
+      total: Array.isArray(geometry?.hatchDiagnostics) ? geometry.hatchDiagnostics.length : 0,
+      warnings: Array.isArray(geometry?.hatchDiagnostics)
+        ? geometry.hatchDiagnostics.filter((diag) => String(diag?.severity || '').toLowerCase() === 'warning').length
+        : 0,
+      errors: Array.isArray(geometry?.hatchDiagnostics)
+        ? geometry.hatchDiagnostics.filter((diag) => String(diag?.severity || '').toLowerCase() === 'error').length
+        : 0,
+    },
+    hatchRenderHints: geometry?.renderHints?.hatch || null,
+    repairs: geometry?.repairs || diagnostics?.repairs || null,
+    unresolvedXrefs: diagnostics?.references?.unresolvedXrefs || [],
+    missingBlockRefs: diagnostics?.references?.unresolvedBlockRefs || [],
+    cyclicBlockRefs: diagnostics?.references?.cyclicBlockRefs || [],
+    ...summarizeCadRows(rows),
+  };
+
+  const sourceFormat = ext.slice(1);
+  const scene = buildCanonicalCadScene({
+    sourceFormat,
+    originalName,
+    rows,
+    geometry,
+    inspection,
+    preScan,
+    warnings,
+  });
+
   return {
-    sourceFormat: ext.slice(1),
+    sceneVersion: '1.0',
+    scene,
+    sourceFormat,
     rows,
     geometry,
     diagnostics,
     warnings,
-    inspection: {
-      fileName: originalName,
-      extension: ext,
-      processingMode,
-      preflightFormatHint,
-      preflightModeConfidence,
-      preflightModeConfidenceReason,
-      preScan,
-      fileSizeBytes,
-      expectedFileHashFNV64: expectedFileHashFNV64 || null,
-      expectedFileHashSha256: null,
-      assembledHashFNV64: resolvedFileHashFNV64,
-      assembledHashSha256: resolvedFileHashSha256 || null,
-      fileHashAlgorithm: expectedFileHashFNV64 ? 'fnv1a64' : 'none',
-      integrityVerified: Boolean(expectedFileHashFNV64 && resolvedFileHashFNV64 && String(expectedFileHashFNV64).toLowerCase() === String(resolvedFileHashFNV64).toLowerCase()),
-      nativeDwg: ext === '.dwg' && isLikelyNativeDwgData(data),
-      usedConverter,
-      preferredConverterMode,
-      converterModeUsed,
-      converterAttemptedModes,
-      converterAttemptErrors,
-      degradedFallback,
-      processingRoute,
-      diagnostics,
-      detectedFromCrs: diagnostics?.detectedFromCrs || rows.find((row) => row?.detectedFromCrs)?.detectedFromCrs || null,
-      validation: geometry?.validation || diagnostics?.validation || null,
-      layerSummary: geometry?.layerSummary || diagnostics?.layerSummary || null,
-      hatchSummary: geometry?.hatchSummary || null,
-      hatchDiagnosticsSummary: geometry?.hatchSummary?.diagnostics || {
-        total: Array.isArray(geometry?.hatchDiagnostics) ? geometry.hatchDiagnostics.length : 0,
-        warnings: Array.isArray(geometry?.hatchDiagnostics)
-          ? geometry.hatchDiagnostics.filter((diag) => String(diag?.severity || '').toLowerCase() === 'warning').length
-          : 0,
-        errors: Array.isArray(geometry?.hatchDiagnostics)
-          ? geometry.hatchDiagnostics.filter((diag) => String(diag?.severity || '').toLowerCase() === 'error').length
-          : 0,
-      },
-      hatchRenderHints: geometry?.renderHints?.hatch || null,
-      repairs: geometry?.repairs || diagnostics?.repairs || null,
-      unresolvedXrefs: diagnostics?.references?.unresolvedXrefs || [],
-      missingBlockRefs: diagnostics?.references?.unresolvedBlockRefs || [],
-      cyclicBlockRefs: diagnostics?.references?.cyclicBlockRefs || [],
-      ...summarizeCadRows(rows),
-    },
+    inspection,
   };
 }

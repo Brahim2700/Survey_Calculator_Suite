@@ -33,6 +33,34 @@ async function parseJsonSafely(response) {
   }
 }
 
+function normalizeCadBackendPayload(payload) {
+  const scene = payload?.scene || null;
+  const sceneEntities = scene?.entities || {};
+  const rowsFromScene = Array.isArray(sceneEntities?.points) ? sceneEntities.points : [];
+
+  const normalized = {
+    ...payload,
+    sceneVersion: String(payload?.sceneVersion || '1.0'),
+    scene,
+    rows: Array.isArray(payload?.rows) ? payload.rows : rowsFromScene,
+    geometry: payload?.geometry || {
+      lines: Array.isArray(sceneEntities?.lines) ? sceneEntities.lines : [],
+      polylines: Array.isArray(sceneEntities?.polylines) ? sceneEntities.polylines : [],
+      texts: Array.isArray(sceneEntities?.texts) ? sceneEntities.texts : [],
+      hatches: Array.isArray(sceneEntities?.hatches) ? sceneEntities.hatches : [],
+      surfaces: Array.isArray(sceneEntities?.surfaces) ? sceneEntities.surfaces : [],
+      layerSummary: scene?.display?.layerSummary || null,
+      validation: scene?.diagnostics?.validationSummary || null,
+    },
+    sourceFormat: String(payload?.sourceFormat || scene?.source?.sourceFormat || 'unknown'),
+    warnings: Array.isArray(payload?.warnings) ? payload.warnings : [],
+    inspection: payload?.inspection || null,
+    preScan: payload?.preScan || null,
+  };
+
+  return normalized;
+}
+
 function getCadUploadWorker() {
   if (typeof Worker === 'undefined') return null;
   if (cadUploadWorkerInstance) return cadUploadWorkerInstance;
@@ -243,7 +271,7 @@ async function uploadCadAndParseChunked(file, options = {}, signal) {
   if (!response.ok) {
     throw new Error(payload?.message || 'CAD chunk upload finalization failed.');
   }
-  return payload;
+  return normalizeCadBackendPayload(payload);
 }
 
 async function uploadCadAndParseDirect(file, options = {}, signal) {
@@ -268,7 +296,7 @@ async function uploadCadAndParseDirect(file, options = {}, signal) {
     throw new Error(payload?.message || buildBackendUnavailableMessage());
   }
 
-  return payload;
+  return normalizeCadBackendPayload(payload);
 }
 
 export async function parseCadFileViaBackend(file, options = {}) {

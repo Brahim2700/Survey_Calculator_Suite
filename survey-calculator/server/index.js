@@ -126,6 +126,91 @@ function mergeProcessingMode(clientMode, prescanMode) {
   return clientRank >= prescanRank ? clientMode : prescanMode;
 }
 
+function buildFallbackSceneFromLegacy(payload) {
+  const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+  const geometry = payload?.geometry || {};
+  const sourceFormat = String(payload?.sourceFormat || 'unknown');
+  const inspection = payload?.inspection || {};
+
+  return {
+    sceneId: `legacy-${Date.now()}`,
+    createdAt: new Date().toISOString(),
+    source: {
+      fileName: String(inspection?.fileName || ''),
+      fileHashSha256: inspection?.assembledHashSha256 || null,
+      sourceFormat,
+      processingRoute: String(inspection?.processingRoute || 'unknown'),
+      converterModeUsed: inspection?.converterModeUsed || null,
+      converterAttemptedModes: Array.isArray(inspection?.converterAttemptedModes) ? inspection.converterAttemptedModes : [],
+      degradedFallback: Boolean(inspection?.degradedFallback),
+    },
+    georef: {
+      sourceCrs: null,
+      detectedFromCrs: inspection?.detectedFromCrs || null,
+      axisNormalized: false,
+      transformConfidence: 'low',
+      transformReason: '',
+      boundsSource: {
+        minX: Number.isFinite(inspection?.bounds?.minX) ? inspection.bounds.minX : null,
+        maxX: Number.isFinite(inspection?.bounds?.maxX) ? inspection.bounds.maxX : null,
+        minY: Number.isFinite(inspection?.bounds?.minY) ? inspection.bounds.minY : null,
+        maxY: Number.isFinite(inspection?.bounds?.maxY) ? inspection.bounds.maxY : null,
+        minZ: Number.isFinite(inspection?.bounds?.minZ) ? inspection.bounds.minZ : null,
+        maxZ: Number.isFinite(inspection?.bounds?.maxZ) ? inspection.bounds.maxZ : null,
+      },
+      boundsWgs84: { minX: null, maxX: null, minY: null, maxY: null, minZ: null, maxZ: null },
+    },
+    entities: {
+      points: rows,
+      lines: Array.isArray(geometry?.lines) ? geometry.lines : [],
+      polylines: Array.isArray(geometry?.polylines) ? geometry.polylines : [],
+      texts: Array.isArray(geometry?.texts) ? geometry.texts : [],
+      hatches: Array.isArray(geometry?.hatches) ? geometry.hatches : [],
+      surfaces: Array.isArray(geometry?.surfaces) ? geometry.surfaces : [],
+    },
+    topology: {
+      unresolvedXrefs: Array.isArray(inspection?.unresolvedXrefs) ? inspection.unresolvedXrefs : [],
+      missingBlockRefs: Array.isArray(inspection?.missingBlockRefs) ? inspection.missingBlockRefs : [],
+      cyclicBlockRefs: Array.isArray(inspection?.cyclicBlockRefs) ? inspection.cyclicBlockRefs : [],
+      insertsExpanded: 0,
+    },
+    diagnostics: {
+      qualityScore: 0,
+      validationSummary: inspection?.validation || null,
+      hatchSummary: inspection?.hatchSummary || null,
+      issues: [],
+      severityBuckets: { error: 0, warning: 0, info: 0 },
+    },
+    display: {
+      layerSummary: inspection?.layerSummary || null,
+      styleHints: {},
+      lodHints2d: {},
+      lodHints3d: {},
+    },
+    exportHints: {
+      preferredExportFormat: 'dxf',
+      knownLosses: [],
+      roundtripSafe: !inspection?.degradedFallback,
+    },
+  };
+}
+
+function normalizeCadParseResponse(payload, preScan = null) {
+  const normalized = {
+    ...payload,
+    rows: Array.isArray(payload?.rows) ? payload.rows : [],
+    geometry: payload?.geometry || { lines: [], polylines: [], texts: [], hatches: [], surfaces: [] },
+    sourceFormat: String(payload?.sourceFormat || 'unknown'),
+    warnings: Array.isArray(payload?.warnings) ? payload.warnings : [],
+    inspection: payload?.inspection || null,
+    preScan: preScan || payload?.preScan || null,
+    sceneVersion: String(payload?.sceneVersion || '1.0'),
+    scene: payload?.scene || buildFallbackSceneFromLegacy(payload),
+  };
+
+  return normalized;
+}
+
 app.use(helmet());
 
 app.use(cors({
@@ -313,14 +398,7 @@ app.post('/api/cad/upload/complete', uploadRateLimit, express.json({ limit: '1mb
 
     await cleanupUploadDir(uploadId);
 
-    res.json({
-      rows: result.rows,
-      geometry: result.geometry || null,
-      sourceFormat: result.sourceFormat,
-      warnings: result.warnings || [],
-      preScan,
-      inspection: result.inspection || null,
-    });
+    res.json(normalizeCadParseResponse(result, preScan));
   } catch (err) {
     await cleanupUploadDir(uploadId);
     const statusCode = err.statusCode || 500;
@@ -359,14 +437,7 @@ app.post('/api/cad/parse', parseRateLimit, upload.single('file'), async (req, re
       preScan,
     });
 
-    res.json({
-      rows: result.rows,
-      geometry: result.geometry || null,
-      sourceFormat: result.sourceFormat,
-      warnings: result.warnings || [],
-      preScan,
-      inspection: result.inspection || null,
-    });
+    res.json(normalizeCadParseResponse(result, preScan));
   } catch (err) {
     const statusCode = err.statusCode || 500;
     res.status(statusCode).json({
