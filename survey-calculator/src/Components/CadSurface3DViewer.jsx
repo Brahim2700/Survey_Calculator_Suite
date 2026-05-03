@@ -86,6 +86,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
   const containerRef = useRef(null);
   const [zScalePreset, setZScalePreset] = useState('auto'); // auto | 1 | 2 | 5 | 10
   const [viewPreset, setViewPreset] = useState('iso'); // iso | top | side
+  const [renderStyle, setRenderStyle] = useState('smooth'); // smooth | mesh | wire
   const [cameraResetToken, setCameraResetToken] = useState(0);
   const [selectedFitLayerKey, setSelectedFitLayerKey] = useState('__all__');
   const [fitLayerKey, setFitLayerKey] = useState('__all__');
@@ -262,14 +263,15 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
 
     const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
     const mesh = new THREE.Mesh(geo, mat);
-    scene.add(mesh);
+    if (renderStyle !== 'wire') scene.add(mesh);
 
-    // Wireframe overlay — skip for large meshes to preserve performance
-    const showWireframe = transformedTriangles.length <= 30000;
-    const wireMat = new THREE.LineBasicMaterial({ color: '#1e293b', transparent: true, opacity: 0.25 });
-    const wireGeo = showWireframe ? new THREE.WireframeGeometry(geo) : new THREE.BufferGeometry();
+    // Wireframe overlay — always available when style is 'mesh' or 'wire'; for 'smooth' skip it
+    const wireOpacity = renderStyle === 'wire' ? 0.85 : 0.28;
+    const wireColor = renderStyle === 'wire' ? '#94a3b8' : '#1e293b';
+    const wireMat = new THREE.LineBasicMaterial({ color: wireColor, transparent: true, opacity: wireOpacity });
+    const wireGeo = renderStyle !== 'smooth' ? new THREE.WireframeGeometry(geo) : new THREE.BufferGeometry();
     const wire = new THREE.LineSegments(wireGeo, wireMat);
-    if (showWireframe) scene.add(wire);
+    if (renderStyle !== 'smooth') scene.add(wire);
 
     // ── Fit camera ─────────────────────────────────────────────────────────
     geo.computeBoundingBox();
@@ -402,7 +404,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
       renderer.dispose();
       if (el.contains(dom)) el.removeChild(dom);
     };
-  }, [transformedTriangles, transformedSurfaces, fitLayerKey, minZ, maxZ, viewPreset, cameraResetToken]);
+  }, [transformedTriangles, transformedSurfaces, fitLayerKey, minZ, maxZ, viewPreset, renderStyle, cameraResetToken]);
 
   if (transformedTriangles.length === 0) {
     return (
@@ -464,6 +466,25 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
         display: 'grid', gap: '0.35rem', minWidth: 210,
       }}>
         <div style={{ fontWeight: 700, color: '#cbd5e1' }}>3D Controls</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
+          <span style={{ color: '#94a3b8' }}>Style</span>
+          {[{ key: 'smooth', label: 'Smooth' }, { key: 'mesh', label: 'Mesh' }, { key: 'wire', label: 'Wire' }].map((style) => (
+            <button
+              key={`style-${style.key}`}
+              type="button"
+              onClick={() => setRenderStyle(style.key)}
+              style={{
+                padding: '0.16rem 0.45rem', borderRadius: 999, fontSize: '0.68rem', fontWeight: 700,
+                border: renderStyle === style.key ? '1px solid #f59e0b' : '1px solid #334155',
+                background: renderStyle === style.key ? '#78350f' : '#0f172a',
+                color: renderStyle === style.key ? '#fde68a' : '#94a3b8',
+                cursor: 'pointer',
+              }}
+            >
+              {style.label}
+            </button>
+          ))}
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
           <span style={{ color: '#94a3b8' }}>Z scale</span>
           {['auto', '1', '2', '5', '10'].map((value) => (
