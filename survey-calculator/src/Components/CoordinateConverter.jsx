@@ -1125,6 +1125,7 @@ const CoordinateConverter = () => {
   const [showConfidenceTooltip, setShowConfidenceTooltip] = useState(false);
   const [lastDetectInput, setLastDetectInput] = useState(null);
   const [detectionMapMode, setDetectionMapMode] = useState("top"); // top | all
+  const [detectSuggestionsCompact, setDetectSuggestionsCompact] = useState(true);
   const [, setBulkSummary] = useState(null);
   const [bulkIsConverting, setBulkIsConverting] = useState(false);
   const bulkEmitModeRef = useRef("replace");
@@ -4809,12 +4810,15 @@ const CoordinateConverter = () => {
             const suggestionsForView = detectionMapMode === 'top'
               ? rankedForView.slice(0, TOP_DETECTION_LIMIT)
               : rankedForView;
+            const visibleRows = detectSuggestionsCompact
+              ? suggestionsForView.slice(0, Math.min(4, suggestionsForView.length))
+              : suggestionsForView;
             const topConfidence = rankedForView[0]?.confidence || 0;
 
             return (
               <>
-          <div style={{ fontWeight: 700, marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            Detected CRS suggestions
+          <div style={{ fontWeight: 700, marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <span>Detected CRS suggestions</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               <div style={{ display: 'inline-flex', border: '1px solid #cbd5e1', borderRadius: 6, overflow: 'hidden' }}>
                 <button
@@ -4847,6 +4851,12 @@ const CoordinateConverter = () => {
                   All detections
                 </button>
               </div>
+              <button
+                onClick={() => setDetectSuggestionsCompact((v) => !v)}
+                style={{ padding: '0.35rem 0.7rem', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: 6, cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600 }}
+              >
+                {detectSuggestionsCompact ? 'Expand List' : 'Compact List'}
+              </button>
               <button onClick={handlePlotDetections} style={{ padding: '0.35rem 0.7rem', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: '0.85rem' }}>
                 Plot on Map
               </button>
@@ -4862,8 +4872,8 @@ const CoordinateConverter = () => {
               Low confidence detection. Review the top 3 suggestions and plot points on map before applying.
             </div>
           )}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {suggestionsForView.map((s) => (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: detectSuggestionsCompact ? '220px' : '360px', overflowY: 'auto', paddingRight: '2px' }}>
+            {visibleRows.map((s) => (
               <div key={s.code} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', borderRadius: 6, background: '#f8fafc' }}>
                 <div>
                   <div style={{ fontWeight: 600 }}>{s.code} — {s.name}</div>
@@ -4875,6 +4885,11 @@ const CoordinateConverter = () => {
               </div>
             ))}
           </div>
+          {detectSuggestionsCompact && suggestionsForView.length > visibleRows.length && (
+            <div style={{ marginTop: '0.4rem', fontSize: '0.78rem', color: '#64748b' }}>
+              Showing {visibleRows.length} of {suggestionsForView.length} suggestions. Use Expand List for full ranking.
+            </div>
+          )}
               </>
             );
           })()}

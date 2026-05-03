@@ -162,7 +162,13 @@ const buildRobustBounds = (latLngPairs) => {
   if (filtered.length < minimumRetained) return null;
 
   const bounds = L.latLngBounds(filtered);
-  return bounds.isValid() ? bounds : null;
+  if (!bounds.isValid()) return null;
+
+  return {
+    bounds,
+    kept: filtered.length,
+    total: latLngPairs.length,
+  };
 };
 
 const getZoomBasedMarkerRadius = (zoom) => {
@@ -271,6 +277,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   const layerControl = useRef(null);
   const smartScaleControl = useRef(null);
   const smartScaleLabel = useRef(null);
+  const robustFitStatusRef = useRef('idle');
   const [selectedPoint, setSelectedPoint] = useState(null);
   const [showPointLayer, setShowPointLayer] = useState(true);
   const [showLineLayer, setShowLineLayer] = useState(true);
@@ -289,6 +296,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   const [legendCollapsed, setLegendCollapsed] = useState(true);
   const [labelsTouched, setLabelsTouched] = useState(false);
   const [hiddenCadLayers, setHiddenCadLayers] = useState({});
+  const [robustFitDebug, setRobustFitDebug] = useState({ active: false, message: '' });
 
   const effectiveShowLabels =
     Array.isArray(points) && points.length === 0
@@ -1763,6 +1771,9 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
       const group = new L.featureGroup(fitLayers);
       const groupBounds = group.getBounds();
       let selectedBounds = groupBounds;
+      let robustFitApplied = false;
+      let robustFitKept = 0;
+      let robustFitTotal = 0;
 
       if (groupBounds?.isValid?.()) {
         const latSpan = Math.abs(groupBounds.getNorth() - groupBounds.getSouth());
@@ -1800,15 +1811,29 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
             pushPair(Number(pos[0]), Number(pos[1]));
           });
 
-          const robustBounds = buildRobustBounds(sampledPairs);
+          const robustCandidate = buildRobustBounds(sampledPairs);
+          const robustBounds = robustCandidate?.bounds || null;
           if (robustBounds?.isValid?.()) {
             const robustLatSpan = Math.abs(robustBounds.getNorth() - robustBounds.getSouth());
             const robustLngSpan = Math.abs(robustBounds.getEast() - robustBounds.getWest());
             if (robustLatSpan < latSpan || robustLngSpan < lngSpan) {
               selectedBounds = robustBounds;
+              robustFitApplied = true;
+              robustFitKept = Number(robustCandidate?.kept) || 0;
+              robustFitTotal = Number(robustCandidate?.total) || sampledPairs.length;
             }
           }
         }
+      }
+
+      const robustFitKey = robustFitApplied
+        ? `on:${robustFitKept}:${robustFitTotal}`
+        : 'off';
+      if (robustFitStatusRef.current !== robustFitKey) {
+        robustFitStatusRef.current = robustFitKey;
+        setRobustFitDebug(robustFitApplied
+          ? { active: true, message: `Robust-fit active (${robustFitKept}/${robustFitTotal})` }
+          : { active: false, message: '' });
       }
 
       dataExtentBoundsRef.current = selectedBounds;
@@ -1882,12 +1907,24 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
             color: '#cbd5e1',
             width: legendCollapsed ? '148px' : '188px',
             maxWidth: 'calc(100% - 20px)',
+            maxHeight: 'calc(100% - 20px)',
+            overflowX: 'hidden',
+            overflowY: legendCollapsed ? 'hidden' : 'auto',
+            scrollbarGutter: 'stable',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
             <div>
               <div style={{ fontWeight: 800, color: '#e0eaff', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Map Tools</div>
               <div style={{ color: '#94a3b8', fontSize: '9px', marginTop: '2px' }}>{cadLayers.length} CAD layers</div>
+              {robustFitDebug.active && (
+                <div
+                  style={{ color: '#fbbf24', fontSize: '8.5px', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                  title={robustFitDebug.message}
+                >
+                  {robustFitDebug.message}
+                </div>
+              )}
             </div>
             <button
               onClick={() => setLegendCollapsed((v) => !v)}

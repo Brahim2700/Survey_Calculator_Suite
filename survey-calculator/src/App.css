@@ -181,6 +181,19 @@
   padding-bottom: 0.15rem;
 }
 
+.map-toolbar-actions::-webkit-scrollbar {
+  height: 7px;
+}
+
+.map-toolbar-actions::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.55);
+  border-radius: 999px;
+}
+
+.map-toolbar-actions::-webkit-scrollbar-track {
+  background: rgba(15, 32, 64, 0.24);
+}
+
 .map-toolbar-actions .btn,
 .map-toolbar-actions .map-tooltip-wrapper {
   flex: 0 0 auto;
@@ -833,6 +846,18 @@
     max-height: none;
     overflow: visible;
     padding-right: 0;
+  }
+}
+
+@media (max-width: 1360px) {
+  .map-toolbar {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .map-toolbar-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 }
 
