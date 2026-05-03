@@ -544,6 +544,27 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
           >
             Apply
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedFitLayerKey('__all__');
+              setFitLayerKey('__all__');
+              setCameraResetToken((v) => v + 1);
+            }}
+            style={{
+              padding: '0.16rem 0.5rem',
+              borderRadius: 999,
+              fontSize: '0.68rem',
+              fontWeight: 700,
+              border: '1px solid #334155',
+              background: '#0b3b2e',
+              color: '#d1fae5',
+              cursor: 'pointer',
+            }}
+            title="Fit camera to all currently visible surfaces"
+          >
+            Fit Visible
+          </button>
         </div>
       </div>
 
