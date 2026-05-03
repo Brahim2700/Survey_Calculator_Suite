@@ -126,6 +126,45 @@ const dedupeGeometryPayload = ({ points, lines, polylines }) => {
   };
 };
 
+const percentile = (sortedValues, p) => {
+  if (!Array.isArray(sortedValues) || sortedValues.length === 0) return null;
+  const rank = clampNumber(p, 0, 1) * (sortedValues.length - 1);
+  const low = Math.floor(rank);
+  const high = Math.ceil(rank);
+  if (low === high) return sortedValues[low];
+  const weight = rank - low;
+  return sortedValues[low] * (1 - weight) + sortedValues[high] * weight;
+};
+
+const buildRobustBounds = (latLngPairs) => {
+  if (!Array.isArray(latLngPairs) || latLngPairs.length < 20) return null;
+
+  const lats = latLngPairs.map((pair) => pair[0]).sort((a, b) => a - b);
+  const lngs = latLngPairs.map((pair) => pair[1]).sort((a, b) => a - b);
+  const q1Lat = percentile(lats, 0.25);
+  const q3Lat = percentile(lats, 0.75);
+  const q1Lng = percentile(lngs, 0.25);
+  const q3Lng = percentile(lngs, 0.75);
+  if (![q1Lat, q3Lat, q1Lng, q3Lng].every(Number.isFinite)) return null;
+
+  const iqrLat = Math.max(q3Lat - q1Lat, 0.0001);
+  const iqrLng = Math.max(q3Lng - q1Lng, 0.0001);
+  const minLat = q1Lat - (3 * iqrLat);
+  const maxLat = q3Lat + (3 * iqrLat);
+  const minLng = q1Lng - (3 * iqrLng);
+  const maxLng = q3Lng + (3 * iqrLng);
+
+  const filtered = latLngPairs.filter(([lat, lng]) => (
+    lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng
+  ));
+
+  const minimumRetained = Math.max(12, Math.floor(latLngPairs.length * 0.35));
+  if (filtered.length < minimumRetained) return null;
+
+  const bounds = L.latLngBounds(filtered);
+  return bounds.isValid() ? bounds : null;
+};
+
 const getZoomBasedMarkerRadius = (zoom) => {
   if (zoom <= 10) return 2;
   if (zoom <= 12) return 2.5;
@@ -1722,9 +1761,59 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     if (pointLayersRef.current.length > 0 || geometryLayersRef.current.length > 0) {
       const fitLayers = [...pointLayersRef.current, ...geometryLayersRef.current];
       const group = new L.featureGroup(fitLayers);
-      dataExtentBoundsRef.current = group.getBounds();
+      const groupBounds = group.getBounds();
+      let selectedBounds = groupBounds;
+
+      if (groupBounds?.isValid?.()) {
+        const latSpan = Math.abs(groupBounds.getNorth() - groupBounds.getSouth());
+        const lngSpan = Math.abs(groupBounds.getEast() - groupBounds.getWest());
+
+        if (latSpan > 50 || lngSpan > 120) {
+          const sampledPairs = [];
+          const pushPair = (lat, lng) => {
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+            if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return;
+            sampledPairs.push([lat, lng]);
+          };
+
+          validPoints.forEach((point) => pushPair(Number(point?.lat), Number(point?.lng)));
+          cadLines.forEach((line) => {
+            const start = Array.isArray(line?.start) ? line.start : [];
+            const end = Array.isArray(line?.end) ? line.end : [];
+            pushPair(Number(start[0]), Number(start[1]));
+            pushPair(Number(end[0]), Number(end[1]));
+          });
+          cadPolylines.forEach((polyline) => {
+            const points = Array.isArray(polyline?.points) ? polyline.points : [];
+            const step = Math.max(1, Math.floor(points.length / 120));
+            for (let i = 0; i < points.length; i += step) {
+              const point = points[i];
+              pushPair(Number(point?.[0]), Number(point?.[1]));
+            }
+            if (points.length > 0) {
+              const last = points[points.length - 1];
+              pushPair(Number(last?.[0]), Number(last?.[1]));
+            }
+          });
+          cadTexts.forEach((textEntity) => {
+            const pos = Array.isArray(textEntity?.position) ? textEntity.position : [];
+            pushPair(Number(pos[0]), Number(pos[1]));
+          });
+
+          const robustBounds = buildRobustBounds(sampledPairs);
+          if (robustBounds?.isValid?.()) {
+            const robustLatSpan = Math.abs(robustBounds.getNorth() - robustBounds.getSouth());
+            const robustLngSpan = Math.abs(robustBounds.getEast() - robustBounds.getWest());
+            if (robustLatSpan < latSpan || robustLngSpan < lngSpan) {
+              selectedBounds = robustBounds;
+            }
+          }
+        }
+      }
+
+      dataExtentBoundsRef.current = selectedBounds;
       if (fittedPointsSignatureRef.current !== fitSignature) {
-        map.current.fitBounds(group.getBounds().pad(0.1));
+        map.current.fitBounds(selectedBounds.pad(0.1));
         fittedPointsSignatureRef.current = fitSignature;
       }
     } else if (validPoints.length === 0 && (!measurePoints || measurePoints.length === 0)) {
