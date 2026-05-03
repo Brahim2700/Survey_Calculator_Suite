@@ -2020,6 +2020,12 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
   };
   // Reuse pre-computed expanded entities to avoid double processing on large files
   const expandedEntities = expandedCad?.entities || expandCadEntities(dxfData).entities;
+  const entitiesByHandle = new Map();
+  (Array.isArray(expandedEntities) ? expandedEntities : []).forEach((entity) => {
+    const key = normalizeHandleKey(entity?.handle);
+    if (!key || entitiesByHandle.has(key)) return;
+    entitiesByHandle.set(key, entity);
+  });
   const layerTable = dxfData?.tables?.layer?.layers || {};
   const styleTable = getStyleTable(dxfData);
   const repairStats = {
@@ -2119,6 +2125,58 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
     if (!Number.isFinite(fx) || !Number.isFinite(fy) || !Number.isFinite(lx) || !Number.isFinite(ly)) return safe;
     if (Math.abs(fx - lx) <= 1e-9 && Math.abs(fy - ly) <= 1e-9) return safe;
     return [...safe, { ...first }];
+  };
+
+  const resolveAssociativeHatchBoundaryPaths = (entity) => {
+    const sourcePaths = Array.isArray(entity?.boundaryPaths)
+      ? entity.boundaryPaths
+      : (Array.isArray(entity?.paths)
+        ? entity.paths
+        : (Array.isArray(entity?.loops)
+          ? entity.loops
+          : (Array.isArray(entity?.boundaries) ? entity.boundaries : [])));
+
+    const resolvedPaths = [];
+
+    sourcePaths.forEach((path) => {
+      const directVertices = Array.isArray(path?.vertices)
+        ? path.vertices
+        : (Array.isArray(path?.polyline?.vertices) ? path.polyline.vertices : []);
+      const hasDirectEdges = Array.isArray(path?.edges) && path.edges.length > 0;
+
+      if (directVertices.length > 0 || hasDirectEdges) {
+        resolvedPaths.push(path);
+        return;
+      }
+
+      const sourceHandles = Array.isArray(path?.sourceBoundaryHandles)
+        ? path.sourceBoundaryHandles
+        : (Array.isArray(path?.boundaryHandles)
+          ? path.boundaryHandles
+          : (Array.isArray(path?.sourceBoundaryObjects)
+            ? path.sourceBoundaryObjects
+            : []));
+
+      sourceHandles.forEach((handle) => {
+        const key = normalizeHandleKey(handle);
+        if (!key) return;
+        const boundaryEntity = entitiesByHandle.get(key);
+        const boundaryType = String(boundaryEntity?.type || '').toUpperCase();
+        if (boundaryType !== 'LWPOLYLINE' && boundaryType !== 'POLYLINE') return;
+
+        const boundaryVertices = closePolylineIfNeeded(boundaryEntity?.vertices || [], boundaryEntity);
+        if (!Array.isArray(boundaryVertices) || boundaryVertices.length < 3) return;
+
+        resolvedPaths.push({
+          ...path,
+          vertices: boundaryVertices,
+          closed: path?.closed ?? boundaryEntity?.closed ?? boundaryEntity?.shape ?? boundaryEntity?.isClosed ?? true,
+          external: path?.external ?? path?.isExternal ?? path?.outermost ?? true,
+        });
+      });
+    });
+
+    return resolvedPaths.length > 0 ? resolvedPaths : sourcePaths;
   };
 
   const addText = (entity) => {
@@ -2275,7 +2333,10 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
   const addHatch = (entity) => {
     const layer = entity?.layer || 'HATCH';
     const descriptor = getLayerDescriptor(layer, layerTable[layer]);
-    const normalized = normalizeHatchEntity(entity, {
+    const normalized = normalizeHatchEntity({
+      ...entity,
+      boundaryPaths: resolveAssociativeHatchBoundaryPaths(entity),
+    }, {
       sourceEngine: 'custom',
       preserveRaw: true,
       tolerance: 1e-5,
@@ -2539,6 +2600,179 @@ function limitDxfTextSize(dxfText) {
   return dxfText;
 }
 
+const toFiniteNumber = (value, fallback = null) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const normalizeHandleKey = (value) => String(value || '').trim().toUpperCase();
+
+function extractHatchEntitiesFromDxfText(dxfText) {
+  if (typeof dxfText !== 'string' || dxfText.length === 0) return [];
+  const bodyStart = findDxfSectionBodyStart(dxfText, 'ENTITIES');
+  if (bodyStart === -1) return [];
+
+  const lines = dxfText.slice(bodyStart).split(/\r\n|\r|\n/g);
+  const pairs = [];
+  for (let i = 0; i + 1 < lines.length; i += 2) {
+    const code = Number(String(lines[i] || '').trim());
+    if (!Number.isFinite(code)) continue;
+    pairs.push({ code, value: String(lines[i + 1] || '').replace(/\r$/, '') });
+  }
+
+  const hatches = [];
+  let currentType = null;
+  let currentPairs = [];
+
+  const flushEntity = () => {
+    if (currentType !== 'HATCH') return;
+    const hatch = parseRawHatchEntityPairs(currentPairs);
+    if (hatch) hatches.push(hatch);
+  };
+
+  for (const pair of pairs) {
+    if (pair.code === 0) {
+      const token = String(pair.value || '').trim().toUpperCase();
+      if (token === 'ENDSEC' || token === 'EOF') {
+        flushEntity();
+        break;
+      }
+      flushEntity();
+      currentType = token;
+      currentPairs = [];
+      continue;
+    }
+    if (currentType) currentPairs.push(pair);
+  }
+
+  return hatches;
+}
+
+function parseRawHatchEntityPairs(pairs) {
+  const hatch = {
+    type: 'HATCH',
+    boundaryPaths: [],
+  };
+
+  let currentPath = null;
+  let pendingVertexX = null;
+
+  const pushCurrentPath = () => {
+    if (!currentPath) return;
+    const hasGeometry = (Array.isArray(currentPath.vertices) && currentPath.vertices.length > 0)
+      || (Array.isArray(currentPath.edges) && currentPath.edges.length > 0)
+      || (Array.isArray(currentPath.sourceBoundaryHandles) && currentPath.sourceBoundaryHandles.length > 0);
+    if (hasGeometry) hatch.boundaryPaths.push(currentPath);
+    currentPath = null;
+    pendingVertexX = null;
+  };
+
+  for (const pair of (Array.isArray(pairs) ? pairs : [])) {
+    const code = Number(pair?.code);
+    const rawValue = pair?.value;
+    const value = typeof rawValue === 'string' ? rawValue.trim() : rawValue;
+
+    if (code === 5) {
+      hatch.handle = String(value || '').trim() || null;
+      continue;
+    }
+    if (code === 8) {
+      hatch.layer = String(value || '').trim() || '0';
+      continue;
+    }
+    if (code === 2) {
+      hatch.patternName = String(value || '').trim() || null;
+      continue;
+    }
+    if (code === 41) {
+      hatch.patternScale = toFiniteNumber(value, hatch.patternScale ?? 1);
+      continue;
+    }
+    if (code === 52) {
+      hatch.patternAngle = toFiniteNumber(value, hatch.patternAngle ?? 0);
+      continue;
+    }
+    if (code === 62) {
+      hatch.color = toFiniteNumber(value, hatch.color ?? null);
+      continue;
+    }
+    if (code === 420) {
+      hatch.trueColor = toFiniteNumber(value, hatch.trueColor ?? null);
+      continue;
+    }
+    if (code === 440) {
+      hatch.transparency = toFiniteNumber(value, hatch.transparency ?? null);
+      continue;
+    }
+    if (code === 70) {
+      hatch.solidFill = Number(value) === 1;
+      continue;
+    }
+    if (code === 71) {
+      hatch.associative = Number(value) === 1;
+      continue;
+    }
+
+    if (code === 92) {
+      pushCurrentPath();
+      const flags = Math.trunc(toFiniteNumber(value, 0) || 0);
+      currentPath = {
+        pathTypeFlags: flags,
+        external: (flags & 1) === 1,
+        polylinePath: (flags & 2) === 2,
+        derived: (flags & 4) === 4,
+        textbox: (flags & 8) === 8,
+        outermost: (flags & 16) === 16,
+        closed: false,
+        vertices: [],
+        edges: [],
+        sourceBoundaryHandles: [],
+      };
+      continue;
+    }
+
+    if (!currentPath) continue;
+
+    if (code === 73 && currentPath.polylinePath) {
+      currentPath.closed = Number(value) === 1;
+      continue;
+    }
+
+    if (code === 10 && currentPath.polylinePath) {
+      pendingVertexX = toFiniteNumber(value);
+      continue;
+    }
+
+    if (code === 20 && currentPath.polylinePath) {
+      const y = toFiniteNumber(value);
+      if (Number.isFinite(pendingVertexX) && Number.isFinite(y)) {
+        currentPath.vertices.push({ x: pendingVertexX, y });
+      }
+      pendingVertexX = null;
+      continue;
+    }
+
+    if (code === 42 && currentPath.polylinePath) {
+      const bulge = toFiniteNumber(value);
+      const last = currentPath.vertices[currentPath.vertices.length - 1];
+      if (last && Number.isFinite(bulge) && Math.abs(bulge) > 1e-12) {
+        last.bulge = bulge;
+      }
+      continue;
+    }
+
+    if (code === 330) {
+      const key = normalizeHandleKey(value);
+      if (key) currentPath.sourceBoundaryHandles.push(key);
+      continue;
+    }
+  }
+
+  pushCurrentPath();
+  if (hatch.boundaryPaths.length === 0) return null;
+  return hatch;
+}
+
 export function parseDxfTextContent(text, options = {}) {
   const parser = new DxfParser();
   let dxf;
@@ -2553,6 +2787,14 @@ export function parseDxfTextContent(text, options = {}) {
     // Pre-process very large DXF files: limit entity count so parseSync stays fast.
     const processedText = limitDxfTextSize(text);
     dxf = parser.parseSync(processedText);
+    const parserAlreadyHasHatch = Array.isArray(dxf?.entities)
+      && dxf.entities.some((entity) => String(entity?.type || '').toUpperCase() === 'HATCH');
+    if (!parserAlreadyHasHatch) {
+      const fallbackHatches = extractHatchEntitiesFromDxfText(processedText);
+      if (fallbackHatches.length > 0) {
+        dxf.entities = [...(Array.isArray(dxf?.entities) ? dxf.entities : []), ...fallbackHatches];
+      }
+    }
   } catch (err) {
     throw new Error(`Failed to parse DXF: ${err.message || err}`);
   }
