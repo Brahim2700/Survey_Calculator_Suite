@@ -1422,11 +1422,16 @@ const CoordinateConverter = () => {
     return assessReferenceSystem(coordinates, {}, suggestions);
   }, []);
 
-  const resolveCadSourceCrs = useCallback((rows, payload) => {
+  const resolveCadSourceCrs = useCallback((rows, payload, options = {}) => {
     const detectedFromRows = Array.isArray(rows)
       ? rows.find((row) => row?.detectedFromCrs)?.detectedFromCrs
       : null;
     const detectedFromPayload = payload?.inspection?.detectedFromCrs || payload?.diagnostics?.detectedFromCrs || null;
+    const preferDetected = Boolean(options?.preferDetected);
+
+    if (preferDetected) {
+      return detectedFromRows || detectedFromPayload || fromCrs || 'EPSG:4326';
+    }
 
     if (fromCrsManualRef.current && fromCrs && CRS_LIST.some((crs) => crs.code === fromCrs)) {
       return fromCrs;
@@ -3345,7 +3350,7 @@ const CoordinateConverter = () => {
 
       const detectedFromRows = rows.find((r) => r.detectedFromCrs)?.detectedFromCrs;
       const detectedFromPayload = cadPayload?.inspection?.detectedFromCrs || cadPayload?.diagnostics?.detectedFromCrs;
-      const sourceCrs = resolveCadSourceCrs(rows, cadPayload);
+      const sourceCrs = resolveCadSourceCrs(rows, cadPayload, { preferDetected: true });
       const referenceStatus = detectLocalReferenceFromRows(rows);
       const isLocalUnreferenced = sourceCrs === "LOCAL:ENGINEERING" || Boolean(referenceStatus?.isLocal);
       const isAmbiguous = referenceStatus?.status === "ambiguous";
