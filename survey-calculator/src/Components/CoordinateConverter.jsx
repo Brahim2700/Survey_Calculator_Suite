@@ -289,6 +289,18 @@ const buildCadInspectionSummary = (file, rows, status, payload = null, strictExi
     cadTriangleCount: Array.isArray(payload?.geometry?.surfaces)
       ? payload.geometry.surfaces.reduce((sum, surface) => sum + (Array.isArray(surface?.triangles) ? surface.triangles.length : 0), 0)
       : 0,
+    cadHatchCount: Array.isArray(payload?.scene?.entities?.hatches)
+      ? payload.scene.entities.hatches.length
+      : (Array.isArray(payload?.geometry?.hatches) ? payload.geometry.hatches.length : 0),
+    sceneQualityScore: Number.isFinite(Number(payload?.scene?.diagnostics?.qualityScore))
+      ? Number(payload.scene.diagnostics.qualityScore)
+      : null,
+    sceneKnownLosses: Array.isArray(payload?.scene?.exportHints?.knownLosses)
+      ? payload.scene.exportHints.knownLosses
+      : [],
+    sceneHatchIssues: Array.isArray(payload?.scene?.diagnostics?.issues)
+      ? payload.scene.diagnostics.issues.filter((issue) => issue.category === 'hatch')
+      : [],
     notificationCount: Array.isArray(validation?.notifications) ? validation.notifications.length : 0,
     backendMode: status?.converterMode || "none",
     backendPath: status?.converterPath || null,
@@ -5207,6 +5219,41 @@ const CoordinateConverter = () => {
                 <div>Detected CRS: {cadInspection.detectedFromCrs || "pending"}</div>
                 {cadInspection.axisNormalizationApplied && cadInspection.axisNormalizationNotice && (
                   <div style={{ color: "#0f3d63", fontWeight: 600 }}>{cadInspection.axisNormalizationNotice}</div>
+                )}
+                {Number.isFinite(cadInspection.sceneQualityScore) && (
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                    <strong>Fidelity score:</strong>
+                    <span style={{
+                      padding: "0.1rem 0.45rem", borderRadius: "999px", fontSize: "0.76rem", fontWeight: 700,
+                      background: cadInspection.sceneQualityScore >= 80 ? "#dcfce7" : cadInspection.sceneQualityScore >= 60 ? "#fef9c3" : "#fee2e2",
+                      color: cadInspection.sceneQualityScore >= 80 ? "#166534" : cadInspection.sceneQualityScore >= 60 ? "#854d0e" : "#991b1b",
+                      border: cadInspection.sceneQualityScore >= 80 ? "1px solid #86efac" : cadInspection.sceneQualityScore >= 60 ? "1px solid #fde047" : "1px solid #fca5a5",
+                    }}>
+                      {cadInspection.sceneQualityScore}/100
+                    </span>
+                  </div>
+                )}
+                {cadInspection.cadHatchCount > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                    <strong>Hatches:</strong> {cadInspection.cadHatchCount}
+                    {cadInspection.sceneHatchIssues?.length > 0 && (
+                      <span style={{ padding: "0.1rem 0.4rem", borderRadius: "999px", fontSize: "0.73rem", fontWeight: 700, background: "#fee2e2", color: "#991b1b", border: "1px solid #fca5a5" }}>
+                        {cadInspection.sceneHatchIssues.length} issue{cadInspection.sceneHatchIssues.length > 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {cadInspection.cadHatchCount === 0 && cadInspection.sceneHatchIssues?.length > 0 && (
+                  <div style={{ color: "#991b1b", fontWeight: 600 }}>Hatches: not rendered ({cadInspection.sceneHatchIssues.length} conversion issue{cadInspection.sceneHatchIssues.length > 1 ? "s" : ""})</div>
+                )}
+                {cadInspection.sceneKnownLosses?.length > 0 && (
+                  <div style={{ color: "#92400e", background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: "6px", padding: "0.4rem 0.55rem" }}>
+                    <strong>Known losses:</strong>
+                    <ul style={{ margin: "0.3rem 0 0 1rem" }}>
+                      {cadInspection.sceneKnownLosses.slice(0, 5).map((loss, i) => <li key={i}>{loss}</li>)}
+                      {cadInspection.sceneKnownLosses.length > 5 && <li>…and {cadInspection.sceneKnownLosses.length - 5} more</li>}
+                    </ul>
+                  </div>
                 )}
                 {Number.isFinite(Number(cadInspection.cadTextCount)) && cadInspection.cadTextCount > 0 && (
                   <div>CAD text: {cadInspection.cadTextCount}</div>
