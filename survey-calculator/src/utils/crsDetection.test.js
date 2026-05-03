@@ -27,6 +27,29 @@ describe('detectCRS', () => {
     expect(hasGeographic).toBe(true);
   });
 
+  it('prioritizes EPSG:4326 for swapped geographic coordinates with high longitudes', () => {
+    // Swapped lon/lat style values (x=lat, y=lon), common in some CAD exports.
+    const coords = [
+      { x: -17.85, y: 133.42 },
+      { x: -17.84, y: 133.43 },
+      { x: -17.86, y: 133.44 },
+    ];
+    const results = detectCRS(coords);
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].code).toBe('EPSG:4326');
+    expect(Number(results[0].confidence)).toBeGreaterThanOrEqual(0.8);
+  });
+
+  it('avoids broad UTM trial suggestions when average values are outside UTM easting range', () => {
+    const coords = [
+      { x: 1734560, y: 7345678 },
+      { x: 1739560, y: 7346178 },
+    ];
+    const results = detectCRS(coords);
+    const hasUtmGuess = results.some((entry) => /^EPSG:32[67]\d{2}$/.test(String(entry.code || '')));
+    expect(hasUtmGuess).toBe(false);
+  });
+
   it('returns suggestions sorted by confidence descending', () => {
     const coords = [{ x: 148.0, y: -35.0 }, { x: 149.0, y: -36.0 }];
     const results = detectCRS(coords);

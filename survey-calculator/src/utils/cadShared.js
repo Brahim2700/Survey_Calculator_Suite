@@ -1939,6 +1939,13 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
 
   const isProjectedLike = (bbox) => {
     if (!bbox) return false;
+    const maxAbs = Math.max(
+      Math.abs(Number(bbox.minX) || 0),
+      Math.abs(Number(bbox.maxX) || 0),
+      Math.abs(Number(bbox.minY) || 0),
+      Math.abs(Number(bbox.maxY) || 0)
+    );
+    if (maxAbs < 1000) return false;
     const xProjected = Math.abs(bbox.minX) > 180 || Math.abs(bbox.maxX) > 180;
     const yProjected = Math.abs(bbox.minY) > 90 || Math.abs(bbox.maxY) > 90;
     return xProjected || yProjected;
@@ -1952,6 +1959,8 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
     const second = suggestions[1] || null;
     const topConfidence = Number(top?.confidence || 0);
     const confidenceGap = topConfidence - Number(second?.confidence || 0);
+
+    if (String(top?.code || '') === 'EPSG:4326' && topConfidence >= 0.78) return 'EPSG:4326';
 
     if (topConfidence < 0.8) return null;
 

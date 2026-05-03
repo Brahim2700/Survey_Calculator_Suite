@@ -50,9 +50,11 @@ export const detectCRS = (coordinates, metadata = {}) => {
 
   // 3. Additional heuristics: extents (national grids), UTM trial transforms, swapped coords
   try {
-    suggestions.push(...detectByExtents(bounds));
-    suggestions.push(...tryInferUtmFromBounds(coordinates, bounds));
-    suggestions.push(...tryInferProjectedFromCatalog(bounds));
+    if (isLikelyProjectedMetric(bounds)) {
+      suggestions.push(...detectByExtents(bounds));
+      suggestions.push(...tryInferUtmFromBounds(coordinates, bounds));
+      suggestions.push(...tryInferProjectedFromCatalog(bounds));
+    }
     const swap = detectSwapCoordinates(coordinates);
     if (swap) suggestions.push(swap);
   } catch {
@@ -166,6 +168,19 @@ export const assessReferenceSystem = (coordinates, metadata = {}, suggestionsInp
  */
 const detectFromMetadata = (metadata) => {
   const suggestions = [];
+
+  const explicitEpsgRaw = metadata?.epsg ?? metadata?.srid;
+  const explicitEpsg = Number(explicitEpsgRaw);
+  if (Number.isFinite(explicitEpsg) && explicitEpsg >= 1000) {
+    const code = `EPSG:${Math.trunc(explicitEpsg)}`;
+    const crsInfo = CRS_LIST.find((c) => c.code === code);
+    suggestions.push({
+      code,
+      name: crsInfo?.name || code,
+      confidence: crsInfo ? 0.97 : 0.9,
+      reason: 'Extracted from explicit EPSG/SRID metadata'
+    });
+  }
 
   // GeoJSON crs property
   if (metadata.crs?.properties?.name) {
@@ -287,7 +302,7 @@ const detectFromRanges = (bounds) => {
   }
 
   // Projected coordinates
-  if (isProjected(bounds)) {
+  if (isProjected(bounds) && isLikelyProjectedMetric(bounds)) {
     suggestions.push(...detectProjected(bounds));
   }
 
@@ -323,6 +338,20 @@ const isProjected = (bounds) => {
     Math.abs(minX) < 50000000 && Math.abs(maxX) < 50000000 &&
     Math.abs(minY) < 50000000 && Math.abs(maxY) < 50000000
   );
+};
+
+const isLikelyProjectedMetric = (bounds) => {
+  if (!bounds) return false;
+  const { minX, maxX, minY, maxY, rangeX, rangeY } = bounds;
+  const maxAbs = Math.max(
+    Math.abs(Number(minX) || 0),
+    Math.abs(Number(maxX) || 0),
+    Math.abs(Number(minY) || 0),
+    Math.abs(Number(maxY) || 0)
+  );
+
+  // Avoid projected heuristics for geographic-like magnitudes (including swapped lon/lat).
+  return maxAbs >= 1000 || Math.abs(Number(rangeX) || 0) >= 1000 || Math.abs(Number(rangeY) || 0) >= 1000;
 };
 
 /**
@@ -872,7 +901,10 @@ const tryInferUtmFromBounds = (coordinates, bounds) => {
   const { avgX, avgY } = bounds;
 
   // Only attempt when values look projected (large numeric ranges)
-  if (!(Math.abs(avgX) > 10000 || Math.abs(avgY) > 10000)) return suggestions;
+  if (!isLikelyProjectedMetric(bounds)) return suggestions;
+  if (!(avgX >= UTM_X_RANGE[0] && avgX <= UTM_X_RANGE[1] && avgY >= UTM_Y_RANGE[0] && avgY <= UTM_Y_RANGE[1])) {
+    return suggestions;
+  }
 
   // Try candidate UTM zones 1..60 for both hemispheres
   for (let zone = 1; zone <= 60; zone++) {
@@ -923,7 +955,7 @@ const detectSwapCoordinates = (coordinates) => {
     if (y >= -180 && y <= 180 && x >= -90 && x <= 90) swappedValid++;
   }
   if (swappedValid > normalValid && swappedValid >= Math.max(2, sample.length / 3)) {
-    return { code: 'EPSG:4326', name: 'WGS84 (swapped lon/lat)', confidence: 0.7, reason: 'Coordinates likely have lon/lat swapped' };
+    return { code: 'EPSG:4326', name: 'WGS84 (swapped lon/lat)', confidence: 0.82, reason: 'Coordinates likely have lon/lat swapped' };
   }
   return null;
 };

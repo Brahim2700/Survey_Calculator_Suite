@@ -161,12 +161,30 @@ const main = async () => {
       lat: -29.0,
       validator: (codes) => codes.some((code) => /^EPSG:32[67]\d{2}$/.test(code)),
     },
+    {
+      sourceCode: 'EPSG:4326',
+      expectedCode: 'EPSG:4326 (swapped geographic)',
+      lon: 133.42,
+      lat: -17.85,
+      validator: (_codes, suggestions) => suggestions?.[0]?.code === 'EPSG:4326',
+      useSwappedAxes: true,
+    },
   ];
 
-  globalCases.forEach(({ sourceCode, expectedCode, lon, lat, validator }) => {
+  globalCases.forEach(({ sourceCode, expectedCode, lon, lat, validator, useSwappedAxes = false }) => {
     const crs = findCrs(sourceCode);
     if (!crs) return;
-    const points = createProjectedCluster(sourceCode, lon, lat);
+    let points;
+    if (sourceCode === 'EPSG:4326') {
+      const base = [
+        { x: lon, y: lat },
+        { x: lon + 0.02, y: lat + 0.01 },
+        { x: lon - 0.02, y: lat - 0.015 },
+      ];
+      points = useSwappedAxes ? base.map((pt, idx) => ({ id: `EPSG4326_swapped_${idx + 1}`, x: pt.y, y: pt.x })) : base;
+    } else {
+      points = createProjectedCluster(sourceCode, lon, lat);
+    }
     const outcome = runCase(`Global projected ${sourceCode}`, expectedCode, points, 5, validator);
     results.push(outcome);
     if (!outcome.ok) failures.push(outcome);
