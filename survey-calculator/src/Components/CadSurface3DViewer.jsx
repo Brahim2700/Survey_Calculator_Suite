@@ -1,6 +1,44 @@
 import { useEffect, useRef, useMemo } from 'react';
 import * as THREE from 'three';
 
+const normalizeVertex = (vertex) => {
+  if (Array.isArray(vertex) && vertex.length >= 3) {
+    const x = Number(vertex[0]);
+    const y = Number(vertex[1]);
+    const z = Number(vertex[2]);
+    if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+      return { x, y, z };
+    }
+    return null;
+  }
+
+  const x = Number(vertex?.x);
+  const y = Number(vertex?.y);
+  const z = Number(vertex?.z);
+  if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+    return { x, y, z };
+  }
+  return null;
+};
+
+const normalizeTriangle = (tri, vertices) => {
+  // Common CAD/TIN format: triangle is [i0, i1, i2] over a vertices array.
+  if (Array.isArray(tri) && tri.length === 3 && tri.every(Number.isInteger)) {
+    const v1 = normalizeVertex(vertices?.[tri[0]]);
+    const v2 = normalizeVertex(vertices?.[tri[1]]);
+    const v3 = normalizeVertex(vertices?.[tri[2]]);
+    if (v1 && v2 && v3) return { v1, v2, v3 };
+  }
+
+  // Alternate object style triangles.
+  const v1 = normalizeVertex(tri?.v1 || tri?.a || tri?.p1);
+  const v2 = normalizeVertex(tri?.v2 || tri?.b || tri?.p2);
+  const v3 = normalizeVertex(tri?.v3 || tri?.c || tri?.p3);
+  if (v1 && v2 && v3) return { v1, v2, v3 };
+
+  return null;
+};
+
 /**
  * CadSurface3DViewer
  * Three.js 3D viewer for CAD surfaces (3DFACE / TIN triangles).
@@ -14,8 +52,10 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     const tris = [];
     surfaces.forEach((surface) => {
       if (!Array.isArray(surface?.triangles)) return;
+      const vertices = Array.isArray(surface?.vertices) ? surface.vertices : [];
       surface.triangles.forEach((tri) => {
-        if (tri?.v1 && tri?.v2 && tri?.v3) tris.push(tri);
+        const normalized = normalizeTriangle(tri, vertices);
+        if (normalized) tris.push(normalized);
       });
     });
     return tris;
