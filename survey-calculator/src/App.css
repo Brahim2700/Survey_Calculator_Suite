@@ -153,13 +153,14 @@
   border: 1px solid rgba(255, 255, 255, 0.24);
 }
 .map-toolbar {
-  padding: 0.65rem 1rem;
+  padding: 0.55rem 1rem;
   background: #0f2040;
   border-bottom: 1px solid rgba(255,255,255,.07);
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: space-between;
   gap: 0.5rem;
+  min-height: 3rem;
 }
 .map-toolbar-title {
   color: #e0eaff;
@@ -168,6 +169,8 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   flex: 0 0 auto;
+  display: flex;
+  align-items: center;
 }
 .map-toolbar-actions {
   display: flex;
@@ -177,12 +180,15 @@
   min-width: 0;
   justify-content: flex-start;
   overflow-x: auto;
-  overflow-y: hidden;
-  padding-bottom: 0.15rem;
+  overflow-y: clip;
+  padding-top: 0.35rem;
+  padding-bottom: 0.35rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.55) rgba(15, 32, 64, 0.24);
 }
 
 .map-toolbar-actions::-webkit-scrollbar {
-  height: 7px;
+  height: 4px;
 }
 
 .map-toolbar-actions::-webkit-scrollbar-thumb {
