@@ -2140,7 +2140,7 @@ const CoordinateConverter = () => {
       .filter(Boolean);
   }, [toCrs]);
 
-  const projectCadGeometryToWgs84 = useCallback((geometry, sourceCrs) => {
+  const projectCadGeometryToWgs84 = useCallback((geometry, sourceCrs, rowsForContext = []) => {
     const safeGeometry = {
       lines: Array.isArray(geometry?.lines) ? geometry.lines : [],
       polylines: Array.isArray(geometry?.polylines) ? geometry.polylines : [],
@@ -2241,10 +2241,65 @@ const CoordinateConverter = () => {
     const sourceDef = CRS_LIST.find((c) => c.code === source);
     const sourceIsGeo = sourceDef?.type === 'geographic' || source === 'EPSG:4326';
     const useLocalPreview = source === 'LOCAL:ENGINEERING' || !sourceDef;
-    const localPreviewTransform = useLocalPreview ? createLocalPreviewTransform([], safeGeometry) : null;
+    const localPreviewTransform = useLocalPreview ? createLocalPreviewTransform(rowsForContext, safeGeometry) : null;
+
+    const allSourcePoints = collectRawCadPoints(rowsForContext, safeGeometry);
+    const sourceBounds = (() => {
+      if (!Array.isArray(allSourcePoints) || allSourcePoints.length < 4) return null;
+      let minX = allSourcePoints[0].x;
+      let maxX = allSourcePoints[0].x;
+      let minY = allSourcePoints[0].y;
+      let maxY = allSourcePoints[0].y;
+      for (const pt of allSourcePoints) {
+        if (!Number.isFinite(pt?.x) || !Number.isFinite(pt?.y)) continue;
+        if (pt.x < minX) minX = pt.x;
+        if (pt.x > maxX) maxX = pt.x;
+        if (pt.y < minY) minY = pt.y;
+        if (pt.y > maxY) maxY = pt.y;
+      }
+      const spanX = Math.max(0, maxX - minX);
+      const spanY = Math.max(0, maxY - minY);
+      return {
+        centerX: (minX + maxX) / 2,
+        centerY: (minY + maxY) / 2,
+        spanX,
+        spanY,
+      };
+    })();
+
+    const axisMode = (() => {
+      if (useLocalPreview || sourceIsGeo) return 'normal';
+      const voteSamples = allSourcePoints.slice(0, 600);
+      if (voteSamples.length < 8) return 'auto';
+      let swapVotes = 0;
+      let normalVotes = 0;
+      voteSamples.forEach((pt) => {
+        const shouldSwap = shouldSwapCoordinateAxesForCrs(source, Number(pt.x), Number(pt.y));
+        if (shouldSwap) swapVotes += 1;
+        else normalVotes += 1;
+      });
+      if (swapVotes >= normalVotes * 1.25) return 'swap';
+      if (normalVotes >= swapVotes * 1.25) return 'normal';
+      return 'auto';
+    })();
+
+    const normalizeSourceAxes = (xVal, yVal) => {
+      if (axisMode === 'swap') return [yVal, xVal];
+      if (axisMode === 'normal') return [xVal, yVal];
+      return normalizeCoordinateAxesForCrs(source, xVal, yVal);
+    };
 
     const toLatLng = (x, y, z = 0) => {
       if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+
+      if (!useLocalPreview && sourceBounds) {
+        const xThreshold = Math.max(5000, sourceBounds.spanX * 20);
+        const yThreshold = Math.max(5000, sourceBounds.spanY * 20);
+        if (Math.abs(x - sourceBounds.centerX) > xThreshold || Math.abs(y - sourceBounds.centerY) > yThreshold) {
+          return null;
+        }
+      }
+
       if (useLocalPreview) {
         if (!localPreviewTransform) return null;
         return [
@@ -2257,8 +2312,10 @@ const CoordinateConverter = () => {
         return [y, x, Number.isFinite(z) ? z : 0];
       }
       try {
-        const [lon, lat] = projectWithNormalizedSourceAxes(source, 'EPSG:4326', x, y);
+        const [normalizedX, normalizedY] = normalizeSourceAxes(x, y);
+        const [lon, lat] = proj4(source, 'EPSG:4326', [normalizedX, normalizedY]);
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+        if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
         return [lat, lon, Number.isFinite(z) ? z : 0];
       } catch {
         return null;
