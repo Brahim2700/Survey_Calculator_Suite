@@ -217,7 +217,7 @@ const getCadExtractionModeLabel = (strictExistingPointsOnly = true) => (
   strictExistingPointsOnly ? "Existing points only" : "Include inferred points"
 );
 
-const buildCadInspectionSummary = (file, rows, status, payload = null, strictExistingPointsOnly = true) => {
+const buildCadInspectionSummary = (file, rows, status, payload = null, strictExistingPointsOnly = true, projectionDiagnostics = null) => {
   const xs = rows.map((row) => Number(row.x)).filter(Number.isFinite);
   const ys = rows.map((row) => Number(row.y)).filter(Number.isFinite);
   const zs = rows.map((row) => Number(row.z)).filter(Number.isFinite);
@@ -241,6 +241,7 @@ const buildCadInspectionSummary = (file, rows, status, payload = null, strictExi
   const performanceProfile = payload?.inspection?.performanceProfile || null;
   const fidelityProfile = payload?.inspection?.fidelityProfile || null;
   const progressive = payload?.progressive || null;
+  const projectedDiagnostics = projectionDiagnostics || payload?.geometry?.projectionDiagnostics || null;
 
   return {
     fileName: file?.name || null,
@@ -279,6 +280,7 @@ const buildCadInspectionSummary = (file, rows, status, payload = null, strictExi
     converterAttemptErrors: Array.isArray(payload?.inspection?.converterAttemptErrors) ? payload.inspection.converterAttemptErrors : [],
     performanceProfile,
     fidelityProfile,
+    projectionDiagnostics: projectedDiagnostics,
     progressive,
     processingRoute: route,
     pointExtractionMode: getCadExtractionModeLabel(strictExistingPointsOnly),
@@ -468,6 +470,18 @@ const buildCadValidationIssueRows = (inspection) => {
       detail: "Applied during permissive CAD import",
     });
   });
+
+  const projectionDiagnostics = inspection?.projectionDiagnostics || null;
+  if (projectionDiagnostics && Number(projectionDiagnostics.droppedVertices) > 0) {
+    addIssue({
+      severity: "info",
+      category: "projection",
+      code: "cad-projection-outlier-filter",
+      title: "Projection outlier filter active",
+      message: `${projectionDiagnostics.droppedVertices} vertex/vertices dropped during projection guard filtering.`,
+      detail: `Dropped segments: ${projectionDiagnostics.droppedSegments || 0} | Dropped entities: ${projectionDiagnostics.droppedEntities || 0}`,
+    });
+  }
 
   return rows;
 };
@@ -2168,6 +2182,18 @@ const CoordinateConverter = () => {
         repairs: null,
         renderHints: safeGeometry.renderHints,
         performanceProfile: safeGeometry.performanceProfile,
+        projectionDiagnostics: {
+          axisMode: 'normal',
+          droppedVertices: 0,
+          droppedSegments: 0,
+          droppedEntities: 0,
+          droppedLines: 0,
+          droppedPolylines: 0,
+          droppedTexts: 0,
+          droppedHatches: 0,
+          droppedSurfaces: 0,
+          droppedReasonCounts: {},
+        },
       };
     }
 
@@ -2289,19 +2315,44 @@ const CoordinateConverter = () => {
       return normalizeCoordinateAxesForCrs(source, xVal, yVal);
     };
 
+    const projectionCounters = {
+      droppedVertices: 0,
+      droppedSegments: 0,
+      droppedEntities: 0,
+      droppedLines: 0,
+      droppedPolylines: 0,
+      droppedTexts: 0,
+      droppedHatches: 0,
+      droppedSurfaces: 0,
+      droppedReasonCounts: {},
+    };
+
+    const countDrop = (reason) => {
+      projectionCounters.droppedVertices += 1;
+      const key = String(reason || 'unknown');
+      projectionCounters.droppedReasonCounts[key] = (projectionCounters.droppedReasonCounts[key] || 0) + 1;
+    };
+
     const toLatLng = (x, y, z = 0) => {
-      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        countDrop('non-finite-source');
+        return null;
+      }
 
       if (!useLocalPreview && sourceBounds) {
         const xThreshold = Math.max(5000, sourceBounds.spanX * 20);
         const yThreshold = Math.max(5000, sourceBounds.spanY * 20);
         if (Math.abs(x - sourceBounds.centerX) > xThreshold || Math.abs(y - sourceBounds.centerY) > yThreshold) {
+          countDrop('source-outlier');
           return null;
         }
       }
 
       if (useLocalPreview) {
-        if (!localPreviewTransform) return null;
+        if (!localPreviewTransform) {
+          countDrop('local-preview-unavailable');
+          return null;
+        }
         return [
           localPreviewTransform.anchorLat + ((y - localPreviewTransform.centerY) * localPreviewTransform.scale),
           localPreviewTransform.anchorLng + ((x - localPreviewTransform.centerX) * localPreviewTransform.scale),
@@ -2314,10 +2365,17 @@ const CoordinateConverter = () => {
       try {
         const [normalizedX, normalizedY] = normalizeSourceAxes(x, y);
         const [lon, lat] = proj4(source, 'EPSG:4326', [normalizedX, normalizedY]);
-        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-        if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+          countDrop('projection-non-finite');
+          return null;
+        }
+        if (Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+          countDrop('projection-out-of-range');
+          return null;
+        }
         return [lat, lon, Number.isFinite(z) ? z : 0];
       } catch {
+        countDrop('projection-error');
         return null;
       }
     };
@@ -2328,17 +2386,30 @@ const CoordinateConverter = () => {
         const e = Array.isArray(line?.end) ? line.end : [];
         const start = toLatLng(Number(s[0]), Number(s[1]), Number(s[2] ?? 0));
         const end = toLatLng(Number(e[0]), Number(e[1]), Number(e[2] ?? 0));
-        if (!start || !end) return null;
+        if (!start || !end) {
+          projectionCounters.droppedLines += 1;
+          projectionCounters.droppedEntities += 1;
+          projectionCounters.droppedSegments += 1;
+          return null;
+        }
         return { ...line, start, end };
       })
       .filter(Boolean);
 
     const polylines = safeGeometry.polylines
       .map((poly) => {
-        const points = (Array.isArray(poly?.points) ? poly.points : [])
+        const sourcePoints = Array.isArray(poly?.points) ? poly.points : [];
+        const points = sourcePoints
           .map((p) => toLatLng(Number(p?.[0]), Number(p?.[1]), Number(p?.[2] ?? 0)))
           .filter(Boolean);
-        if (points.length < 2) return null;
+        if (sourcePoints.length > points.length) {
+          projectionCounters.droppedSegments += Math.max(0, sourcePoints.length - points.length - 1);
+        }
+        if (points.length < 2) {
+          projectionCounters.droppedPolylines += 1;
+          projectionCounters.droppedEntities += 1;
+          return null;
+        }
         return { ...poly, points };
       })
       .filter(Boolean);
@@ -2347,33 +2418,57 @@ const CoordinateConverter = () => {
       .map((textEntity) => {
         const pos = Array.isArray(textEntity?.position) ? textEntity.position : [];
         const position = toLatLng(Number(pos[0]), Number(pos[1]), Number(pos[2] ?? 0));
-        if (!position) return null;
+        if (!position) {
+          projectionCounters.droppedTexts += 1;
+          projectionCounters.droppedEntities += 1;
+          return null;
+        }
         return { ...textEntity, position };
       })
       .filter(Boolean);
 
     const hatches = safeGeometry.hatches
       .map((hatch) => {
-        const polygons = (Array.isArray(hatch?.polygons) ? hatch.polygons : [])
-          .map((polygon) => (Array.isArray(polygon) ? polygon : [])
-            .map((vertex) => toLatLng(Number(vertex?.[0]), Number(vertex?.[1]), Number(vertex?.[2] ?? 0)))
-            .filter(Boolean))
+        const sourcePolygons = Array.isArray(hatch?.polygons) ? hatch.polygons : [];
+        const polygons = sourcePolygons
+          .map((polygon) => {
+            const sourceVertices = Array.isArray(polygon) ? polygon : [];
+            const projectedVertices = sourceVertices
+              .map((vertex) => toLatLng(Number(vertex?.[0]), Number(vertex?.[1]), Number(vertex?.[2] ?? 0)))
+              .filter(Boolean);
+            if (sourceVertices.length > projectedVertices.length) {
+              projectionCounters.droppedSegments += Math.max(0, sourceVertices.length - projectedVertices.length);
+            }
+            return projectedVertices;
+          })
           .filter((polygon) => polygon.length >= 3);
-        if (!polygons.length) return null;
+        if (!polygons.length) {
+          projectionCounters.droppedHatches += 1;
+          projectionCounters.droppedEntities += 1;
+          return null;
+        }
         return { ...hatch, polygons };
       })
       .filter(Boolean);
 
     const surfaces = safeGeometry.surfaces
       .map((surface) => {
-        const vertices = (Array.isArray(surface?.vertices) ? surface.vertices : [])
+        const sourceVertices = Array.isArray(surface?.vertices) ? surface.vertices : [];
+        const vertices = sourceVertices
           .map((vertex) => toLatLng(Number(vertex?.[0]), Number(vertex?.[1]), Number(vertex?.[2] ?? 0)))
           .filter(Boolean);
+        if (sourceVertices.length > vertices.length) {
+          projectionCounters.droppedSegments += Math.max(0, sourceVertices.length - vertices.length);
+        }
         const triangles = (Array.isArray(surface?.triangles) ? surface.triangles : [])
           .map((tri) => (Array.isArray(tri) ? tri.map((idx) => Number(idx)) : null))
           .filter((tri) => tri && tri.length === 3 && tri.every((idx) => Number.isInteger(idx) && idx >= 0 && idx < vertices.length));
 
-        if (vertices.length < 3 || triangles.length === 0) return null;
+        if (vertices.length < 3 || triangles.length === 0) {
+          projectionCounters.droppedSurfaces += 1;
+          projectionCounters.droppedEntities += 1;
+          return null;
+        }
         return {
           ...surface,
           vertices,
@@ -2399,6 +2494,18 @@ const CoordinateConverter = () => {
       renderHints: safeGeometry.renderHints,
       performanceProfile: safeGeometry.performanceProfile,
       localPreview: useLocalPreview,
+      projectionDiagnostics: {
+        axisMode,
+        droppedVertices: projectionCounters.droppedVertices,
+        droppedSegments: projectionCounters.droppedSegments,
+        droppedEntities: projectionCounters.droppedEntities,
+        droppedLines: projectionCounters.droppedLines,
+        droppedPolylines: projectionCounters.droppedPolylines,
+        droppedTexts: projectionCounters.droppedTexts,
+        droppedHatches: projectionCounters.droppedHatches,
+        droppedSurfaces: projectionCounters.droppedSurfaces,
+        droppedReasonCounts: projectionCounters.droppedReasonCounts,
+      },
     };
   }, []);
 
@@ -3435,7 +3542,15 @@ const CoordinateConverter = () => {
               const refinedRows = Array.isArray(refinedPayload?.rows) ? refinedPayload.rows : [];
               if (!refinedRows.length) return;
               const refinedSourceCrs = resolveCadSourceCrs(refinedRows, refinedPayload, { preferDetected: true });
-              setCadInspection(buildCadInspectionSummary(file, refinedRows, latestCadStatus, refinedPayload, cadStrictExistingPointsOnly));
+              const refinedGeometry = projectCadGeometryToWgs84(refinedPayload?.geometry, refinedSourceCrs, refinedRows);
+              setCadInspection(buildCadInspectionSummary(
+                file,
+                refinedRows,
+                latestCadStatus,
+                refinedPayload,
+                cadStrictExistingPointsOnly,
+                refinedGeometry?.projectionDiagnostics || null,
+              ));
               setCadSourceGeometry(refinedPayload?.geometry || null);
               setCadGeometrySourceCrs(refinedSourceCrs || null);
 
@@ -3446,7 +3561,6 @@ const CoordinateConverter = () => {
                 sourceKey: importSourceKey,
               });
 
-              const refinedGeometry = projectCadGeometryToWgs84(refinedPayload?.geometry, refinedSourceCrs, refinedRows);
               emit("converter:cadGeometryForMap", {
                 geometry: refinedGeometry,
                 append: fileImportMode === "append",
@@ -3489,7 +3603,15 @@ const CoordinateConverter = () => {
         setImportCrsNotice("");
       }
 
-      setCadInspection(buildCadInspectionSummary(file, rows, latestCadStatus, cadPayload, cadStrictExistingPointsOnly));
+      const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrs, rows);
+      setCadInspection(buildCadInspectionSummary(
+        file,
+        rows,
+        latestCadStatus,
+        cadPayload,
+        cadStrictExistingPointsOnly,
+        projectedGeometry?.projectionDiagnostics || null,
+      ));
         setCadSourceGeometry(cadPayload?.geometry || null);
         setCadGeometrySourceCrs(sourceCrs || null);
 
@@ -3502,7 +3624,6 @@ const CoordinateConverter = () => {
         sourceKey: importSourceKey,
       });
 
-        const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrs, rows);
       emit("converter:cadGeometryForMap", {
         geometry: projectedGeometry,
         append: fileImportMode === "append",
@@ -3647,11 +3768,17 @@ const CoordinateConverter = () => {
                 const refinedRows = Array.isArray(refinedPayload?.rows) ? refinedPayload.rows : [];
                 if (!refinedRows.length) return;
                 const refinedSourceCrs = resolveCadSourceCrs(refinedRows, refinedPayload);
-                setCadInspection(buildCadInspectionSummary(file, refinedRows, latestCadStatus, refinedPayload, cadStrictExistingPointsOnly));
+                const refinedGeometry = projectCadGeometryToWgs84(refinedPayload?.geometry, refinedSourceCrs, refinedRows);
+                setCadInspection(buildCadInspectionSummary(
+                  file,
+                  refinedRows,
+                  latestCadStatus,
+                  refinedPayload,
+                  cadStrictExistingPointsOnly,
+                  refinedGeometry?.projectionDiagnostics || null,
+                ));
                 setCadSourceGeometry(refinedPayload?.geometry || null);
                 setCadGeometrySourceCrs(refinedSourceCrs || null);
-
-                const refinedGeometry = projectCadGeometryToWgs84(refinedPayload?.geometry, refinedSourceCrs, refinedRows);
                 emit("converter:cadGeometryForMap", {
                   geometry: refinedGeometry,
                   append: fileImportMode === "append",
@@ -3698,12 +3825,19 @@ const CoordinateConverter = () => {
         if (parsed.length === 0) throw new Error("No valid coordinates in file");
 
         if (["dxf", "dwg"].includes(ext)) {
-          setCadInspection(buildCadInspectionSummary(file, rows, latestCadStatus, cadPayload, cadStrictExistingPointsOnly));
-
           const sourceCrsForGeometry = resolveCadSourceCrs(rows, cadPayload);
+          const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrsForGeometry, rows);
+          setCadInspection(buildCadInspectionSummary(
+            file,
+            rows,
+            latestCadStatus,
+            cadPayload,
+            cadStrictExistingPointsOnly,
+            projectedGeometry?.projectionDiagnostics || null,
+          ));
+
           setCadSourceGeometry(cadPayload?.geometry || null);
           setCadGeometrySourceCrs(sourceCrsForGeometry || null);
-          const projectedGeometry = projectCadGeometryToWgs84(cadPayload?.geometry, sourceCrsForGeometry, rows);
           emit("converter:cadGeometryForMap", {
             geometry: projectedGeometry,
             append: fileImportMode === "append",
