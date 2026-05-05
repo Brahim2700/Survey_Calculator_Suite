@@ -223,6 +223,165 @@ function parseDxfWithRepairStrategy(dxfText, options, { sourceTag = 'dxf' } = {}
   throw new Error(`DXF parse failed after ${candidates.length} repair attempts. ${errors.join(' | ')}`);
 }
 
+function buildModeRetryOrder(requestedMode = 'full', pointsOnly = false) {
+  const mode = String(requestedMode || 'full').toLowerCase();
+  if (pointsOnly) return [mode];
+
+  const order = [];
+  const pushMode = (value) => {
+    const v = String(value || '').toLowerCase();
+    if (!v) return;
+    if (!['full', 'preview', 'recovery'].includes(v)) return;
+    if (!order.includes(v)) order.push(v);
+  };
+
+  if (mode === 'recovery') {
+    pushMode('recovery');
+    pushMode('preview');
+    pushMode('full');
+    return order;
+  }
+
+  if (mode === 'preview') {
+    pushMode('preview');
+    pushMode('recovery');
+    pushMode('full');
+    return order;
+  }
+
+  pushMode('full');
+  pushMode('preview');
+  pushMode('recovery');
+  return order;
+}
+
+function parseCadTextWithModeRetry(dxfText, baseOptions, requestedMode = 'full', { sourceTag = 'dxf' } = {}) {
+  const modeOrder = buildModeRetryOrder(requestedMode, Boolean(baseOptions?.pointsOnly));
+  const modeErrors = [];
+
+  for (const mode of modeOrder) {
+    const optionsForMode = { ...baseOptions, processingMode: mode };
+    try {
+      const result = parseDxfWithRepairStrategy(dxfText, optionsForMode, {
+        sourceTag: `${sourceTag}:${mode}`,
+      });
+      return {
+        ...result,
+        modeUsed: mode,
+        requestedMode,
+        modeAttempts: modeOrder,
+        modeErrors,
+        modeFallbackUsed: mode !== requestedMode,
+      };
+    } catch (err) {
+      modeErrors.push(`${mode}: ${err.message || String(err)}`);
+    }
+  }
+
+  throw new Error(`CAD parse failed across processing modes (${modeOrder.join(', ')}). ${modeErrors.join(' | ')}`);
+}
+
+function buildEntityTypeFamilyCounts(diagnostics = {}) {
+  const map = diagnostics?.entityTypeCounts && typeof diagnostics.entityTypeCounts === 'object'
+    ? diagnostics.entityTypeCounts
+    : {};
+
+  let points = 0;
+  let lines = 0;
+  let polylines = 0;
+  let hatches = 0;
+  let texts = 0;
+  let surfaces = 0;
+
+  Object.entries(map).forEach(([rawType, rawCount]) => {
+    const type = String(rawType || '').toUpperCase();
+    const count = Number(rawCount) || 0;
+    if (count <= 0) return;
+    if (['POINT'].includes(type)) {
+      points += count;
+    } else if (['LINE', 'XLINE', 'RAY', '3DLINE'].includes(type)) {
+      lines += count;
+    } else if (['POLYLINE', 'LWPOLYLINE', 'SPLINE', 'ARC', 'CIRCLE', 'ELLIPSE'].includes(type)) {
+      polylines += count;
+    } else if (['HATCH'].includes(type)) {
+      hatches += count;
+    } else if (['TEXT', 'MTEXT', 'ATTRIB', 'ATTDEF'].includes(type)) {
+      texts += count;
+    } else if (['3DFACE', 'PLANESURFACE', 'REGION', 'MESH', 'POLYFACE', 'TIN'].includes(type)) {
+      surfaces += count;
+    }
+  });
+
+  return { points, lines, polylines, hatches, texts, surfaces };
+}
+
+function computeCadFidelityProfile({ geometry = {}, rows = [], diagnostics = {}, requestedMode = 'full', modeUsed = 'full', parseRepair = null }) {
+  const extracted = {
+    points: Array.isArray(rows) ? rows.length : 0,
+    lines: Array.isArray(geometry?.lines) ? geometry.lines.length : 0,
+    polylines: Array.isArray(geometry?.polylines) ? geometry.polylines.length : 0,
+    hatches: Array.isArray(geometry?.hatches) ? geometry.hatches.length : 0,
+    texts: Array.isArray(geometry?.texts) ? geometry.texts.length : 0,
+    surfaces: Array.isArray(geometry?.surfaces) ? geometry.surfaces.length : 0,
+  };
+
+  const expected = buildEntityTypeFamilyCounts(diagnostics);
+  const weights = {
+    points: 1.0,
+    lines: 1.1,
+    polylines: 1.2,
+    hatches: 1.3,
+    texts: 0.8,
+    surfaces: 1.4,
+  };
+
+  const familyCoverage = {};
+  let weightedCoverage = 0;
+  let weightedTotal = 0;
+
+  Object.keys(weights).forEach((family) => {
+    const expectedCount = Number(expected[family] || 0);
+    const extractedCount = Number(extracted[family] || 0);
+    const coverage = expectedCount > 0
+      ? Math.max(0, Math.min(1, extractedCount / expectedCount))
+      : (extractedCount > 0 ? 1 : null);
+    familyCoverage[family] = {
+      expected: expectedCount,
+      extracted: extractedCount,
+      coverage,
+    };
+    if (coverage !== null) {
+      const w = weights[family];
+      weightedCoverage += coverage * w;
+      weightedTotal += w;
+    }
+  });
+
+  const unresolvedRefs = Number(diagnostics?.references?.unresolvedXrefs?.length || 0)
+    + Number(diagnostics?.references?.unresolvedBlockRefs?.length || 0)
+    + Number(diagnostics?.references?.cyclicBlockRefs?.length || 0);
+  const repairPenalty = parseRepair?.recovered ? 0.04 : 0;
+  const modePenalty = requestedMode !== modeUsed ? 0.08 : 0;
+  const referencePenalty = Math.min(0.22, unresolvedRefs * 0.01);
+
+  const rawScore = weightedTotal > 0 ? (weightedCoverage / weightedTotal) : 0;
+  const adjustedScore = Math.max(0, Math.min(1, rawScore - repairPenalty - modePenalty - referencePenalty));
+
+  return {
+    requestedMode,
+    modeUsed,
+    modeFallbackUsed: requestedMode !== modeUsed,
+    score: Number((adjustedScore * 100).toFixed(2)),
+    rawScore: Number((rawScore * 100).toFixed(2)),
+    penalties: {
+      repairPenalty: Number((repairPenalty * 100).toFixed(2)),
+      modePenalty: Number((modePenalty * 100).toFixed(2)),
+      referencePenalty: Number((referencePenalty * 100).toFixed(2)),
+    },
+    familyCoverage,
+  };
+}
+
 function summarizeCadRows(rows) {
   if (!Array.isArray(rows) || rows.length === 0) {
     return { rowCount: 0 };
@@ -743,6 +902,10 @@ export async function parseCadUpload({
   let preferredConverterMode = null;
   let degradedFallback = false;
   let parseRepair = null;
+  const requestedProcessingMode = processingMode;
+  let processingModeUsed = processingMode;
+  let parseModeAttempts = [processingMode];
+  let parseModeErrors = [];
 
   const availableConverterModes = getAvailableConverterModes();
   const preScanRecommendedEngine = preScan?.recommendedEngine || null;
@@ -753,17 +916,23 @@ export async function parseCadUpload({
   }
 
   if (ext === '.dxf') {
-    const parsedResult = parseDxfWithRepairStrategy(Buffer.from(data).toString('utf8'), options, { sourceTag: 'direct-dxf' });
+    const parsedResult = parseCadTextWithModeRetry(Buffer.from(data).toString('utf8'), options, requestedProcessingMode, { sourceTag: 'direct-dxf' });
     const parsed = parsedResult.parsed;
     parseRepair = parsedResult.repair;
+    processingModeUsed = parsedResult.modeUsed;
+    parseModeAttempts = parsedResult.modeAttempts || parseModeAttempts;
+    parseModeErrors = parsedResult.modeErrors || parseModeErrors;
     rows = parsed.rows;
     geometry = parsed.geometry || null;
     diagnostics = parsed.diagnostics || null;
     processingRoute = 'local-dxf';
   } else if (!isLikelyNativeDwgData(data) && isLikelyDxfData(data)) {
-    const parsedResult = parseDxfWithRepairStrategy(Buffer.from(data).toString('utf8'), options, { sourceTag: 'dwg-dxf-text' });
+    const parsedResult = parseCadTextWithModeRetry(Buffer.from(data).toString('utf8'), options, requestedProcessingMode, { sourceTag: 'dwg-dxf-text' });
     const parsed = parsedResult.parsed;
     parseRepair = parsedResult.repair;
+    processingModeUsed = parsedResult.modeUsed;
+    parseModeAttempts = parsedResult.modeAttempts || parseModeAttempts;
+    parseModeErrors = parsedResult.modeErrors || parseModeErrors;
     rows = parsed.rows;
     geometry = parsed.geometry || null;
     diagnostics = parsed.diagnostics || null;
@@ -776,9 +945,12 @@ export async function parseCadUpload({
       converterModeUsed = conversionResult.modeUsed;
       converterAttemptedModes = conversionResult.attemptedModes || [];
       converterAttemptErrors = conversionResult.attemptErrors || [];
-      const parsedResult = parseDxfWithRepairStrategy(rawDxfText, options, { sourceTag: 'dwg-converted' });
+      const parsedResult = parseCadTextWithModeRetry(rawDxfText, options, requestedProcessingMode, { sourceTag: 'dwg-converted' });
       const parsedDxf = parsedResult.parsed;
       parseRepair = parsedResult.repair;
+      processingModeUsed = parsedResult.modeUsed;
+      parseModeAttempts = parsedResult.modeAttempts || parseModeAttempts;
+      parseModeErrors = parsedResult.modeErrors || parseModeErrors;
       rows = parsedDxf.rows;
       geometry = parsedDxf.geometry || null;
       diagnostics = parsedDxf.diagnostics || null;
@@ -836,10 +1008,10 @@ export async function parseCadUpload({
     }
   }
 
-  if (processingMode === 'preview') {
+  if (processingModeUsed === 'preview') {
     warnings.push('Preview mode was used. Output may omit some heavy entities until a full/recovery pass is run.');
   }
-  if (processingMode === 'recovery') {
+  if (processingModeUsed === 'recovery') {
     warnings.push('Recovery mode was used due to file complexity. Review diagnostics and unresolved entities before relying on full fidelity.');
   }
   if (pointsOnly) {
@@ -851,7 +1023,8 @@ export async function parseCadUpload({
   const inspection = {
     fileName: originalName,
     extension: ext,
-    processingMode,
+    processingMode: processingModeUsed,
+    requestedProcessingMode,
     preflightFormatHint,
     preflightModeConfidence,
     preflightModeConfidenceReason,
@@ -869,6 +1042,8 @@ export async function parseCadUpload({
     converterModeUsed,
     converterAttemptedModes,
     converterAttemptErrors,
+    parseModeAttempts,
+    parseModeErrors,
     parseRepair,
     degradedFallback,
     processingRoute,
@@ -889,11 +1064,29 @@ export async function parseCadUpload({
     hatchRenderHints: geometry?.renderHints?.hatch || null,
     repairs: geometry?.repairs || diagnostics?.repairs || null,
     performanceProfile: analyzeGeometryDensity({ rows, geometry }, fileSizeBytes),
+    fidelityProfile: computeCadFidelityProfile({
+      geometry,
+      rows,
+      diagnostics,
+      requestedMode: requestedProcessingMode,
+      modeUsed: processingModeUsed,
+      parseRepair,
+    }),
     unresolvedXrefs: diagnostics?.references?.unresolvedXrefs || [],
     missingBlockRefs: diagnostics?.references?.unresolvedBlockRefs || [],
     cyclicBlockRefs: diagnostics?.references?.cyclicBlockRefs || [],
     ...summarizeCadRows(rows),
   };
+
+  if (geometry && typeof geometry === 'object') {
+    geometry.performanceProfile = inspection.performanceProfile;
+    geometry.fidelityProfile = inspection.fidelityProfile;
+    geometry.renderHints = {
+      ...(geometry.renderHints || {}),
+      performanceProfile: inspection.performanceProfile,
+      fidelityProfile: inspection.fidelityProfile,
+    };
+  }
 
   const sourceFormat = ext.slice(1);
   const scene = buildCanonicalCadScene({

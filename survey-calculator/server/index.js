@@ -5,7 +5,7 @@ import { rateLimit } from 'express-rate-limit';
 import multer from 'multer';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
@@ -28,6 +28,61 @@ const chunkUpload = multer({
   limits: { fileSize: uploadLimitMb * 1024 * 1024 },
 });
 const chunkRootDir = path.join(tmpdir(), 'survey-cad-chunks');
+const progressiveCadJobs = new Map();
+const PROGRESSIVE_JOB_MAX_AGE_MS = 20 * 60 * 1000;
+
+function createProgressiveJob({ buffer, parseArgs, preScan, baseMode }) {
+  const jobId = randomUUID();
+  const job = {
+    id: jobId,
+    status: 'queued',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    baseMode,
+    targetMode: 'full',
+    payload: null,
+    error: null,
+  };
+  progressiveCadJobs.set(jobId, job);
+
+  setImmediate(async () => {
+    const current = progressiveCadJobs.get(jobId);
+    if (!current) return;
+    current.status = 'processing';
+    current.updatedAt = Date.now();
+    try {
+      const fullResult = await parseCadUpload({
+        ...parseArgs,
+        buffer,
+        pointsOnly: false,
+        processingMode: 'full',
+      });
+      current.payload = normalizeCadParseResponse(fullResult, preScan || null);
+      current.status = 'ready';
+      current.updatedAt = Date.now();
+    } catch (err) {
+      current.status = 'error';
+      current.error = err?.message || 'Progressive CAD refinement failed.';
+      current.updatedAt = Date.now();
+    }
+  });
+
+  return jobId;
+}
+
+function withProgressiveMetadata(payload, jobId, baseMode) {
+  if (!jobId) return payload;
+  return {
+    ...payload,
+    progressive: {
+      jobId,
+      status: 'queued',
+      baseMode,
+      targetMode: 'full',
+      pollPath: `/api/cad/refine/${jobId}`,
+    },
+  };
+}
 
 async function ensureChunkRootDir() {
   await fs.mkdir(chunkRootDir, { recursive: true });
@@ -256,6 +311,37 @@ app.get('/api/cad/health', generalRateLimit, (_req, res) => {
   res.json(getCadBackendStatus());
 });
 
+app.get('/api/cad/refine/:jobId', generalRateLimit, (req, res) => {
+  const jobId = String(req.params?.jobId || '').trim();
+  const job = progressiveCadJobs.get(jobId);
+  if (!job) {
+    res.status(404).json({ status: 'missing', message: 'Progressive CAD job not found or expired.' });
+    return;
+  }
+
+  if (job.status === 'ready') {
+    res.json({
+      status: 'ready',
+      payload: job.payload,
+    });
+    return;
+  }
+
+  if (job.status === 'error') {
+    res.json({
+      status: 'error',
+      message: job.error || 'Progressive CAD refinement failed.',
+    });
+    return;
+  }
+
+  res.status(202).json({
+    status: job.status,
+    baseMode: job.baseMode,
+    targetMode: job.targetMode,
+  });
+});
+
 app.post('/api/cad/prescan', uploadRateLimit, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
@@ -380,13 +466,11 @@ app.post('/api/cad/upload/complete', uploadRateLimit, express.json({ limit: '1mb
     });
     const effectiveProcessingMode = mergeProcessingMode(processingMode, preScan.recommendedMode);
 
-    const result = await parseCadUpload({
+    const parseArgs = {
       buffer: combined,
       originalName: fileName,
       fileSizeBytes: combined.length,
-      pointsOnly,
       strictExistingPointsOnly,
-      processingMode: effectiveProcessingMode,
       expectedFileHashFNV64,
       assembledHashFNV64,
       assembledHashSha256,
@@ -394,11 +478,28 @@ app.post('/api/cad/upload/complete', uploadRateLimit, express.json({ limit: '1mb
       preflightModeConfidence,
       preflightModeConfidenceReason,
       preScan,
+    };
+
+    const result = await parseCadUpload({
+      ...parseArgs,
+      pointsOnly,
+      processingMode: effectiveProcessingMode,
     });
+
+    const shouldScheduleProgressive = !pointsOnly && effectiveProcessingMode !== 'full';
+    const progressiveJobId = shouldScheduleProgressive
+      ? createProgressiveJob({
+        buffer: Buffer.from(combined),
+        parseArgs,
+        preScan,
+        baseMode: effectiveProcessingMode,
+      })
+      : null;
 
     await cleanupUploadDir(uploadId);
 
-    res.json(normalizeCadParseResponse(result, preScan));
+    const normalizedPayload = normalizeCadParseResponse(result, preScan);
+    res.json(withProgressiveMetadata(normalizedPayload, progressiveJobId, effectiveProcessingMode));
   } catch (err) {
     await cleanupUploadDir(uploadId);
     const statusCode = err.statusCode || 500;
@@ -423,21 +524,37 @@ app.post('/api/cad/parse', parseRateLimit, upload.single('file'), async (req, re
     const clientMode = String(req.body?.processingMode || 'full').trim() || 'full';
     const effectiveProcessingMode = mergeProcessingMode(clientMode, preScan.recommendedMode);
 
-    const result = await parseCadUpload({
+    const parseArgs = {
       buffer: req.file.buffer,
       originalName: req.file.originalname,
       fileSizeBytes: req.file.size,
-      pointsOnly: String(req.body?.pointsOnly || '').toLowerCase() === 'true',
       strictExistingPointsOnly: String(req.body?.strictExistingPointsOnly || '').toLowerCase() !== 'false',
-      processingMode: effectiveProcessingMode,
       expectedFileHashFNV64: String(req.body?.expectedFileHashFNV64 || '').trim(),
       preflightFormatHint: String(req.body?.preflightFormatHint || 'unknown').trim() || 'unknown',
       preflightModeConfidence: String(req.body?.preflightModeConfidence || 'low').trim() || 'low',
       preflightModeConfidenceReason: String(req.body?.preflightModeConfidenceReason || '').trim(),
       preScan,
+    };
+
+    const pointsOnly = String(req.body?.pointsOnly || '').toLowerCase() === 'true';
+    const result = await parseCadUpload({
+      ...parseArgs,
+      pointsOnly,
+      processingMode: effectiveProcessingMode,
     });
 
-    res.json(normalizeCadParseResponse(result, preScan));
+    const shouldScheduleProgressive = !pointsOnly && effectiveProcessingMode !== 'full';
+    const progressiveJobId = shouldScheduleProgressive
+      ? createProgressiveJob({
+        buffer: Buffer.from(req.file.buffer),
+        parseArgs,
+        preScan,
+        baseMode: effectiveProcessingMode,
+      })
+      : null;
+
+    const normalizedPayload = normalizeCadParseResponse(result, preScan);
+    res.json(withProgressiveMetadata(normalizedPayload, progressiveJobId, effectiveProcessingMode));
   } catch (err) {
     const statusCode = err.statusCode || 500;
     res.status(statusCode).json({
@@ -464,6 +581,12 @@ setInterval(async () => {
           }
         }),
     );
+
+    for (const [jobId, job] of progressiveCadJobs.entries()) {
+      if (!job || (now - Number(job.updatedAt || job.createdAt || now)) > PROGRESSIVE_JOB_MAX_AGE_MS) {
+        progressiveCadJobs.delete(jobId);
+      }
+    }
   } catch {
     // Cleanup errors are non-fatal.
   }

@@ -238,6 +238,9 @@ const buildCadInspectionSummary = (file, rows, status, payload = null, strictExi
   const route = payload?.inspection?.processingRoute
     || (extension === ".dwg" ? (status?.dwgEnabled ? "dwg-converted" : "dwg-backend-unavailable") : "local-dxf");
   const fallbackBounds = validation?.bounds || null;
+  const performanceProfile = payload?.inspection?.performanceProfile || null;
+  const fidelityProfile = payload?.inspection?.fidelityProfile || null;
+  const progressive = payload?.progressive || null;
 
   return {
     fileName: file?.name || null,
@@ -274,6 +277,9 @@ const buildCadInspectionSummary = (file, rows, status, payload = null, strictExi
     converterModeUsed: payload?.inspection?.converterModeUsed || null,
     converterAttemptedModes: Array.isArray(payload?.inspection?.converterAttemptedModes) ? payload.inspection.converterAttemptedModes : [],
     converterAttemptErrors: Array.isArray(payload?.inspection?.converterAttemptErrors) ? payload.inspection.converterAttemptErrors : [],
+    performanceProfile,
+    fidelityProfile,
+    progressive,
     processingRoute: route,
     pointExtractionMode: getCadExtractionModeLabel(strictExistingPointsOnly),
     bounds: {
@@ -2145,10 +2151,24 @@ const CoordinateConverter = () => {
       validation: geometry?.validation || null,
       notifications: Array.isArray(geometry?.notifications) ? geometry.notifications : [],
       repairs: geometry?.repairs || null,
+      renderHints: geometry?.renderHints || null,
+      performanceProfile: geometry?.performanceProfile || geometry?.renderHints?.performanceProfile || null,
     };
 
     if (!safeGeometry.lines.length && !safeGeometry.polylines.length && !safeGeometry.texts.length && !safeGeometry.hatches.length && !safeGeometry.surfaces.length) {
-      return { lines: [], polylines: [], texts: [], hatches: [], surfaces: [], layerSummary: null, validation: null, notifications: [], repairs: null };
+      return {
+        lines: [],
+        polylines: [],
+        texts: [],
+        hatches: [],
+        surfaces: [],
+        layerSummary: null,
+        validation: null,
+        notifications: [],
+        repairs: null,
+        renderHints: safeGeometry.renderHints,
+        performanceProfile: safeGeometry.performanceProfile,
+      };
     }
 
     const collectRawCadPoints = (rowsForPreview = [], geometryForPreview = null) => {
@@ -2319,6 +2339,8 @@ const CoordinateConverter = () => {
       validation: safeGeometry.validation,
       notifications: safeGeometry.notifications,
       repairs: safeGeometry.repairs,
+      renderHints: safeGeometry.renderHints,
+      performanceProfile: safeGeometry.performanceProfile,
       localPreview: useLocalPreview,
     };
   }, []);
@@ -3347,7 +3369,37 @@ const CoordinateConverter = () => {
       const latestCadStatus = await refreshCadStatus();
       const cadPayload = ext === 'dxf'
         ? (setBulkProgress("Parsing DXF file…"), await parseDXFFile(file, { returnPayload: true, strictExistingPointsOnly: cadStrictExistingPointsOnly }))
-        : await parseDWGFile(file, { returnPayload: true, strictExistingPointsOnly: cadStrictExistingPointsOnly, onProgress: (msg) => setBulkProgress(msg) });
+        : await parseDWGFile(file, {
+          returnPayload: true,
+          strictExistingPointsOnly: cadStrictExistingPointsOnly,
+          onProgress: (msg) => setBulkProgress(msg),
+          onProgressiveUpdate: (refinedPayload) => {
+            try {
+              const refinedRows = Array.isArray(refinedPayload?.rows) ? refinedPayload.rows : [];
+              if (!refinedRows.length) return;
+              const refinedSourceCrs = resolveCadSourceCrs(refinedRows, refinedPayload, { preferDetected: true });
+              setCadInspection(buildCadInspectionSummary(file, refinedRows, latestCadStatus, refinedPayload, cadStrictExistingPointsOnly));
+              setCadSourceGeometry(refinedPayload?.geometry || null);
+              setCadGeometrySourceCrs(refinedSourceCrs || null);
+
+              const refinedPreviewPoints = projectCadRowsToWgs84(refinedRows, refinedSourceCrs, refinedPayload?.geometry);
+              emit("converter:pointsForMap", {
+                points: refinedPreviewPoints,
+                append: fileImportMode === "append",
+                sourceKey: importSourceKey,
+              });
+
+              const refinedGeometry = projectCadGeometryToWgs84(refinedPayload?.geometry, refinedSourceCrs, refinedRows);
+              emit("converter:cadGeometryForMap", {
+                geometry: refinedGeometry,
+                append: fileImportMode === "append",
+                sourceKey: importSourceKey,
+              });
+            } catch (err) {
+              console.warn('Progressive CAD refinement update failed:', err?.message || err);
+            }
+          },
+        });
 
       const rows = Array.isArray(cadPayload?.rows) ? cadPayload.rows : [];
       const hasRenderableGeometry = Boolean(
@@ -3529,7 +3581,30 @@ const CoordinateConverter = () => {
           cadPayload = await parseDXFFile(file, { returnPayload: true, strictExistingPointsOnly: cadStrictExistingPointsOnly });
           rows = cadPayload.rows;
         } else if (ext === "dwg") {
-          cadPayload = await parseDWGFile(file, { returnPayload: true, strictExistingPointsOnly: cadStrictExistingPointsOnly, onProgress: (msg) => setBulkProgress(msg) });
+          cadPayload = await parseDWGFile(file, {
+            returnPayload: true,
+            strictExistingPointsOnly: cadStrictExistingPointsOnly,
+            onProgress: (msg) => setBulkProgress(msg),
+            onProgressiveUpdate: (refinedPayload) => {
+              try {
+                const refinedRows = Array.isArray(refinedPayload?.rows) ? refinedPayload.rows : [];
+                if (!refinedRows.length) return;
+                const refinedSourceCrs = resolveCadSourceCrs(refinedRows, refinedPayload);
+                setCadInspection(buildCadInspectionSummary(file, refinedRows, latestCadStatus, refinedPayload, cadStrictExistingPointsOnly));
+                setCadSourceGeometry(refinedPayload?.geometry || null);
+                setCadGeometrySourceCrs(refinedSourceCrs || null);
+
+                const refinedGeometry = projectCadGeometryToWgs84(refinedPayload?.geometry, refinedSourceCrs, refinedRows);
+                emit("converter:cadGeometryForMap", {
+                  geometry: refinedGeometry,
+                  append: fileImportMode === "append",
+                  sourceKey: importSourceKey,
+                });
+              } catch (err) {
+                console.warn('Progressive CAD refinement update failed:', err?.message || err);
+              }
+            },
+          });
           rows = cadPayload.rows;
         } else {
           throw new Error(`Unsupported file type: .${ext}`);

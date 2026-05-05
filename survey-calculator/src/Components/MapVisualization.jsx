@@ -181,20 +181,30 @@ const getZoomBasedMarkerRadius = (zoom) => {
   return 4.5;
 };
 
-const getCadPolylineDecimationStep = (zoom, totalVertices, featureVertices) => {
+const getCadPolylineDecimationStep = (zoom, totalVertices, featureVertices, lodTier = 'light') => {
+  const tierBoost = lodTier === 'ultra' ? 2 : lodTier === 'heavy' ? 1 : 0;
+
   if (totalVertices >= CAD_EXTREME_VERTEX_THRESHOLD || featureVertices >= 12000) {
-    if (zoom <= 10) return 6;
-    if (zoom <= 12) return 4;
-    if (zoom <= 14) return 3;
-    if (zoom <= 16) return 2;
-    return 1;
+    if (zoom <= 10) return Math.min(8, 6 + tierBoost);
+    if (zoom <= 12) return Math.min(7, 4 + tierBoost);
+    if (zoom <= 14) return Math.min(6, 3 + tierBoost);
+    if (zoom <= 16) return Math.min(5, 2 + tierBoost);
+    return Math.min(4, 1 + tierBoost);
   }
 
   if (totalVertices >= CAD_HEAVY_VERTEX_THRESHOLD || featureVertices >= 7000) {
-    if (zoom <= 10) return 4;
+    if (zoom <= 10) return Math.min(7, 4 + tierBoost);
+    if (zoom <= 12) return Math.min(6, 3 + tierBoost);
+    if (zoom <= 14) return Math.min(5, 2 + tierBoost);
+    return Math.min(4, 1 + tierBoost);
+  }
+
+  if (lodTier === 'ultra') {
     if (zoom <= 12) return 3;
-    if (zoom <= 14) return 2;
-    return 1;
+    if (zoom <= 15) return 2;
+  }
+  if (lodTier === 'heavy') {
+    if (zoom <= 12) return 2;
   }
 
   return 1;
@@ -211,22 +221,24 @@ const decimateLatLngs = (latlngs, step) => {
   return simplified.length >= 2 ? simplified : latlngs;
 };
 
-const getCadPolylineSmoothFactor = (zoom, totalVertices, featureVertices) => {
+const getCadPolylineSmoothFactor = (zoom, totalVertices, featureVertices, lodTier = 'light') => {
+  const tierBoost = lodTier === 'ultra' ? 0.7 : lodTier === 'heavy' ? 0.45 : lodTier === 'medium' ? 0.2 : 0;
+
   if (totalVertices >= CAD_EXTREME_VERTEX_THRESHOLD || featureVertices >= 12000) {
-    if (zoom <= 10) return 2.6;
-    if (zoom <= 12) return 2.1;
-    if (zoom <= 14) return 1.7;
-    return 1.3;
+    if (zoom <= 10) return 2.6 + tierBoost;
+    if (zoom <= 12) return 2.1 + tierBoost;
+    if (zoom <= 14) return 1.7 + tierBoost;
+    return 1.3 + tierBoost;
   }
 
   if (totalVertices >= CAD_HEAVY_VERTEX_THRESHOLD || featureVertices >= 7000) {
-    if (zoom <= 10) return 2.1;
-    if (zoom <= 12) return 1.7;
-    if (zoom <= 14) return 1.4;
-    return 1.2;
+    if (zoom <= 10) return 2.1 + tierBoost;
+    if (zoom <= 12) return 1.7 + tierBoost;
+    if (zoom <= 14) return 1.4 + tierBoost;
+    return 1.2 + tierBoost;
   }
 
-  return 1.0;
+  return 1.0 + (tierBoost * 0.5);
 };
 
 const getRoundedScaleDenominator = (rawDenominator) => {
@@ -262,7 +274,7 @@ const getTinElevationColor = (avgZ, minZ, maxZ) => {
   return `hsl(${hue.toFixed(0)} 78% 48%)`;
 };
 
-const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible, onPointSelect, measureMode = false, measurePoints = [], onMapContainerReady = null, onMapMetricsChange = null, onMapInstanceReady = null, markerStyleConfig = null }) => {
+const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerformanceProfile = null, isVisible, onPointSelect, measureMode = false, measurePoints = [], onMapContainerReady = null, onMapMetricsChange = null, onMapInstanceReady = null, markerStyleConfig = null }) => {
   const mapContainer = useRef(null);
   const mapRootContainer = useRef(null);
   const map = useRef(null);
@@ -311,6 +323,18 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
     ? cadGeometry.notifications
     : (Array.isArray(cadGeometry?.validation?.notifications) ? cadGeometry.validation.notifications : []);
   const cadLayers = Array.isArray(cadGeometry?.layerSummary?.layers) ? cadGeometry.layerSummary.layers : [];
+  const resolvedCadPerformanceProfile = cadPerformanceProfile
+    || cadGeometry?.performanceProfile
+    || cadGeometry?.renderHints?.performanceProfile
+    || null;
+  const cadLodTier = String(resolvedCadPerformanceProfile?.lodTier || 'light').toLowerCase();
+  const cadLoadMultiplier = cadLodTier === 'ultra'
+    ? 1.9
+    : cadLodTier === 'heavy'
+      ? 1.45
+      : cadLodTier === 'medium'
+        ? 1.2
+        : 1;
 
   const dedupePreviewStats = useMemo(() => {
     if (!removeDuplicates) {
@@ -676,51 +700,55 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
   };
 
   const getLabelBudget = (zoom, totalPoints) => {
+    const applyBudget = (value) => Math.max(1, Math.floor(value / cadLoadMultiplier));
+
     // Aggressive label reduction for very large datasets (performance optimization)
     if (totalPoints >= 15000) {
-      if (zoom >= 18) return 8;
-      if (zoom >= 16) return 4;
-      return 2;
+      if (zoom >= 18) return applyBudget(8);
+      if (zoom >= 16) return applyBudget(4);
+      return applyBudget(2);
     }
     if (totalPoints >= 8000) {
-      if (zoom >= 18) return 24;
-      if (zoom >= 16) return 16;
-      if (zoom >= 14) return 8;
-      return 4;
+      if (zoom >= 18) return applyBudget(24);
+      if (zoom >= 16) return applyBudget(16);
+      if (zoom >= 14) return applyBudget(8);
+      return applyBudget(4);
     }
     if (totalPoints >= 3500) {
-      if (zoom >= 18) return 32;
-      if (zoom >= 16) return 20;
-      if (zoom >= 14) return 12;
-      return 6;
+      if (zoom >= 18) return applyBudget(32);
+      if (zoom >= 16) return applyBudget(20);
+      if (zoom >= 14) return applyBudget(12);
+      return applyBudget(6);
     }
-    if (zoom >= 18) return Math.min(totalPoints, 52);
-    if (zoom >= 17) return Math.min(totalPoints, 42);
-    if (zoom >= 16) return Math.min(totalPoints, 34);
-    if (zoom >= 15) return Math.min(totalPoints, 24);
-    if (zoom >= 14) return Math.min(totalPoints, 16);
-    if (zoom >= 13) return Math.min(totalPoints, 12);
-    return Math.min(totalPoints, 8);
+    if (zoom >= 18) return applyBudget(Math.min(totalPoints, 52));
+    if (zoom >= 17) return applyBudget(Math.min(totalPoints, 42));
+    if (zoom >= 16) return applyBudget(Math.min(totalPoints, 34));
+    if (zoom >= 15) return applyBudget(Math.min(totalPoints, 24));
+    if (zoom >= 14) return applyBudget(Math.min(totalPoints, 16));
+    if (zoom >= 13) return applyBudget(Math.min(totalPoints, 12));
+    return applyBudget(Math.min(totalPoints, 8));
   };
 
   const getDetectionLabelBudget = (zoom, totalPoints) => {
+    const applyBudget = (value) => Math.max(2, Math.floor(value / cadLoadMultiplier));
+
     // Aggressive label reduction for very large datasets (performance optimization)
     if (totalPoints >= 3000) {
-      if (zoom >= 18) return 24;
-      if (zoom >= 16) return 16;
-      if (zoom >= 14) return 8;
-      return 4;
+      if (zoom >= 18) return applyBudget(24);
+      if (zoom >= 16) return applyBudget(16);
+      if (zoom >= 14) return applyBudget(8);
+      return applyBudget(4);
     }
     if (totalPoints >= 1200) {
-      if (zoom >= 18) return 100;
-      if (zoom >= 16) return 72;
-      if (zoom >= 14) return 44;
-      return 24;
+      if (zoom >= 18) return applyBudget(100);
+      if (zoom >= 16) return applyBudget(72);
+      if (zoom >= 14) return applyBudget(44);
+      return applyBudget(24);
     }
-    if (zoom >= 18) return Math.min(totalPoints, 160);
-    if (zoom >= 16) return Math.min(totalPoints, 120);
-    if (zoom >= 14) return Math.min(totalPoints, 76);
-    return Math.min(totalPoints, 40);
+    if (zoom >= 18) return applyBudget(Math.min(totalPoints, 160));
+    if (zoom >= 16) return applyBudget(Math.min(totalPoints, 120));
+    if (zoom >= 14) return applyBudget(Math.min(totalPoints, 76));
+    return applyBudget(Math.min(totalPoints, 40));
   };
 
   const getDeclutterCellSize = (zoom) => {
@@ -1544,10 +1572,10 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, isVisible,
           .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
           .map((p) => [p[0], p[1]]);
         if (latlngs.length < 2) return;
-        const decimationStep = getCadPolylineDecimationStep(currentZoom, totalCadPolylineVertices, latlngs.length);
+        const decimationStep = getCadPolylineDecimationStep(currentZoom, totalCadPolylineVertices, latlngs.length, cadLodTier);
         const renderLatLngs = decimateLatLngs(latlngs, decimationStep);
         if (renderLatLngs.length < 2) return;
-        const smoothFactor = getCadPolylineSmoothFactor(currentZoom, totalCadPolylineVertices, latlngs.length);
+        const smoothFactor = getCadPolylineSmoothFactor(currentZoom, totalCadPolylineVertices, latlngs.length, cadLodTier);
         const layer = L.polyline(renderLatLngs, {
           renderer: canvasRendererRef.current || undefined,
           color: normalizeHexColor(poly.colorHex, '#2563eb'),

@@ -56,9 +56,44 @@ function normalizeCadBackendPayload(payload) {
     warnings: Array.isArray(payload?.warnings) ? payload.warnings : [],
     inspection: payload?.inspection || null,
     preScan: payload?.preScan || null,
+    progressive: payload?.progressive || null,
   };
 
   return normalized;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function pollProgressiveCadRefinement(progressive, { onProgress, maxAttempts = 60, intervalMs = 1200 } = {}) {
+  const jobId = String(progressive?.jobId || '').trim();
+  if (!jobId) return null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const response = await fetch(`${CAD_API_BASE_URL}/refine/${encodeURIComponent(jobId)}`);
+    const payload = await parseJsonSafely(response);
+
+    if (!response.ok && response.status !== 202) {
+      return null;
+    }
+
+    const status = String(payload?.status || '').toLowerCase();
+    if (status === 'ready' && payload?.payload) {
+      return normalizeCadBackendPayload(payload.payload);
+    }
+    if (status === 'error' || status === 'missing') {
+      return null;
+    }
+
+    if (typeof onProgress === 'function' && (attempt === 1 || attempt % 5 === 0)) {
+      onProgress('Refining CAD scene in background…');
+    }
+
+    await sleep(intervalMs);
+  }
+
+  return null;
 }
 
 function getCadUploadWorker() {
@@ -389,6 +424,30 @@ export async function parseCadFileViaBackend(file, options = {}) {
 
   if (!Array.isArray(payload?.rows)) {
     throw new Error('CAD backend returned an invalid response.');
+  }
+
+  const progressive = payload?.progressive;
+  if (progressive?.jobId && !options.pointsOnly) {
+    if (typeof onProgress === 'function') {
+      onProgress('Quick CAD preview ready. Refining full-fidelity geometry…');
+    }
+
+    if (typeof options.onProgressiveUpdate === 'function') {
+      void pollProgressiveCadRefinement(progressive, { onProgress }).then((refined) => {
+        if (refined) {
+          options.onProgressiveUpdate(refined);
+        }
+      });
+    } else {
+      const refined = await pollProgressiveCadRefinement(progressive, {
+        onProgress,
+        maxAttempts: 8,
+        intervalMs: 750,
+      });
+      if (refined) {
+        payload = refined;
+      }
+    }
   }
 
   return options.returnPayload ? payload : payload.rows;
