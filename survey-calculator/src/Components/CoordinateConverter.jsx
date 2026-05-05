@@ -2197,66 +2197,82 @@ const CoordinateConverter = () => {
       };
     }
 
-    const collectRawCadPoints = (rowsForPreview = [], geometryForPreview = null) => {
-      const points = [];
+    const scanCadPointStats = (rowsForPreview = [], geometryForPreview = null, sampleLimit = 0) => {
+      let pointCount = 0;
+      let minX = Number.POSITIVE_INFINITY;
+      let maxX = Number.NEGATIVE_INFINITY;
+      let minY = Number.POSITIVE_INFINITY;
+      let maxY = Number.NEGATIVE_INFINITY;
+      const samples = [];
+
+      const pushPoint = (xRaw, yRaw) => {
+        const x = Number(xRaw);
+        const y = Number(yRaw);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+        pointCount += 1;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+        if (sampleLimit > 0 && samples.length < sampleLimit) {
+          samples.push({ x, y });
+        }
+      };
+
       (Array.isArray(rowsForPreview) ? rowsForPreview : []).forEach((row) => {
-        const x = Number(row?.x);
-        const y = Number(row?.y);
-        const z = Number(row?.z ?? 0);
-        if (Number.isFinite(x) && Number.isFinite(y)) points.push({ x, y, z: Number.isFinite(z) ? z : 0 });
+        pushPoint(row?.x, row?.y);
       });
       (Array.isArray(geometryForPreview?.lines) ? geometryForPreview.lines : []).forEach((line) => {
         const start = Array.isArray(line?.start) ? line.start : [];
         const end = Array.isArray(line?.end) ? line.end : [];
-        if (Number.isFinite(Number(start[0])) && Number.isFinite(Number(start[1]))) points.push({ x: Number(start[0]), y: Number(start[1]), z: Number(start[2] ?? 0) });
-        if (Number.isFinite(Number(end[0])) && Number.isFinite(Number(end[1]))) points.push({ x: Number(end[0]), y: Number(end[1]), z: Number(end[2] ?? 0) });
+        pushPoint(start[0], start[1]);
+        pushPoint(end[0], end[1]);
       });
       (Array.isArray(geometryForPreview?.polylines) ? geometryForPreview.polylines : []).forEach((poly) => {
         (Array.isArray(poly?.points) ? poly.points : []).forEach((point) => {
-          if (Number.isFinite(Number(point?.[0])) && Number.isFinite(Number(point?.[1]))) {
-            points.push({ x: Number(point[0]), y: Number(point[1]), z: Number(point[2] ?? 0) });
-          }
+          pushPoint(point?.[0], point?.[1]);
         });
       });
       (Array.isArray(geometryForPreview?.texts) ? geometryForPreview.texts : []).forEach((textEntity) => {
         const position = Array.isArray(textEntity?.position) ? textEntity.position : [];
-        if (Number.isFinite(Number(position[0])) && Number.isFinite(Number(position[1]))) {
-          points.push({ x: Number(position[0]), y: Number(position[1]), z: Number(position[2] ?? 0) });
-        }
+        pushPoint(position[0], position[1]);
       });
       (Array.isArray(geometryForPreview?.hatches) ? geometryForPreview.hatches : []).forEach((hatch) => {
         (Array.isArray(hatch?.polygons) ? hatch.polygons : []).forEach((polygon) => {
           (Array.isArray(polygon) ? polygon : []).forEach((vertex) => {
-            if (Number.isFinite(Number(vertex?.[0])) && Number.isFinite(Number(vertex?.[1]))) {
-              points.push({ x: Number(vertex[0]), y: Number(vertex[1]), z: Number(vertex[2] ?? 0) });
-            }
+            pushPoint(vertex?.[0], vertex?.[1]);
           });
         });
       });
       (Array.isArray(geometryForPreview?.surfaces) ? geometryForPreview.surfaces : []).forEach((surface) => {
         (Array.isArray(surface?.vertices) ? surface.vertices : []).forEach((vertex) => {
-          if (Number.isFinite(Number(vertex?.[0])) && Number.isFinite(Number(vertex?.[1]))) {
-            points.push({ x: Number(vertex[0]), y: Number(vertex[1]), z: Number(vertex[2] ?? 0) });
-          }
+          pushPoint(vertex?.[0], vertex?.[1]);
         });
       });
-      return points;
+
+      if (!pointCount) return null;
+      return {
+        pointCount,
+        minX,
+        maxX,
+        minY,
+        maxY,
+        centerX: (minX + maxX) / 2,
+        centerY: (minY + maxY) / 2,
+        spanX: Math.max(0, maxX - minX),
+        spanY: Math.max(0, maxY - minY),
+        samples,
+      };
     };
 
     const createLocalPreviewTransform = (rowsForPreview = [], geometryForPreview = null) => {
-      const points = collectRawCadPoints(rowsForPreview, geometryForPreview);
-      if (!points.length) return null;
-      const xs = points.map((point) => point.x);
-      const ys = points.map((point) => point.y);
-      const minX = Math.min(...xs);
-      const maxX = Math.max(...xs);
-      const minY = Math.min(...ys);
-      const maxY = Math.max(...ys);
-      const span = Math.max(maxX - minX, maxY - minY, 1);
+      const stats = scanCadPointStats(rowsForPreview, geometryForPreview, 0);
+      if (!stats) return null;
+      const span = Math.max(stats.spanX, stats.spanY, 1);
       const scale = 0.22 / span;
       return {
-        centerX: (minX + maxX) / 2,
-        centerY: (minY + maxY) / 2,
+        centerX: stats.centerX,
+        centerY: stats.centerY,
         anchorLat: 20,
         anchorLng: 0,
         scale,
@@ -2269,33 +2285,20 @@ const CoordinateConverter = () => {
     const useLocalPreview = source === 'LOCAL:ENGINEERING' || !sourceDef;
     const localPreviewTransform = useLocalPreview ? createLocalPreviewTransform(rowsForContext, safeGeometry) : null;
 
-    const allSourcePoints = collectRawCadPoints(rowsForContext, safeGeometry);
+    const sourceStats = scanCadPointStats(rowsForContext, safeGeometry, 600);
     const sourceBounds = (() => {
-      if (!Array.isArray(allSourcePoints) || allSourcePoints.length < 4) return null;
-      let minX = allSourcePoints[0].x;
-      let maxX = allSourcePoints[0].x;
-      let minY = allSourcePoints[0].y;
-      let maxY = allSourcePoints[0].y;
-      for (const pt of allSourcePoints) {
-        if (!Number.isFinite(pt?.x) || !Number.isFinite(pt?.y)) continue;
-        if (pt.x < minX) minX = pt.x;
-        if (pt.x > maxX) maxX = pt.x;
-        if (pt.y < minY) minY = pt.y;
-        if (pt.y > maxY) maxY = pt.y;
-      }
-      const spanX = Math.max(0, maxX - minX);
-      const spanY = Math.max(0, maxY - minY);
+      if (!sourceStats || sourceStats.pointCount < 4) return null;
       return {
-        centerX: (minX + maxX) / 2,
-        centerY: (minY + maxY) / 2,
-        spanX,
-        spanY,
+        centerX: sourceStats.centerX,
+        centerY: sourceStats.centerY,
+        spanX: sourceStats.spanX,
+        spanY: sourceStats.spanY,
       };
     })();
 
     const axisMode = (() => {
       if (useLocalPreview || sourceIsGeo) return 'normal';
-      const voteSamples = allSourcePoints.slice(0, 600);
+      const voteSamples = sourceStats?.samples || [];
       if (voteSamples.length < 8) return 'auto';
       let swapVotes = 0;
       let normalVotes = 0;
@@ -2306,7 +2309,10 @@ const CoordinateConverter = () => {
       });
       if (swapVotes >= normalVotes * 1.25) return 'swap';
       if (normalVotes >= swapVotes * 1.25) return 'normal';
-      return 'auto';
+      if (sourceStats && Number.isFinite(sourceStats.centerX) && Number.isFinite(sourceStats.centerY)) {
+        return shouldSwapCoordinateAxesForCrs(source, sourceStats.centerX, sourceStats.centerY) ? 'swap' : 'normal';
+      }
+      return 'normal';
     })();
 
     const normalizeSourceAxes = (xVal, yVal) => {
