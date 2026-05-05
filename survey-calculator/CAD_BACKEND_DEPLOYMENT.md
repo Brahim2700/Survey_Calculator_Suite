@@ -33,7 +33,6 @@ Required in production:
 Optional overrides:
 
 - `DWG2DXF_PATH`
-- `ODA_FILE_CONVERTER_PATH`
 - `DWG_CONVERTER_COMMAND`
 
 ## Vercel Environment
@@ -58,7 +57,7 @@ Run:
 docker run --rm -p 4000:4000 --env-file .env.cad-api survey-cad-api
 ```
 
-The current Docker image already bakes LibreDWG into the runtime for Railway-style deployment. Only set `DWG2DXF_PATH`, `ODA_FILE_CONVERTER_PATH`, or `DWG_CONVERTER_COMMAND` if you are overriding the default converter strategy.
+The current Docker image already bakes LibreDWG into the runtime for Railway-style deployment. Only set `DWG2DXF_PATH` or `DWG_CONVERTER_COMMAND` if you are overriding the default converter strategy.
 
 ## Next Product Step
 

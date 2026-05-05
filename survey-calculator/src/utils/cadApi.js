@@ -12,7 +12,7 @@ const CAD_PREVIEW_MODE_MIN_BYTES = Number(import.meta.env.VITE_CAD_PREVIEW_MODE_
 const CAD_RECOVERY_MODE_MIN_BYTES = Number(import.meta.env.VITE_CAD_RECOVERY_MODE_MB || 80) * 1024 * 1024;
 
 // How long to wait for the CAD backend to respond (upload + conversion + parse).
-// Native DWG conversion via ODA/LibreDWG can take 30-90 s for large files.
+// Native DWG conversion can take 30-90 s for large files.
 const CAD_REQUEST_TIMEOUT_MS = 150_000; // 2.5 minutes
 const CAD_COMPLEX_REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_CAD_COMPLEX_TIMEOUT_MS || 480_000); // 8 minutes
 
@@ -372,21 +372,10 @@ export async function parseCadFileViaBackend(file, options = {}) {
   try {
     payload = await runParseAttempt(options, controller.signal);
   } catch (err) {
-    if (err?.name === 'AbortError' && !options.pointsOnly) {
-      if (typeof onProgress === 'function') {
-        onProgress('Full CAD extraction is taking too long. Retrying in fast preview mode (points only)...');
-      }
-      const fallbackController = new AbortController();
-      const fallbackTimeoutId = setTimeout(() => fallbackController.abort(), requestTimeoutMs);
-      try {
-        payload = await runParseAttempt({ ...options, pointsOnly: true }, fallbackController.signal);
-      } finally {
-        clearTimeout(fallbackTimeoutId);
-      }
-    } else if (err?.name === 'AbortError') {
+    if (err?.name === 'AbortError') {
       throw new Error(
         `The CAD backend did not respond within ${Math.round(requestTimeoutMs / 1000)} seconds. ` +
-        `This can happen with very complex DWG files. Try enabling points-only preview first, then refine layers.`
+        `This can happen with very complex DWG files. Retry the import or enable points-only preview manually if needed.`
       );
     } else if (err?.message) {
       throw new Error(err.message);

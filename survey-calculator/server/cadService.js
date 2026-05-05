@@ -15,12 +15,6 @@ function computeSha256Hex(bufferLike) {
   return hash.digest('hex');
 }
 const MAX_COMMAND_OUTPUT = 1024 * 1024 * 8;
-const DEFAULT_ODA_PATHS = [
-  'C:\\Program Files\\ODA\\ODAFileConverter 27.1.0\\ODAFileConverter.exe',
-  'C:\\Program Files\\ODA\\ODAFileConverter.exe',
-  'C:\\Program Files (x86)\\ODA\\ODAFileConverter.exe',
-];
-
 const DEFAULT_DWG2DXF_PATHS = [
   '/usr/bin/dwg2dxf',
   '/usr/local/bin/dwg2dxf',
@@ -41,19 +35,9 @@ function resolveDwg2DxfPath() {
   return DEFAULT_DWG2DXF_PATHS.find((p) => existsSync(p)) || null;
 }
 
-function resolveOdaConverterPath() {
-  const configuredPath = process.env.ODA_FILE_CONVERTER_PATH;
-  if (configuredPath && existsSync(configuredPath)) {
-    return configuredPath;
-  }
-
-  return DEFAULT_ODA_PATHS.find((candidate) => existsSync(candidate)) || null;
-}
-
 function getAvailableConverterModes() {
   const modes = [];
   if (resolveDwg2DxfPath()) modes.push('libredwg');
-  if (resolveOdaConverterPath()) modes.push('oda');
   if (process.env.DWG_CONVERTER_COMMAND) modes.push('custom');
   return modes;
 }
@@ -63,12 +47,12 @@ function getConfiguredConverterMode() {
 }
 
 function buildConverterSetupHint() {
-  return 'No DWG converter found. In production (Docker) LibreDWG (dwg2dxf) is installed automatically. For local Windows dev, install ODA File Converter or set ODA_FILE_CONVERTER_PATH.';
+  return 'No DWG converter found. In production (Docker) LibreDWG (dwg2dxf) is installed automatically. Configure DWG2DXF_PATH or DWG_CONVERTER_COMMAND on this runtime.';
 }
 
 /**
  * Normalize DXF text so there is exactly one well-formed EOF marker at the end.
- * Some DWG converters (ODA, LibreDWG) produce truncated output (missing EOF) or
+ * Some DWG converters (including LibreDWG and custom pipelines) produce truncated output (missing EOF) or
  * append binary/extra content after the EOF group, both of which crash dxf-parser.
  *
  * DXF EOF format (each on its own line, optional leading spaces):
@@ -164,7 +148,7 @@ function buildCadReferenceWarnings(diagnostics) {
 }
 
 function shouldAllowDegradedDwgFallback() {
-  const raw = String(process.env.CAD_ALLOW_DWG_DEGRADED_FALLBACK || '1').trim().toLowerCase();
+  const raw = String(process.env.CAD_ALLOW_DWG_DEGRADED_FALLBACK || '0').trim().toLowerCase();
   return raw !== '0' && raw !== 'false' && raw !== 'no';
 }
 
@@ -252,24 +236,6 @@ async function runLibreDwgConverter(vars, timeoutMs) {
   throw new Error('dwg2dxf completed but did not produce a readable DXF output.');
 }
 
-async function runOdaConverter(vars, timeoutMs, version = null) {
-  const converterPath = resolveOdaConverterPath();
-  if (!converterPath) {
-    throw new Error(buildConverterSetupHint());
-  }
-  const outputVersion = version || process.env.ODA_OUTPUT_VERSION || 'ACAD2018';
-  const args = [
-    vars.inputDir,
-    vars.outputDir,
-    outputVersion,
-    'DXF',
-    process.env.ODA_RECURSIVE === '1' ? '1' : '0',
-    process.env.ODA_AUDIT === '1' ? '1' : '0',
-    vars.inputFileName,
-  ];
-  await runSpawnedCommand(converterPath, args, timeoutMs);
-}
-
 async function runCustomConverter(vars, timeoutMs) {
   const commandTemplate = process.env.DWG_CONVERTER_COMMAND;
   const command = replaceTemplateTokens(commandTemplate, vars);
@@ -311,15 +277,14 @@ function buildConversionAttemptOrder(preferredMode = null) {
     return availableModes.includes(preferredMode) ? [preferredMode] : [];
   }
 
-  // Prefer LibreDWG first for speed/cost, then ODA fallback for advanced files.
+  // Prefer LibreDWG first for speed/cost, then custom fallback.
   const ordered = [];
   if (availableModes.includes('libredwg')) ordered.push('libredwg');
-  if (availableModes.includes('oda')) ordered.push('oda');
   if (availableModes.includes('custom')) ordered.push('custom');
   return ordered;
 }
 
-async function executeConversionMode(converterMode, vars, timeoutMs, inputSizeBytes) {
+async function executeConversionMode(converterMode, vars, timeoutMs) {
   let searchDir = vars.outputDir;
   let preferredPath = vars.outputDxfPath;
   let converterStdout = '';
@@ -331,31 +296,6 @@ async function executeConversionMode(converterMode, vars, timeoutMs, inputSizeBy
     if (result?.outputPath) {
       preferredPath = result.outputPath;
       searchDir = path.dirname(result.outputPath);
-    }
-  } else if (converterMode === 'oda') {
-    // Try primary ODA format; if output is suspiciously small, retry older versions.
-    const ODA_FALLBACK_VERSIONS = ['ACAD2018', 'ACAD2010', 'ACAD2000'];
-    let odaSucceeded = false;
-    for (const odaVersion of ODA_FALLBACK_VERSIONS) {
-      await fs.rm(vars.outputDir, { recursive: true, force: true });
-      await fs.mkdir(vars.outputDir, { recursive: true });
-      try {
-        await runOdaConverter(vars, timeoutMs, odaVersion);
-      } catch {
-        // ODA sometimes exits non-zero but still writes a usable DXF.
-      }
-      const candidatePath = await findFirstDxfFile(vars.outputDir, vars.outputDxfPath);
-      if (candidatePath) {
-        const stat = await fs.stat(candidatePath).catch(() => null);
-        const minAcceptableBytes = Math.max(1024, inputSizeBytes * 0.02);
-        if (stat && stat.size >= minAcceptableBytes) {
-          odaSucceeded = true;
-          break;
-        }
-      }
-    }
-    if (!odaSucceeded) {
-      throw new Error('ODA converter failed to produce a usable DXF output for all attempted format versions (ACAD2018, ACAD2010, ACAD2000). The DWG file may contain unsupported entities.');
     }
   } else if (converterMode === 'custom') {
     await runCustomConverter(vars, timeoutMs);
@@ -396,7 +336,7 @@ async function convertDwgBufferToDxfText(buffer, originalName, preferredMode = n
     const conversionErrors = [];
     for (const converterMode of attemptOrder) {
       try {
-        const { searchDir, preferredPath, converterStdout } = await executeConversionMode(converterMode, vars, timeoutMs, buffer.length);
+        const { searchDir, preferredPath, converterStdout } = await executeConversionMode(converterMode, vars, timeoutMs);
         const convertedPath = await findFirstDxfFile(searchDir, preferredPath);
         if (!convertedPath) {
           // Some dwg2dxf builds can emit DXF to stdout; accept that as fallback.
@@ -433,7 +373,6 @@ export function getCadBackendStatus() {
   const converterMode = getConfiguredConverterMode();
   const converterPath =
     converterMode === 'libredwg' ? resolveDwg2DxfPath() :
-    converterMode === 'oda' ? resolveOdaConverterPath() :
     null;
   return {
     ok: true,

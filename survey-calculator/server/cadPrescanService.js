@@ -240,15 +240,9 @@ function collectPrescanSignals({ text, fileSizeBytes, versionCode }) {
   };
 }
 
-function buildRecommendedEngine(mode, signals) {
-  const codes = new Set(signals.map((s) => s.code));
-  const shouldUseOda =
-    mode === 'recovery'
-    || codes.has('proxy-entity-detected')
-    || codes.has('advanced-3d-marker')
-    || codes.has('has-unsupported-hatch-edges')
-    || codes.has('hatch-boundary-missing');
-  return shouldUseOda ? 'oda' : 'libredwg';
+function buildRecommendedEngine() {
+  // ODA route is intentionally removed from runtime selection; always target LibreDWG.
+  return 'libredwg';
 }
 
 export function prescanCadBuffer({ buffer, originalName, fileSizeBytes = 0 }) {
@@ -278,10 +272,6 @@ export function prescanCadBuffer({ buffer, originalName, fileSizeBytes = 0 }) {
   if (recommendedMode !== 'full') {
     warnings.push(`Server pre-scan recommends ${recommendedMode} mode for this CAD file.`);
   }
-  if (recommendedEngine === 'oda') {
-    warnings.push('Server pre-scan recommends ODA route due to advanced/proxy risk markers.');
-  }
-
   return {
     riskScore,
     recommendedMode,

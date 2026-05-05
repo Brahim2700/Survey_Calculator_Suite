@@ -32,7 +32,7 @@ Frontend processing layer
 CAD Backend (Express + Multer)
   - upload handling
   - chunked upload assembly
-  - DWG -> DXF conversion via LibreDWG or ODA fallback
+  - DWG -> DXF conversion via LibreDWG or custom converter command
   - CAD parsing + normalization
   |
   | 3. Parsed rows + geometry + warnings returned as JSON
@@ -96,8 +96,7 @@ The backend exists to support CAD workflows that cannot run reliably as a static
 - `cors` for origin control
 - `multer` for multipart upload handling
 - Native child-process execution through Node's `child_process`
-- `LibreDWG` `dwg2dxf` as the preferred production converter
-- `ODA File Converter` as an optional Windows-local fallback for development
+- `LibreDWG` `dwg2dxf` as the preferred DWG converter
 
 ### Backend structure
 
@@ -172,7 +171,7 @@ Production system software:
 2. The frontend uploads the file to the CAD backend.
 3. Large files switch to chunked upload mode automatically.
 4. The backend runs a lightweight CAD-aware pre-scan and computes risk score, recommended mode, and recommended engine.
-5. The backend applies authoritative mode routing (full/preview/recovery) and conversion preference (LibreDWG/ODA when available).
+5. The backend applies authoritative mode routing (full/preview/recovery) and conversion preference.
 6. The backend converts DWG to DXF using the routed engine path.
 7. The backend parses and normalizes the CAD result.
 8. JSON rows, geometry, and pre-scan/inspection telemetry are returned to the frontend.
@@ -184,7 +183,7 @@ Production system software:
 - Backend: Express CAD processing API on Node.js
 - Mapping: Leaflet for 2D, Cesium/Three-based tooling for 3D
 - Geospatial engine: proj4 + geotiff + custom survey utilities
-- CAD conversion system: LibreDWG in Docker, ODA fallback for local Windows use
+- CAD conversion system: LibreDWG in Docker (or a custom converter command when explicitly configured)
 - Hosting system: Vercel for UI, Railway or equivalent for native CAD backend
 - Persistence model: mostly stateless, with browser localStorage for user preferences
 
@@ -193,7 +192,7 @@ Production system software:
 - Worker-first chunk planning is now used in the frontend CAD upload path to keep large-file preflight and chunk plan generation off the main UI thread.
 - Stream-based preflight now reads an initial signature in the Worker using `File.stream()` for lightweight staged diagnostics before upload.
 - Backend chunk completion now assembles chunk files through Node streams (`pipeline`) instead of buffering all parts in memory first.
-- CAD engine routing now attempts multiple converters in order (LibreDWG first, then ODA/custom when available) and records fallback details in inspection metadata.
+- CAD engine routing now attempts multiple converters in order (LibreDWG first, then custom when available) and records fallback details in inspection metadata.
 - Staged processing hints (`full`, `preview`, `recovery`) are now propagated from frontend upload flow to backend inspection results.
 - Added server-side CAD pre-scan service with weighted risk scoring and recommended mode/engine outputs.
 - Added `POST /api/cad/prescan` endpoint for lightweight CAD-aware inspection without full conversion.
