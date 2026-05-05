@@ -79,6 +79,150 @@ function sanitizeDxfEof(text) {
   return text.trimEnd() + '\n  0\nEOF\n';
 }
 
+function stripUtfBom(text) {
+  if (typeof text !== 'string') return text;
+  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
+function normalizeDxfLineEndings(text) {
+  if (typeof text !== 'string') return text;
+  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
+function sanitizeNulBytes(text) {
+  if (typeof text !== 'string') return text;
+  let out = '';
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    if (code !== 0) out += text[i];
+  }
+  return out;
+}
+
+function stripNonPrintableControlChars(text) {
+  if (typeof text !== 'string') return text;
+  // Keep tabs/newlines/CR; remove other control chars that can destabilize parser tokenization.
+  let out = '';
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    const isAllowedWhitespace = code === 9 || code === 10 || code === 13;
+    const isControl = code < 32 || code === 127;
+    if (!isControl || isAllowedWhitespace) {
+      out += text[i];
+    }
+  }
+  return out;
+}
+
+function buildDxfRepairCandidates(rawText) {
+  const base = typeof rawText === 'string' ? rawText : String(rawText || '');
+  const step1 = stripUtfBom(base);
+  const step2 = sanitizeNulBytes(step1);
+  const step3 = normalizeDxfLineEndings(step2);
+  const step4 = sanitizeDxfEof(step3);
+  const step5 = sanitizeDxfEof(stripNonPrintableControlChars(step3));
+
+  return [
+    {
+      id: 'raw',
+      text: base,
+      repairsApplied: [],
+    },
+    {
+      id: 'normalized',
+      text: step3,
+      repairsApplied: ['strip-utf-bom', 'remove-nul-bytes', 'normalize-line-endings'],
+    },
+    {
+      id: 'normalized-eof',
+      text: step4,
+      repairsApplied: ['strip-utf-bom', 'remove-nul-bytes', 'normalize-line-endings', 'repair-eof'],
+    },
+    {
+      id: 'aggressive-control-strip',
+      text: step5,
+      repairsApplied: ['strip-utf-bom', 'remove-nul-bytes', 'normalize-line-endings', 'strip-control-chars', 'repair-eof'],
+    },
+  ];
+}
+
+function analyzeGeometryDensity(parsedPayload, fileSizeBytes = 0) {
+  const geometry = parsedPayload?.geometry || {};
+  const rows = Array.isArray(parsedPayload?.rows) ? parsedPayload.rows : [];
+  const lines = Array.isArray(geometry.lines) ? geometry.lines.length : 0;
+  const polylines = Array.isArray(geometry.polylines) ? geometry.polylines.length : 0;
+  const hatches = Array.isArray(geometry.hatches) ? geometry.hatches.length : 0;
+  const texts = Array.isArray(geometry.texts) ? geometry.texts.length : 0;
+  const surfaces = Array.isArray(geometry.surfaces) ? geometry.surfaces.length : 0;
+  const estimatedVertices = (Array.isArray(geometry.polylines) ? geometry.polylines : []).reduce((sum, pl) => {
+    const count = Array.isArray(pl?.vertices) ? pl.vertices.length : 0;
+    return sum + count;
+  }, 0);
+
+  const complexityScore =
+    (rows.length * 1)
+    + (lines * 2)
+    + (polylines * 4)
+    + (hatches * 6)
+    + (texts * 1)
+    + (surfaces * 8)
+    + Math.ceil(estimatedVertices / 8)
+    + Math.ceil(Number(fileSizeBytes || 0) / (1024 * 1024));
+
+  const lodTier = complexityScore > 120000
+    ? 'ultra'
+    : complexityScore > 45000
+      ? 'heavy'
+      : complexityScore > 15000
+        ? 'medium'
+        : 'light';
+
+  return {
+    complexityScore,
+    lodTier,
+    entities: {
+      points: rows.length,
+      lines,
+      polylines,
+      hatches,
+      texts,
+      surfaces,
+      estimatedVertices,
+    },
+    renderRecommendations: {
+      simplifyPolylines: lodTier === 'ultra' || lodTier === 'heavy',
+      preferHatchSolidPreview: lodTier === 'ultra',
+      labelBudgetTier: lodTier,
+    },
+  };
+}
+
+function parseDxfWithRepairStrategy(dxfText, options, { sourceTag = 'dxf' } = {}) {
+  const candidates = buildDxfRepairCandidates(dxfText);
+  const errors = [];
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = parseDxfTextContent(candidate.text, options);
+      return {
+        parsed,
+        repair: {
+          sourceTag,
+          passId: candidate.id,
+          recovered: candidate.id !== 'raw',
+          repairsApplied: candidate.repairsApplied,
+          attempts: candidates.length,
+          errors,
+        },
+      };
+    } catch (err) {
+      errors.push(`${candidate.id}: ${err.message || String(err)}`);
+    }
+  }
+
+  throw new Error(`DXF parse failed after ${candidates.length} repair attempts. ${errors.join(' | ')}`);
+}
+
 function summarizeCadRows(rows) {
   if (!Array.isArray(rows) || rows.length === 0) {
     return { rowCount: 0 };
@@ -598,6 +742,7 @@ export async function parseCadUpload({
   let converterAttemptErrors = [];
   let preferredConverterMode = null;
   let degradedFallback = false;
+  let parseRepair = null;
 
   const availableConverterModes = getAvailableConverterModes();
   const preScanRecommendedEngine = preScan?.recommendedEngine || null;
@@ -608,13 +753,17 @@ export async function parseCadUpload({
   }
 
   if (ext === '.dxf') {
-    const parsed = parseDxfTextContent(Buffer.from(data).toString('utf8'), options);
+    const parsedResult = parseDxfWithRepairStrategy(Buffer.from(data).toString('utf8'), options, { sourceTag: 'direct-dxf' });
+    const parsed = parsedResult.parsed;
+    parseRepair = parsedResult.repair;
     rows = parsed.rows;
     geometry = parsed.geometry || null;
     diagnostics = parsed.diagnostics || null;
     processingRoute = 'local-dxf';
   } else if (!isLikelyNativeDwgData(data) && isLikelyDxfData(data)) {
-    const parsed = parseDxfTextContent(Buffer.from(data).toString('utf8'), options);
+    const parsedResult = parseDxfWithRepairStrategy(Buffer.from(data).toString('utf8'), options, { sourceTag: 'dwg-dxf-text' });
+    const parsed = parsedResult.parsed;
+    parseRepair = parsedResult.repair;
     rows = parsed.rows;
     geometry = parsed.geometry || null;
     diagnostics = parsed.diagnostics || null;
@@ -627,26 +776,12 @@ export async function parseCadUpload({
       converterModeUsed = conversionResult.modeUsed;
       converterAttemptedModes = conversionResult.attemptedModes || [];
       converterAttemptErrors = conversionResult.attemptErrors || [];
-      // Pre-process DXF text: ensure there is exactly one EOF marker and nothing after it.
-      // Some converters produce extra content after EOF or omit it entirely.
-      const dxfText = sanitizeDxfEof(rawDxfText);
-      const dxfPatched = dxfText !== rawDxfText;
-      let parsedDxf;
-      try {
-        parsedDxf = parseDxfTextContent(dxfText, options);
-      } catch (err) {
-        // Last-resort: if still failing due to an EOF-related parse error, try once more
-        // without the EOF patch (original text) in case our edit broke something.
-        const isEof = /unexpected end|eof|end of input|after EOF/i.test(String(err.message || err));
-        if (!isEof) throw err;
-        throw new Error(`Failed to parse DXF converted from DWG: ${err.message}`);
-      }
+      const parsedResult = parseDxfWithRepairStrategy(rawDxfText, options, { sourceTag: 'dwg-converted' });
+      const parsedDxf = parsedResult.parsed;
+      parseRepair = parsedResult.repair;
       rows = parsedDxf.rows;
       geometry = parsedDxf.geometry || null;
       diagnostics = parsedDxf.diagnostics || null;
-      if (dxfPatched) {
-        warnings = ['DXF output from converter was malformed (missing or extra content after EOF). File was recovered automatically.'];
-      }
       if (converterAttemptedModes.length > 1 && converterModeUsed && converterModeUsed !== converterAttemptedModes[0]) {
         const fallbackReason = converterAttemptErrors[0] || `Primary converter ${converterAttemptedModes[0]} failed.`;
         warnings.push(`CAD conversion fell back from ${converterAttemptedModes[0]} to ${converterModeUsed} for this file.`);
@@ -734,6 +869,7 @@ export async function parseCadUpload({
     converterModeUsed,
     converterAttemptedModes,
     converterAttemptErrors,
+    parseRepair,
     degradedFallback,
     processingRoute,
     diagnostics,
@@ -752,6 +888,7 @@ export async function parseCadUpload({
     },
     hatchRenderHints: geometry?.renderHints?.hatch || null,
     repairs: geometry?.repairs || diagnostics?.repairs || null,
+    performanceProfile: analyzeGeometryDensity({ rows, geometry }, fileSizeBytes),
     unresolvedXrefs: diagnostics?.references?.unresolvedXrefs || [],
     missingBlockRefs: diagnostics?.references?.unresolvedBlockRefs || [],
     cyclicBlockRefs: diagnostics?.references?.cyclicBlockRefs || [],
