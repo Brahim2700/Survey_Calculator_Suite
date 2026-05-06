@@ -1076,6 +1076,12 @@ const detectUTM = (bounds) => {
           confidence: 0.45,
           reason: 'UTM Northern - adjacent zone'
         });
+        suggestions.push({
+          code: 'EPSG:32629',
+          name: 'WGS 84 / UTM zone 29N',
+          confidence: 0.43,
+          reason: 'UTM Northern - western adjacent zone'
+        });
       } else {
         // Generic northern UTM
         suggestions.push({
