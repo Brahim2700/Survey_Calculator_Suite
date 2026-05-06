@@ -114,6 +114,27 @@ function stripNonPrintableControlChars(text) {
   return out;
 }
 
+function normalizeBooleanGroupValues(text) {
+  if (typeof text !== 'string' || text.length === 0) return text;
+
+  const normalized = normalizeDxfLineEndings(text);
+  const lines = normalized.split('\n');
+  for (let i = 0; i < lines.length - 1; i += 2) {
+    const code = Number.parseInt(String(lines[i] || '').trim(), 10);
+    if (!Number.isInteger(code) || code < 290 || code > 299) continue;
+
+    const valueRaw = String(lines[i + 1] || '').trim();
+    if (valueRaw === '0' || valueRaw === '1') continue;
+
+    const numeric = Number.parseFloat(valueRaw);
+    if (Number.isFinite(numeric)) {
+      lines[i + 1] = numeric === 0 ? '0' : '1';
+    }
+  }
+
+  return lines.join('\n');
+}
+
 function buildDxfRepairCandidates(rawText) {
   const base = typeof rawText === 'string' ? rawText : String(rawText || '');
   const step1 = stripUtfBom(base);
@@ -121,6 +142,7 @@ function buildDxfRepairCandidates(rawText) {
   const step3 = normalizeDxfLineEndings(step2);
   const step4 = sanitizeDxfEof(step3);
   const step5 = sanitizeDxfEof(stripNonPrintableControlChars(step3));
+  const step6 = sanitizeDxfEof(normalizeBooleanGroupValues(step5));
 
   return [
     {
@@ -142,6 +164,11 @@ function buildDxfRepairCandidates(rawText) {
       id: 'aggressive-control-strip',
       text: step5,
       repairsApplied: ['strip-utf-bom', 'remove-nul-bytes', 'normalize-line-endings', 'strip-control-chars', 'repair-eof'],
+    },
+    {
+      id: 'boolean-group-normalize',
+      text: step6,
+      repairsApplied: ['strip-utf-bom', 'remove-nul-bytes', 'normalize-line-endings', 'strip-control-chars', 'normalize-boolean-group-values', 'repair-eof'],
     },
   ];
 }
