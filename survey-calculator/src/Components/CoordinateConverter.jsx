@@ -4290,7 +4290,7 @@ const CoordinateConverter = () => {
     safeSetJSON(getPresetStorageKey(), next);
   };
 
-  const applyPreset = (id) => {
+  const loadPreset = (id) => {
     const preset = presets.find((p) => p.id === id);
     if (!preset) return;
     pushHistory();

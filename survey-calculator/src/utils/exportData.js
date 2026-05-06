@@ -55,7 +55,7 @@ const parseDmsToDecimal = (value) => {
     .toUpperCase()
     .replace(/[\u00B0]/g, ' ')
     .replace(/[']/g, ' ')
-    .replace(/[\"]/g, ' ')
+    .replace(/["]/g, ' ')
     .replace(/:/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -152,8 +152,6 @@ const collectGeometryLayersWithMeta = (geometry = {}) => {
   return [...layers.values()];
 };
 
-const collectGeometryLayers = (geometry = {}) =>
-  collectGeometryLayersWithMeta(geometry).map((l) => l.name);
 /**
  * Export conversion results as CSV
  * @param {Array} results - Array of conversion result objects

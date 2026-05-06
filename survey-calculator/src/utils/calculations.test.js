@@ -4,8 +4,6 @@ import {
   calculateSlopeDistance,
   calculateHorizontalDistance,
   calculateVerticalAngle,
-  calculateGridDistance,
-  calculateUTMScaleFactor,
   getUTMZone,
   getUTMCentralMeridian,
   calculateElevationFactor,

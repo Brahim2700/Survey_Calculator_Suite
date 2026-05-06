@@ -6,7 +6,7 @@ import { on } from "../utils/eventBus";
  * Displays information about the last CAD entity picked (clicked) on the map.
  * Listens to the 'cad:entityPicked' event emitted from MapVisualization.jsx.
  */
-export default function CadEntityPicker({ onClose }) {
+export default function CadEntityPicker() {
   const [entity, setEntity] = useState(null);
   const [flash, setFlash] = useState(false);
   const flashTimer = useRef(null);

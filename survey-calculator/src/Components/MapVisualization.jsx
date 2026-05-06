@@ -330,8 +330,12 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
   useEffect(() => {
     const externalPointColor = normalizeHexColor(markerStyleConfig?.pointColor, null);
     if (externalPointColor) {
-      setPointBaseColor(externalPointColor);
+      const timer = setTimeout(() => {
+        setPointBaseColor(externalPointColor);
+      }, 0);
+      return () => clearTimeout(timer);
     }
+    return undefined;
   }, [markerStyleConfig?.pointColor]);
 
   useEffect(() => {
@@ -679,7 +683,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
     return 'Point';
   };
 
-  const getLabelBudget = (zoom, totalPoints) => {
+  const getLabelBudget = useCallback((zoom, totalPoints) => {
     const applyBudget = (value) => Math.max(1, Math.floor(value / cadLoadMultiplier));
 
     // Aggressive label reduction for very large datasets (performance optimization)
@@ -707,9 +711,9 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
     if (zoom >= 14) return applyBudget(Math.min(totalPoints, 16));
     if (zoom >= 13) return applyBudget(Math.min(totalPoints, 12));
     return applyBudget(Math.min(totalPoints, 8));
-  };
+  }, [cadLoadMultiplier]);
 
-  const getDetectionLabelBudget = (zoom, totalPoints) => {
+  const getDetectionLabelBudget = useCallback((zoom, totalPoints) => {
     const applyBudget = (value) => Math.max(2, Math.floor(value / cadLoadMultiplier));
 
     // Aggressive label reduction for very large datasets (performance optimization)
@@ -729,7 +733,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
     if (zoom >= 16) return applyBudget(Math.min(totalPoints, 120));
     if (zoom >= 14) return applyBudget(Math.min(totalPoints, 76));
     return applyBudget(Math.min(totalPoints, 40));
-  };
+  }, [cadLoadMultiplier]);
 
   const getDeclutterCellSize = (zoom) => {
     if (zoom >= 17) return 24;
@@ -1109,6 +1113,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
     map.current.on('moveend', handleViewChange);
     updateSmartScale();
     publishMapMetrics();
+    const pendingTimeouts = [];
 
     // Clear existing markers and geometry overlays
     markers.current.forEach((marker) => map.current.removeLayer(marker));
@@ -1845,9 +1850,12 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
         : 'off';
       if (robustFitStatusRef.current !== robustFitKey) {
         robustFitStatusRef.current = robustFitKey;
-        setRobustFitDebug(robustFitApplied
-          ? { active: true, message: `Robust-fit active (${robustFitKept}/${robustFitTotal})` }
-          : { active: false, message: '' });
+        const timer = setTimeout(() => {
+          setRobustFitDebug(robustFitApplied
+            ? { active: true, message: `Robust-fit active (${robustFitKept}/${robustFitTotal})` }
+            : { active: false, message: '' });
+        }, 0);
+        pendingTimeouts.push(timer);
       }
 
       dataExtentBoundsRef.current = selectedBounds;
@@ -1864,6 +1872,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
       dataExtentBoundsRef.current = null;
     }
     return () => {
+      pendingTimeouts.forEach((timer) => clearTimeout(timer));
       if (map.current) {
         const tooltipPane = map.current.getPanes?.().tooltipPane;
         if (tooltipPane) {
@@ -1876,7 +1885,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
         map.current.off('moveend', handleViewChange);
       }
     };
-  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, onMapInstanceReady, getMarkerColor, getPointLabelMarkup, isCadLayerVisible, isGeometryInBounds, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showHatches, solidHatchPreviewOnly, showTinEdges, showTinFill, showLabels, effectiveShowLabels, annotationsVisible, hiddenCadLayers, pointSymbol, pointSizeScale, removeDuplicates, snapMode, snapRadiusPx, markerStyleConfig]);
+  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, onMapInstanceReady, getMarkerColor, getPointLabelMarkup, isCadLayerVisible, isGeometryInBounds, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showHatches, solidHatchPreviewOnly, showTinEdges, showTinFill, showLabels, effectiveShowLabels, annotationsVisible, hiddenCadLayers, pointSymbol, pointSizeScale, removeDuplicates, snapMode, snapRadiusPx, markerStyleConfig, cadLodTier, getLabelBudget, getDetectionLabelBudget]);
 
   return (
     <div

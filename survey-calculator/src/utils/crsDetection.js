@@ -531,12 +531,6 @@ const getFrenchLatitudePenalty = (code, lat) => {
   return Math.min(0.22, diff * 0.07);
 };
 
-const getFrenchLongitudePenalty = (code, lon) => {
-  if (!Number.isFinite(lon) || !OLD_FRENCH_LAMBERT_LONGITUDE[code]) return 0;
-  const diff = Math.abs(lon - OLD_FRENCH_LAMBERT_LONGITUDE[code]);
-  return Math.min(0.24, diff * 0.08);
-};
-
 const isUtmCode = (code) => /^EPSG:(326|327)\d{2}$/.test(code);
 const isEtrsUtmCode = (code) => /^EPSG:258(2\d|3[0-2])$/.test(code);
 
@@ -548,8 +542,6 @@ const getUtmZoneFromCode = (code) => {
   }
   return null;
 };
-
-const isUtmSouth = (code) => /^EPSG:327\d{2}$/.test(code);
 
 // Geographic coverage bands for major foreign grids (reverse-projection plausibility)
 const FOREIGN_GRID_COVERAGE = {
