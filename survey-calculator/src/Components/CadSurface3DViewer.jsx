@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo, useState } from 'react';
+import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import * as THREE from 'three';
 
 const EARTH_RADIUS_M = 6378137;
@@ -84,12 +84,35 @@ const normalizeTriangle = (tri, vertices) => {
  */
 const CadSurface3DViewer = ({ surfaces = [] }) => {
   const containerRef = useRef(null);
-  const [zScalePreset, setZScalePreset] = useState('auto'); // auto | 1 | 2 | 5 | 10
-  const [viewPreset, setViewPreset] = useState('iso'); // iso | top | side
-  const [renderStyle, setRenderStyle] = useState('smooth'); // smooth | mesh | wire
+  const wrapperRef = useRef(null);
+  const [zScalePreset, setZScalePreset] = useState('auto');
+  const [viewPreset, setViewPreset] = useState('iso');
+  const [renderStyle, setRenderStyle] = useState('smooth');
   const [cameraResetToken, setCameraResetToken] = useState(0);
   const [selectedFitLayerKey, setSelectedFitLayerKey] = useState('__all__');
   const [fitLayerKey, setFitLayerKey] = useState('__all__');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      wrapperRef.current?.requestFullscreen().catch((err) => {
+        console.warn('Fullscreen request failed:', err);
+      });
+    } else {
+      document.exitFullscreen();
+    }
+  }, []);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      const entering = document.fullscreenElement === wrapperRef.current;
+      setIsFullscreen(entering);
+      // Trigger a camera/canvas re-setup after the element resizes
+      setCameraResetToken((v) => v + 1);
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
 
   const normalizedSurfaces = useMemo(() => {
     const next = [];
@@ -209,7 +232,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     if (!el || transformedTriangles.length === 0) return;
 
     const W = el.clientWidth || 800;
-    const H = 520;
+    const H = isFullscreen ? (el.clientHeight || window.innerHeight || 520) : 520;
 
     // ── Scene ──────────────────────────────────────────────────────────────
     const scene = new THREE.Scene();
@@ -404,7 +427,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
       renderer.dispose();
       if (el.contains(dom)) el.removeChild(dom);
     };
-  }, [transformedTriangles, transformedSurfaces, fitLayerKey, minZ, maxZ, viewPreset, renderStyle, cameraResetToken]);
+  }, [transformedTriangles, transformedSurfaces, fitLayerKey, minZ, maxZ, viewPreset, renderStyle, cameraResetToken, isFullscreen]);
 
   if (transformedTriangles.length === 0) {
     return (
@@ -421,10 +444,24 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
   }
 
   return (
-    <div style={{ position: 'relative', userSelect: 'none' }}>
+    <div
+      ref={wrapperRef}
+      style={{
+        position: 'relative',
+        userSelect: 'none',
+        background: '#0f172a',
+        ...(isFullscreen ? { width: '100vw', height: '100vh' } : {}),
+      }}
+    >
       <div
         ref={containerRef}
-        style={{ width: '100%', height: 520, borderRadius: 8, overflow: 'hidden', cursor: 'grab' }}
+        style={{
+          width: '100%',
+          height: isFullscreen ? '100vh' : 520,
+          borderRadius: isFullscreen ? 0 : 8,
+          overflow: 'hidden',
+          cursor: 'grab',
+        }}
       />
 
       {/* Elevation legend */}
@@ -599,6 +636,35 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
           </button>
         </div>
       </div>
+
+      {/* Fullscreen toggle */}
+      <button
+        type="button"
+        onClick={toggleFullscreen}
+        title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Enter fullscreen'}
+        style={{
+          position: 'absolute', top: 12, left: isFullscreen ? 12 : undefined,
+          right: isFullscreen ? undefined : 228,
+          background: 'rgba(15,23,42,0.82)',
+          border: '1px solid #334155',
+          borderRadius: 6,
+          color: '#94a3b8',
+          cursor: 'pointer',
+          padding: '0.28rem 0.5rem',
+          fontSize: '0.78rem',
+          fontWeight: 700,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.3rem',
+          zIndex: 10,
+        }}
+      >
+        {isFullscreen
+          ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3v3a2 2 0 01-2 2H3"/><path d="M21 8h-3a2 2 0 01-2-2V3"/><path d="M3 16h3a2 2 0 012 2v3"/><path d="M16 21v-3a2 2 0 012-2h3"/></svg>
+          : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 00-2 2v3"/><path d="M21 8V5a2 2 0 00-2-2h-3"/><path d="M3 16v3a2 2 0 002 2h3"/><path d="M16 21h3a2 2 0 002-2v-3"/></svg>
+        }
+        {isFullscreen ? 'Exit' : 'Full'}
+      </button>
 
       {/* Surface count badge */}
       <div style={{

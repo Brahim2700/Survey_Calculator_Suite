@@ -5313,7 +5313,39 @@ const CoordinateConverter = () => {
           </div>
         )}
 
-        {bulkProgress && <div role="status" aria-live="polite" style={{ margin: "0 0.75rem 0.6rem 0.75rem", color: "#6b7280" }}>{bulkProgress}</div>}
+        {bulkProgress && (() => {
+          // Parse "Uploading CAD in chunks (N/T) — PP%" from the progress message
+          const pctMatch = bulkProgress.match(/(\d+)%/);
+          const pct = pctMatch ? Math.min(100, Math.max(0, Number(pctMatch[1]))) : null;
+          const isChunkUpload = bulkProgress.includes('chunk');
+          return (
+            <div role="status" aria-live="polite" style={{ margin: "0 0.75rem 0.6rem 0.75rem" }}>
+              {isChunkUpload && pct !== null && (
+                <div style={{ marginBottom: "0.3rem" }}>
+                  <div style={{
+                    height: 6,
+                    borderRadius: 999,
+                    background: "#e2e8f0",
+                    overflow: "hidden",
+                  }}>
+                    <div style={{
+                      height: "100%",
+                      width: `${pct}%`,
+                      borderRadius: 999,
+                      background: "linear-gradient(90deg, #0ea5e9, #6366f1)",
+                      transition: "width 0.3s ease",
+                    }} />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.18rem", fontSize: "0.72rem", color: "#94a3b8" }}>
+                    <span>Uploading</span>
+                    <span>{pct}%</span>
+                  </div>
+                </div>
+              )}
+              <div style={{ color: "#6b7280", fontSize: "0.83rem" }}>{bulkProgress}</div>
+            </div>
+          );
+        })()}
       </div>
 
       <div ref={bulkSectionRef} style={{ marginTop: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>

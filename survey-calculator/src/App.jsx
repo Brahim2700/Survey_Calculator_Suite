@@ -23,7 +23,13 @@ import { calculateAllDistances, calculateGeodesicDistance, getUTMZone } from "./
 import { on } from "./utils/eventBus";
 import { exportMapAsPdf, exportMapAsPng } from "./utils/mapExport";
 import { EMPTY_CAD_GEOMETRY } from "./utils/cadShared";
+import useUndoable from "./utils/useUndoable";
+import { useSessionPersist, loadPersistedSession, clearPersistedSession } from "./utils/useSessionPersist";
 import "./App.css";
+
+// Load any persisted session once at module evaluation time so initial state
+// is available synchronously during the first render.
+const _persistedSession = loadPersistedSession();
 
 const PDF_MARGIN_MM = 8;
 const EXPORT_PANEL_WIDTH_PX = 350;
@@ -53,13 +59,32 @@ const pickNiceScale = (requiredDenominator) => {
 };
 
 function App() {
-  const [converterPoints, setConverterPoints] = useState([]);
+  const [converterPoints, setConverterPoints] = useState(
+    () => _persistedSession?.converterPoints ?? []
+  );
   const [cadGeometry, setCadGeometry] = useState(EMPTY_CAD_GEOMETRY);
-  const [hiddenLayerKeys, setHiddenLayerKeys] = useState([]);
-  const [measureMode, setMeasureMode] = useState(false);
-  const [measurePoints, setMeasurePoints] = useState([]);
-  const [distanceDisplayUnit, setDistanceDisplayUnit] = useState("m"); // m | km
-  const [angleDisplayUnit, setAngleDisplayUnit] = useState("deg"); // deg | gon
+  const [hiddenLayerKeys, setHiddenLayerKeys] = useState(
+    () => _persistedSession?.hiddenLayerKeys ?? []
+  );
+  const [measureMode, setMeasureMode] = useState(
+    () => _persistedSession?.measureMode ?? false
+  );
+  // measurePoints uses undo/redo for field-operator workflow
+  const [
+    measurePoints,
+    setMeasurePoints,
+    undoMeasurePoint,
+    redoMeasurePoint,
+    canUndoMeasure,
+    canRedoMeasure,
+    resetMeasurePoints,
+  ] = useUndoable(_persistedSession?.measurePoints ?? []);
+  const [distanceDisplayUnit, setDistanceDisplayUnit] = useState(
+    () => _persistedSession?.distanceDisplayUnit ?? "m"
+  );
+  const [angleDisplayUnit, setAngleDisplayUnit] = useState(
+    () => _persistedSession?.angleDisplayUnit ?? "deg"
+  );
   const [converterSessionKey, setConverterSessionKey] = useState(0);
   const [mapExportRoot, setMapExportRoot] = useState(null);
   const [mapInstance, setMapInstance] = useState(null);
@@ -105,13 +130,43 @@ function App() {
     setCadGeometry(EMPTY_CAD_GEOMETRY);
     setHiddenLayerKeys([]);
     setMeasureMode(false);
-    setMeasurePoints([]);
+    resetMeasurePoints([]);
     setDistanceDisplayUnit("m");
     setAngleDisplayUnit("deg");
+    clearPersistedSession();
     if (remountConverter) {
       setConverterSessionKey((prev) => prev + 1);
     }
-  }, []);
+  }, [resetMeasurePoints]);
+
+  // Persist workspace state on change (debounced)
+  useSessionPersist({
+    converterPoints,
+    measurePoints,
+    measureMode,
+    distanceDisplayUnit,
+    angleDisplayUnit,
+    hiddenLayerKeys,
+  });
+
+  // Global keyboard shortcuts: Ctrl+Z = undo measure point, Ctrl+Y = redo
+  useEffect(() => {
+    const handleKey = (e) => {
+      const ctrl = e.ctrlKey || e.metaKey;
+      if (!ctrl) return;
+      if (e.key === 'z' || e.key === 'Z') {
+        if (e.shiftKey) {
+          if (canRedoMeasure) { e.preventDefault(); redoMeasurePoint(); }
+        } else {
+          if (canUndoMeasure) { e.preventDefault(); undoMeasurePoint(); }
+        }
+      } else if (e.key === 'y' || e.key === 'Y') {
+        if (canRedoMeasure) { e.preventDefault(); redoMeasurePoint(); }
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [canUndoMeasure, canRedoMeasure, undoMeasurePoint, redoMeasurePoint]);
 
   // Points from Coordinate Converter
   useEffect(() => {
@@ -214,11 +269,11 @@ function App() {
       const nextId = prev.length > 0 ? (prev[prev.length - 1].id || prev.length) + 1 : 1;
       return [...prev, { id: nextId, ...selected }];
     });
-  }, [measureMode]);
+  }, [measureMode, setMeasurePoints]);
 
   const handleUndoLastMeasurePoint = useCallback(() => {
-    setMeasurePoints((prev) => prev.slice(0, -1));
-  }, []);
+    undoMeasurePoint();
+  }, [undoMeasurePoint]);
 
   const handleCloseMeasurePolygon = useCallback(() => {
     setMeasurePoints((prev) => {
@@ -231,7 +286,7 @@ function App() {
       const nextId = (last.id || prev.length) + 1;
       return [...prev, { id: nextId, lat: first.lat, lng: first.lng, height: first.height, label: first.label, source: first.source, sourceLabel: first.sourceLabel }];
     });
-  }, []);
+  }, [setMeasurePoints]);
 
   // Compute full surveying metrics for each measured leg
   const measureLegs = measurePoints.length >= 2
@@ -568,7 +623,7 @@ function App() {
                   >
                     <button
                       className="btn btn-danger"
-                      onClick={() => setMeasurePoints([])}
+                      onClick={() => resetMeasurePoints([])}
                     >
 
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
@@ -578,17 +633,31 @@ function App() {
                 )}
 
                 {/* ── Undo last measure point ── */}
-                {measurePoints.length > 0 && (
+                {canUndoMeasure && (
                   <MapToolTip
-                    title="Undo Last Point"
+                    title="Undo Last Point (Ctrl+Z)"
                     description="Removes the most recently placed measurement point. Step back through your clicks one at a time to correct mistakes without losing all measurements."
                   >
                     <button
                       className="btn btn-ghost"
                       onClick={handleUndoLastMeasurePoint}
                     >
-
                       ↩ Undo
+                    </button>
+                  </MapToolTip>
+                )}
+
+                {/* ── Redo measure point ── */}
+                {canRedoMeasure && (
+                  <MapToolTip
+                    title="Redo Point (Ctrl+Y)"
+                    description="Re-applies a previously undone measurement point. Use after Undo if you removed a point by mistake."
+                  >
+                    <button
+                      className="btn btn-ghost"
+                      onClick={redoMeasurePoint}
+                    >
+                      ↪ Redo
                     </button>
                   </MapToolTip>
                 )}
@@ -923,12 +992,12 @@ function App() {
 
             {/* Map / 3D viewer */}
             {mapViewMode === '3d' && visibleCadGeometry.surfaces.length > 0 ? (
-              <ErrorBoundary>
+              <ErrorBoundary label="3D Surface Viewer">
                 <CadSurface3DViewer surfaces={visibleCadGeometry.surfaces} />
               </ErrorBoundary>
             ) : (
               <div style={{ width: "100%", height: mapFocusMode ? "72vh" : "520px", flexShrink: 0 }}>
-                <ErrorBoundary>
+                <ErrorBoundary label="Map Visualization">
                   <MapVisualization
                     points={allPoints}
                     cadGeometry={visibleCadGeometry}
