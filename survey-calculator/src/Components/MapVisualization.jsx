@@ -5,6 +5,8 @@ import { emit } from '../utils/eventBus';
 import { resolveCadWebFont } from '../utils/cadFontMap';
 import { safeGetString, safeSetString } from '../utils/storage';
 import { buildRenderableHatch } from '../lib/render/hatchRenderer.js';
+import { EMPTY_CAD_GEOMETRY } from '../utils/cadShared';
+import { escapeHtml } from '../utils/escapeHtml';
 
 const BASEMAP_STORAGE_KEY = 'survey_calc_basemap';
 const MAP_ADVANCED_TOOLS_STORAGE_KEY = 'survey_calc_map_advanced_tools';
@@ -17,28 +19,6 @@ const CAD_TIN_EDGE_TRIANGLE_LIMIT = 24000;
 const SHOW_DETECTION_LABELS = false;
 const SHOW_CLUSTER_COUNTERS = false;
 const SHOW_CAD_TEXT_ANNOTATIONS = false;
-const EMPTY_CAD_GEOMETRY = {
-  lines: [],
-  polylines: [],
-  texts: [],
-  hatches: [],
-  hatchDiagnostics: [],
-  hatchSummary: null,
-  renderHints: null,
-  surfaces: [],
-  layerSummary: null,
-  validation: null,
-  notifications: [],
-  repairs: null,
-  localPreview: false,
-};
-
-const escapeHtml = (value) => String(value ?? '')
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;')
-  .replace(/'/g, '&#39;');
 const clampNumber = (value, min, max) => Math.min(max, Math.max(min, value));
 const normalizeHexColor = (value, fallback = '#3b82f6') => {
   if (typeof value !== 'string') return fallback;

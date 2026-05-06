@@ -16,6 +16,7 @@ import { exportAsCSV, exportAsGeoJSON, exportAsKML, exportAsGPX, exportAsXLSX, e
 import MapVisualization from "./MapVisualization";
 import { on, emit } from "../utils/eventBus";
 import { safeGetJSON, safeGetString, safeSetJSON, safeSetString, safeRemove } from "../utils/storage";
+import { escapeHtml } from "../utils/escapeHtml";
 
 // Lazy-load geoid utilities only when requested so the main bundle stays small
 let geoidModulePromise = null;
@@ -46,13 +47,6 @@ const getCrsConfidenceClass = (assessment) => {
   if (Number(assessment.confidence) >= 0.75) return { label: "Medium Confidence", color: "#92400e" };
   return { label: "Low Confidence", color: "#b91c1c" };
 };
-
-const escapeHtml = (value) => String(value ?? "")
-  .replace(/&/g, "&amp;")
-  .replace(/</g, "&lt;")
-  .replace(/>/g, "&gt;")
-  .replace(/"/g, "&quot;")
-  .replace(/'/g, "&#39;");
 
 const buildCadDiagnosticReportPayload = (cadInspection, importCrsNotice) => ({
   generatedAt: new Date().toISOString(),

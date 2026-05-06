@@ -2904,3 +2904,19 @@ export function parseDxfTextContent(text, options = {}) {
 
   return rows;
 }
+
+export const EMPTY_CAD_GEOMETRY = {
+  lines: [],
+  polylines: [],
+  texts: [],
+  hatches: [],
+  hatchDiagnostics: [],
+  hatchSummary: null,
+  renderHints: null,
+  surfaces: [],
+  layerSummary: null,
+  validation: null,
+  notifications: [],
+  repairs: null,
+  localPreview: false,
+};

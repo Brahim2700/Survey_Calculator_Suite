@@ -17,10 +17,12 @@ import DxfDiffPanel from "./Components/DxfDiffPanel";
 import EntityTypeBreakdown from "./Components/EntityTypeBreakdown";
 import CadEntityPicker from "./Components/CadEntityPicker";
 import CadSurface3DViewer from "./Components/CadSurface3DViewer";
+import ErrorBoundary from "./Components/ErrorBoundary";
 import proj4 from "proj4";
 import { calculateAllDistances, calculateGeodesicDistance, getUTMZone } from "./utils/calculations";
 import { on } from "./utils/eventBus";
 import { exportMapAsPdf, exportMapAsPng } from "./utils/mapExport";
+import { EMPTY_CAD_GEOMETRY } from "./utils/cadShared";
 import "./App.css";
 
 const PDF_MARGIN_MM = 8;
@@ -34,20 +36,12 @@ const STANDARD_PRINT_SCALES = [
   100, 200, 250, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000,
   4000, 5000, 7500, 10000, 12500, 15000, 20000, 25000, 50000,
 ];
-const EMPTY_CAD_GEOMETRY = {
-  lines: [],
-  polylines: [],
-  texts: [],
-  hatches: [],
-  hatchDiagnostics: [],
-  hatchSummary: null,
-  renderHints: null,
-  surfaces: [],
-  layerSummary: null,
-  validation: null,
-  notifications: [],
-  repairs: null,
-  localPreview: false,
+const BASE_LAYER_KEY = "__base__";
+const getLayerKey = (sourceFileKey) => sourceFileKey || BASE_LAYER_KEY;
+const getLayerLabel = (sourceFileKey) => {
+  if (!sourceFileKey) return "Current Session";
+  const m = String(sourceFileKey).match(/^(.*)-\d{13}$/);
+  return (m?.[1] || sourceFileKey).trim();
 };
 
 const pickNiceScale = (requiredDenominator) => {
@@ -59,14 +53,6 @@ const pickNiceScale = (requiredDenominator) => {
 };
 
 function App() {
-  const BASE_LAYER_KEY = "__base__";
-  const getLayerKey = (sourceFileKey) => sourceFileKey || BASE_LAYER_KEY;
-  const getLayerLabel = (sourceFileKey) => {
-    if (!sourceFileKey) return "Current Session";
-    const m = String(sourceFileKey).match(/^(.*)-\d{13}$/);
-    return (m?.[1] || sourceFileKey).trim();
-  };
-
   const [converterPoints, setConverterPoints] = useState([]);
   const [cadGeometry, setCadGeometry] = useState(EMPTY_CAD_GEOMETRY);
   const [hiddenLayerKeys, setHiddenLayerKeys] = useState([]);
@@ -92,23 +78,29 @@ function App() {
   
   // New features state
   const [filteredPoints, setFilteredPoints] = useState(null);
-  const [showSearchPanel, setShowSearchPanel] = useState(true);
-  const [showDiagnosticsPanel, setShowDiagnosticsPanel] = useState(false);
-  const [showMeasurementsPanel, setShowMeasurementsPanel] = useState(true);
-  const [showElevationProfilePanel, setShowElevationProfilePanel] = useState(true);
-  const [showBatchOpsPanel, setShowBatchOpsPanel] = useState(true);
-  const [showMarkerStylePanel, setShowMarkerStylePanel] = useState(false);
-  const [showConflictPanel, setShowConflictPanel] = useState(true);
-  const [showDxfLayerPanel, setShowDxfLayerPanel] = useState(false);
+  const [panels, setPanels] = useState({
+    search: true,
+    diagnostics: false,
+    measurements: true,
+    elevationProfile: true,
+    batchOps: true,
+    markerStyle: false,
+    conflict: true,
+    dxfLayer: false,
+    hatch: false,
+    dxfDiff: false,
+    entityBreakdown: false,
+    entityPicker: false,
+  });
   const [hiddenDxfLayers, setHiddenDxfLayers] = useState([]);
-  const [showHatchPanel, setShowHatchPanel] = useState(false);
-  const [showDxfDiffPanel, setShowDxfDiffPanel] = useState(false);
-  const [showEntityBreakdown, setShowEntityBreakdown] = useState(false);
-  const [showEntityPicker, setShowEntityPicker] = useState(false);
   const [mapViewMode, setMapViewMode] = useState('2d'); // '2d' | '3d'
   const [markerStyleConfig, setMarkerStyleConfig] = useState({ elevationRules: [], pointSizeScale: 1.0, customIcons: {}, showLegend: true });
 
-  const resetAppWorkspace = ({ remountConverter = false } = {}) => {
+  const togglePanel = useCallback((name) => {
+    setPanels((prev) => ({ ...prev, [name]: !prev[name] }));
+  }, []);
+
+  const resetAppWorkspace = useCallback(({ remountConverter = false } = {}) => {
     setConverterPoints([]);
     setCadGeometry(EMPTY_CAD_GEOMETRY);
     setHiddenLayerKeys([]);
@@ -119,7 +111,7 @@ function App() {
     if (remountConverter) {
       setConverterSessionKey((prev) => prev + 1);
     }
-  };
+  }, []);
 
   // Points from Coordinate Converter
   useEffect(() => {
@@ -196,7 +188,7 @@ function App() {
       resetAppWorkspace();
     });
     return () => off && off();
-  }, []);
+  }, [resetAppWorkspace]);
 
   // Simple UX: while measure mode is ON, click converted markers to choose P1 and P2.
   const handleMapPointSelect = useCallback((point) => {
@@ -224,11 +216,11 @@ function App() {
     });
   }, [measureMode]);
 
-  const handleUndoLastMeasurePoint = () => {
+  const handleUndoLastMeasurePoint = useCallback(() => {
     setMeasurePoints((prev) => prev.slice(0, -1));
-  };
+  }, []);
 
-  const handleCloseMeasurePolygon = () => {
+  const handleCloseMeasurePolygon = useCallback(() => {
     setMeasurePoints((prev) => {
       if (prev.length < 3) return prev;
       const first = prev[0];
@@ -239,7 +231,7 @@ function App() {
       const nextId = (last.id || prev.length) + 1;
       return [...prev, { id: nextId, lat: first.lat, lng: first.lng, height: first.height, label: first.label, source: first.source, sourceLabel: first.sourceLabel }];
     });
-  };
+  }, []);
 
   // Compute full surveying metrics for each measured leg
   const measureLegs = measurePoints.length >= 2
@@ -364,25 +356,25 @@ function App() {
     };
   }, [cadGeometry, hiddenLayerKeys, hiddenDxfLayers]);
 
-  const toggleLayerVisibility = (layerKey) => {
+  const toggleLayerVisibility = useCallback((layerKey) => {
     setHiddenLayerKeys((prev) => (
       prev.includes(layerKey) ? prev.filter((key) => key !== layerKey) : [...prev, layerKey]
     ));
-  };
+  }, []);
 
-  const formatDistance = (meters) => {
+  const formatDistance = useCallback((meters) => {
     if (distanceDisplayUnit === "km") {
       return `${(meters / 1000).toFixed(6)} km`;
     }
     return `${meters.toFixed(2)} m`;
-  };
+  }, [distanceDisplayUnit]);
 
-  const formatAngle = (degrees) => {
+  const formatAngle = useCallback((degrees) => {
     if (angleDisplayUnit === "gon") {
       return `${((degrees * 10) / 9).toFixed(4)} gon`;
     }
     return `${degrees.toFixed(2)}°`;
-  };
+  }, [angleDisplayUnit]);
 
   const allPoints = useMemo(() => visibleConverterPoints, [visibleConverterPoints]);
 
@@ -489,9 +481,9 @@ function App() {
     }
   };
 
-  const updateExportSetting = (key, value) => {
+  const updateExportSetting = useCallback((key, value) => {
     setExportSettings((prev) => ({ ...prev, [key]: value }));
-  };
+  }, []);
 
   const handleBatchOperation = (operationData) => {
     const { operation, points, offset } = operationData;
@@ -639,8 +631,8 @@ function App() {
                   description="Opens the search panel. Search points by label or coordinates, filter by attribute values, and isolate specific subsets for analysis. Active points are highlighted on the map."
                 >
                   <button
-                    className={`btn btn-tool-toggle${showSearchPanel ? " active" : ""}`}
-                    onClick={() => setShowSearchPanel((v) => !v)}
+                    className={`btn btn-tool-toggle${panels.search ? " active" : ""}`}
+                    onClick={() => togglePanel('search')}
                   >
                     🔍
                   </button>
@@ -652,8 +644,8 @@ function App() {
                   description="Opens the diagnostics panel. Displays rendering statistics, total point and entity counts, layer summaries, and memory usage. Helps identify bottlenecks when working with large datasets."
                 >
                   <button
-                    className={`btn btn-tool-toggle${showDiagnosticsPanel ? " active" : ""}`}
-                    onClick={() => setShowDiagnosticsPanel((v) => !v)}
+                    className={`btn btn-tool-toggle${panels.diagnostics ? " active" : ""}`}
+                    onClick={() => togglePanel('diagnostics')}
                   >
                     📊
                   </button>
@@ -665,8 +657,8 @@ function App() {
                   description="Opens the measurements panel. Shows detailed surveying metrics for each measured leg — horizontal distance, geodesic distance, bearing, azimuth, and cumulative totals along the traverse."
                 >
                   <button
-                    className={`btn btn-tool-toggle${showMeasurementsPanel ? " active" : ""}`}
-                    onClick={() => setShowMeasurementsPanel((v) => !v)}
+                    className={`btn btn-tool-toggle${panels.measurements ? " active" : ""}`}
+                    onClick={() => togglePanel('measurements')}
                   >
                     📏
                   </button>
@@ -678,8 +670,8 @@ function App() {
                   description="Opens the elevation profile panel. Visualises terrain height changes along a measured transect using external elevation data. Useful for slope analysis and cross-section studies."
                 >
                   <button
-                    className={`btn btn-tool-toggle${showElevationProfilePanel ? " active" : ""}`}
-                    onClick={() => setShowElevationProfilePanel((v) => !v)}
+                    className={`btn btn-tool-toggle${panels.elevationProfile ? " active" : ""}`}
+                    onClick={() => togglePanel('elevationProfile')}
                   >
                     📈
                   </button>
@@ -691,8 +683,8 @@ function App() {
                   description="Opens the batch operations panel. Apply bulk coordinate transformations, CRS reprojections, or data edits to all loaded points simultaneously, saving time on large datasets."
                 >
                   <button
-                    className={`btn btn-tool-toggle${showBatchOpsPanel ? " active" : ""}`}
-                    onClick={() => setShowBatchOpsPanel((v) => !v)}
+                    className={`btn btn-tool-toggle${panels.batchOps ? " active" : ""}`}
+                    onClick={() => togglePanel('batchOps')}
                   >
                     ⚙️
                   </button>
@@ -704,8 +696,8 @@ function App() {
                   description="Opens the marker style panel. Customise how points are rendered on the map — change colours, icons, sizes, and cluster appearance per point type or layer."
                 >
                   <button
-                    className={`btn btn-tool-toggle${showMarkerStylePanel ? " active" : ""}`}
-                    onClick={() => setShowMarkerStylePanel((v) => !v)}
+                    className={`btn btn-tool-toggle${panels.markerStyle ? " active" : ""}`}
+                    onClick={() => togglePanel('markerStyle')}
                   >
                     🎨
                   </button>
@@ -717,8 +709,8 @@ function App() {
                   description="Opens the conflict detection panel. Automatically identifies duplicate points, overlapping geometries, and inconsistent coordinate systems across your loaded data, then highlights issues on the map."
                 >
                   <button
-                    className={`btn btn-tool-toggle${showConflictPanel ? " active" : ""}`}
-                    onClick={() => setShowConflictPanel((v) => !v)}
+                    className={`btn btn-tool-toggle${panels.conflict ? " active" : ""}`}
+                    onClick={() => togglePanel('conflict')}
                   >
                     🚨
                   </button>
@@ -730,8 +722,8 @@ function App() {
                   description="Opens the layer manager. Toggle individual DXF layers on or off to control map visibility. Essential when working with complex multi-layer CAD drawings that have many overlapping entities."
                 >
                   <button
-                    className={`btn btn-tool-toggle${showDxfLayerPanel ? " active" : ""}`}
-                    onClick={() => setShowDxfLayerPanel((v) => !v)}
+                    className={`btn btn-tool-toggle${panels.dxfLayer ? " active" : ""}`}
+                    onClick={() => togglePanel('dxfLayer')}
                   >
                     🗂️
                   </button>
@@ -743,8 +735,8 @@ function App() {
                   description="Opens the hatch area panel. Computes surface areas from DXF HATCH entities (filled polygon regions) and reports results in square metres or hectares. Ideal for land area computations from CAD plans."
                 >
                   <button
-                    className={`btn btn-tool-toggle${showHatchPanel ? " active" : ""}`}
-                    onClick={() => setShowHatchPanel((v) => !v)}
+                    className={`btn btn-tool-toggle${panels.hatch ? " active" : ""}`}
+                    onClick={() => togglePanel('hatch')}
                   >
                     ⬛
                   </button>
@@ -756,8 +748,8 @@ function App() {
                   description="Opens the DXF comparison panel. Load two DXF files side-by-side and the tool highlights geometric differences: added entities, removed entities, and moved geometries between the two versions."
                 >
                   <button
-                    className={`btn btn-tool-toggle${showDxfDiffPanel ? " active" : ""}`}
-                    onClick={() => setShowDxfDiffPanel((v) => !v)}
+                    className={`btn btn-tool-toggle${panels.dxfDiff ? " active" : ""}`}
+                    onClick={() => togglePanel('dxfDiff')}
                   >
                     🔀
                   </button>
@@ -769,8 +761,8 @@ function App() {
                   description="Opens the entity breakdown panel. Shows a statistical summary of all CAD entity types (lines, arcs, polylines, texts, hatches, blocks) found in the loaded DXF file, including counts per layer."
                 >
                   <button
-                    className={`btn btn-tool-toggle${showEntityBreakdown ? " active" : ""}`}
-                    onClick={() => setShowEntityBreakdown((v) => !v)}
+                    className={`btn btn-tool-toggle${panels.entityBreakdown ? " active" : ""}`}
+                    onClick={() => togglePanel('entityBreakdown')}
                   >
                     📊
                   </button>
@@ -782,8 +774,8 @@ function App() {
                   description="Opens the entity picker. Click directly on any line or polyline rendered on the map to select it and view its full properties: layer name, colour, length, and exact vertex coordinates."
                 >
                   <button
-                    className={`btn btn-tool-toggle${showEntityPicker ? " active" : ""}`}
-                    onClick={() => setShowEntityPicker((v) => !v)}
+                    className={`btn btn-tool-toggle${panels.entityPicker ? " active" : ""}`}
+                    onClick={() => togglePanel('entityPicker')}
                   >
                     🖱
                   </button>
@@ -931,21 +923,25 @@ function App() {
 
             {/* Map / 3D viewer */}
             {mapViewMode === '3d' && visibleCadGeometry.surfaces.length > 0 ? (
-              <CadSurface3DViewer surfaces={visibleCadGeometry.surfaces} />
+              <ErrorBoundary>
+                <CadSurface3DViewer surfaces={visibleCadGeometry.surfaces} />
+              </ErrorBoundary>
             ) : (
               <div style={{ width: "100%", height: mapFocusMode ? "72vh" : "520px", flexShrink: 0 }}>
-                <MapVisualization
-                  points={allPoints}
-                  cadGeometry={visibleCadGeometry}
-                  isVisible={true}
-                  measureMode={measureMode}
-                  measurePoints={measurePoints}
-                  onPointSelect={handleMapPointSelect}
-                  onMapContainerReady={setMapExportRoot}
-                  onMapMetricsChange={setMapMetrics}
-                  onMapInstanceReady={setMapInstance}
-                  markerStyleConfig={markerStyleConfig}
-                />
+                <ErrorBoundary>
+                  <MapVisualization
+                    points={allPoints}
+                    cadGeometry={visibleCadGeometry}
+                    isVisible={true}
+                    measureMode={measureMode}
+                    measurePoints={measurePoints}
+                    onPointSelect={handleMapPointSelect}
+                    onMapContainerReady={setMapExportRoot}
+                    onMapMetricsChange={setMapMetrics}
+                    onMapInstanceReady={setMapInstance}
+                    markerStyleConfig={markerStyleConfig}
+                  />
+                </ErrorBoundary>
               </div>
             )}
 
@@ -1133,9 +1129,9 @@ function App() {
             )}
 
             {/* Added tool panels now appear below the map area */}
-            {(showSearchPanel || showDiagnosticsPanel || showMeasurementsPanel || showElevationProfilePanel || showBatchOpsPanel || showMarkerStylePanel || showConflictPanel || showDxfLayerPanel || showHatchPanel || showDxfDiffPanel || showEntityBreakdown || showEntityPicker) && (
+            {Object.values(panels).some(Boolean) && (
               <div className="map-results-panels fade-slide-in">
-                {showSearchPanel && (
+                {panels.search && (
                   <PointSearchFilter
                     points={visibleConverterPoints}
                     onFilter={(filtered) => setFilteredPoints(filtered)}
@@ -1143,7 +1139,7 @@ function App() {
                   />
                 )}
 
-                {showDiagnosticsPanel && (
+                {panels.diagnostics && (
                   <PerformanceDiagnostics
                     points={visibleConverterPoints}
                     cadGeometry={visibleCadGeometry}
@@ -1151,7 +1147,7 @@ function App() {
                   />
                 )}
 
-                {showMeasurementsPanel && (
+                {panels.measurements && (
                   <MultiPointMeasurements
                     measurePoints={measurePoints}
                     onClearMeasurements={() => setMeasurePoints([])}
@@ -1160,9 +1156,9 @@ function App() {
                   />
                 )}
 
-                {showElevationProfilePanel && <ElevationProfile measurePoints={measurePoints} />}
+                {panels.elevationProfile && <ElevationProfile measurePoints={measurePoints} />}
 
-                {showBatchOpsPanel && (
+                {panels.batchOps && (
                   <BatchOperations
                     points={visibleConverterPoints}
                     filteredPoints={filteredPoints}
@@ -1170,14 +1166,14 @@ function App() {
                   />
                 )}
 
-                {showMarkerStylePanel && (
+                {panels.markerStyle && (
                   <MarkerStyleManager onChange={setMarkerStyleConfig} />
                 )}
 
-                {showConflictPanel && (
+                {panels.conflict && (
                   <SmartConflictDetection points={visibleConverterPoints} />
                 )}
-                {showDxfLayerPanel && (
+                {panels.dxfLayer && (
                   <DxfLayerManager
                     layerSummary={cadGeometry?.layerSummary}
                     hiddenDxfLayers={hiddenDxfLayers}
@@ -1195,16 +1191,16 @@ function App() {
                     }
                   />
                 )}
-                {showHatchPanel && (
+                {panels.hatch && (
                   <HatchAreaPanel hatches={Array.isArray(cadGeometry?.hatches) ? cadGeometry.hatches : []} />
                 )}
-                {showDxfDiffPanel && (
+                {panels.dxfDiff && (
                   <DxfDiffPanel />
                 )}
-                {showEntityBreakdown && (
+                {panels.entityBreakdown && (
                   <EntityTypeBreakdown geometry={cadGeometry} />
                 )}
-                {showEntityPicker && (
+                {panels.entityPicker && (
                   <CadEntityPicker />
                 )}
               </div>

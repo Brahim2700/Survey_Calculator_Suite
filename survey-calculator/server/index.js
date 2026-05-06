@@ -30,6 +30,7 @@ const chunkUpload = multer({
 const chunkRootDir = path.join(tmpdir(), 'survey-cad-chunks');
 const progressiveCadJobs = new Map();
 const PROGRESSIVE_JOB_MAX_AGE_MS = 20 * 60 * 1000;
+const UPLOAD_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function createProgressiveJob({ buffer, parseArgs, preScan, baseMode }) {
   const jobId = randomUUID();
@@ -375,6 +376,11 @@ app.post('/api/cad/upload/chunk', uploadRateLimit, chunkUpload.single('chunk'), 
     const chunkIndex = parseIntegerOrNull(req.body?.chunkIndex);
     const totalChunks = parseIntegerOrNull(req.body?.totalChunks);
 
+    if (!UPLOAD_ID_REGEX.test(uploadId)) {
+      res.status(400).json({ message: 'Invalid uploadId format.' });
+      return;
+    }
+
     if (!uploadId || !fileName || chunkIndex === null || totalChunks === null || totalChunks <= 0 || chunkIndex < 0 || chunkIndex >= totalChunks) {
       res.status(400).json({ message: 'Invalid chunk metadata.' });
       return;
@@ -433,6 +439,11 @@ app.post('/api/cad/upload/complete', uploadRateLimit, express.json({ limit: '1mb
   const preflightFormatHint = String(req.body?.preflightFormatHint || 'unknown').trim() || 'unknown';
   const preflightModeConfidence = String(req.body?.preflightModeConfidence || 'low').trim() || 'low';
   const preflightModeConfidenceReason = String(req.body?.preflightModeConfidenceReason || '').trim();
+
+  if (!UPLOAD_ID_REGEX.test(uploadId)) {
+    res.status(400).json({ message: 'Invalid uploadId format.' });
+    return;
+  }
 
   if (!uploadId || !fileName) {
     res.status(400).json({ message: 'Missing upload completion metadata.' });
