@@ -671,7 +671,7 @@ const getMoroccoInfo = (lon, lat) => {
 };
 
 // ---- Algeria Local Systems ----
-const isAlgeriaCode = (code) => /^EPSG:(2340|2341|30729|30730|30731|30732|30791|30792)$/.test(code);
+const isAlgeriaCode = (code) => /^EPSG:(2340|2341|4304|4307|30491|30492|30493|30494|30729|30730|30731|30732|30791|30792)$/.test(code);
 const getAlgeriaInfo = (lon, lat) => {
   const inAlgeria = lon >= -8 && lon <= 12 && lat >= 19 && lat <= 37;
   return { inAlgeria, region: "Algeria", outOfArea: !inAlgeria };
