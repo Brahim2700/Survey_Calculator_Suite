@@ -973,6 +973,55 @@ const detectProjected = (bounds) => {
     });
   }
 
+  // Algeria projected systems (Nord Sahara 1959 and UTM zones)
+  if (avgX >= 100000 && avgX <= 900000 && avgY >= 3000000 && avgY <= 4200000) {
+    suggestions.push({
+      code: 'EPSG:30731',
+      name: 'Nord Sahara 1959 / UTM zone 31N (Algeria)',
+      confidence: 0.86,
+      reason: `Projected range matches Algeria Nord Sahara UTM candidates (E: ${Math.round(avgX / 1000)}km, N: ${Math.round(avgY / 1000)}km)`
+    });
+    suggestions.push({
+      code: 'EPSG:30732',
+      name: 'Nord Sahara 1959 / UTM zone 32N (Algeria)',
+      confidence: 0.84,
+      reason: 'Projected range matches Algeria Nord Sahara UTM adjacent zone'
+    });
+    suggestions.push({
+      code: 'EPSG:30730',
+      name: 'Nord Sahara 1959 / UTM zone 30N (Algeria)',
+      confidence: 0.82,
+      reason: 'Projected range matches Algeria Nord Sahara UTM adjacent zone'
+    });
+    suggestions.push({
+      code: 'EPSG:32631',
+      name: 'WGS 84 / UTM zone 31N (Algeria)',
+      confidence: 0.79,
+      reason: 'Projected range also matches WGS84 UTM in Algeria'
+    });
+    suggestions.push({
+      code: 'EPSG:32632',
+      name: 'WGS 84 / UTM zone 32N (Algeria)',
+      confidence: 0.77,
+      reason: 'Projected range also matches WGS84 UTM adjacent zone'
+    });
+  }
+
+  if (avgX >= 0 && avgX <= 1300000 && avgY >= 200000 && avgY <= 2200000) {
+    suggestions.push({
+      code: 'EPSG:30791',
+      name: 'Nord Sahara 1959 / Nord Algerie',
+      confidence: 0.78,
+      reason: 'Projected range matches Nord Algerie legacy grid'
+    });
+    suggestions.push({
+      code: 'EPSG:30792',
+      name: 'Nord Sahara 1959 / Sud Algerie',
+      confidence: 0.76,
+      reason: 'Projected range matches Sud Algerie legacy grid'
+    });
+  }
+
   // Web Mercator
   if (Math.abs(minX) < 20037509 && Math.abs(maxX) < 20037509 &&
       Math.abs(minY) < 20037509 && Math.abs(maxY) < 20037509 &&
