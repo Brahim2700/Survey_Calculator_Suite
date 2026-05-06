@@ -959,6 +959,34 @@ const detectProjected = (bounds) => {
   const suggestions = [];
   const { minX, maxX, minY, maxY, avgX, avgY } = bounds;
 
+  const isLikelyAlgeriaProjected = (() => {
+    const ALGERIA_BBOX = {
+      lonMin: -9.5,
+      lonMax: 12.5,
+      latMin: 18,
+      latMax: 38,
+    };
+    const candidates = ['EPSG:30731', 'EPSG:30732', 'EPSG:30730', 'EPSG:32631', 'EPSG:32632', 'EPSG:32630'];
+
+    for (const code of candidates) {
+      try {
+        if (!ensureCrsDefinition(code)) continue;
+        const [lon, lat] = proj4(code, 'EPSG:4326', [avgX, avgY]);
+        if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+        if (
+          lon >= ALGERIA_BBOX.lonMin && lon <= ALGERIA_BBOX.lonMax
+          && lat >= ALGERIA_BBOX.latMin && lat <= ALGERIA_BBOX.latMax
+        ) {
+          return true;
+        }
+      } catch {
+        // Ignore projection failures for this heuristic.
+      }
+    }
+
+    return false;
+  })();
+
   // UTM detection
   const utmSuggestions = detectUTM(bounds);
   suggestions.push(...utmSuggestions);
@@ -974,7 +1002,7 @@ const detectProjected = (bounds) => {
   }
 
   // Algeria projected systems (Nord Sahara 1959 and UTM zones)
-  if (avgX >= 100000 && avgX <= 900000 && avgY >= 3000000 && avgY <= 4200000) {
+  if (isLikelyAlgeriaProjected && avgX >= 100000 && avgX <= 900000 && avgY >= 3000000 && avgY <= 4200000) {
     suggestions.push({
       code: 'EPSG:30731',
       name: 'Nord Sahara 1959 / UTM zone 31N (Algeria)',
@@ -1007,7 +1035,7 @@ const detectProjected = (bounds) => {
     });
   }
 
-  if (avgX >= 0 && avgX <= 1300000 && avgY >= 200000 && avgY <= 2200000) {
+  if (isLikelyAlgeriaProjected && avgX >= 0 && avgX <= 1300000 && avgY >= 200000 && avgY <= 2200000) {
     suggestions.push({
       code: 'EPSG:30791',
       name: 'Nord Sahara 1959 / Nord Algerie',
