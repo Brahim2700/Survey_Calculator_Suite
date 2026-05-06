@@ -762,12 +762,29 @@ const buildProjectedCatalogCandidates = () => CRS_LIST
     return {
       code: entry.code,
       name: entry.label || entry.name || entry.code,
+      region: String(entry.region || ''),
       hints,
     };
   })
   .filter(Boolean);
 
 const PROJECTED_CATALOG_CANDIDATES = buildProjectedCatalogCandidates();
+
+const getRegionSpecificityBonus = (regionText) => {
+  const region = String(regionText || '').trim().toLowerCase();
+  if (!region) return 0;
+
+  // Prefer region-specific CRSs over global CRSs when geometric plausibility is similar.
+  if (region.startsWith('world:') || region.includes('world:')) return -0.06;
+  if (region.includes('global')) return -0.04;
+
+  // Country/state/zone specific descriptions should rank slightly higher.
+  if (region.includes(' - ') || region.includes(' between ') || region.includes(' onshore ') || region.includes(' offshore ')) {
+    return 0.04;
+  }
+
+  return 0.02;
+};
 
 const chooseCatalogShortlist = (bounds) => {
   const { avgX, avgY } = bounds;
@@ -816,7 +833,8 @@ const tryInferProjectedFromCatalog = (bounds) => {
 
     const swapped = swappedScore > normalScore + 0.75;
     const closenessPenalty = Math.min((candidate.closeness || 0) / 2000000, 0.45);
-    const confidence = clampScore(0.45 + ((bestScore - 1.85) * 0.08) - closenessPenalty, 0.35, 0.72);
+    const regionBonus = getRegionSpecificityBonus(candidate.region);
+    const confidence = clampScore(0.45 + ((bestScore - 1.85) * 0.08) - closenessPenalty + regionBonus, 0.35, 0.76);
     suggestions.push({
       code: candidate.code,
       name: candidate.name,
@@ -959,34 +977,6 @@ const detectProjected = (bounds) => {
   const suggestions = [];
   const { minX, maxX, minY, maxY, avgX, avgY } = bounds;
 
-  const isLikelyAlgeriaProjected = (() => {
-    const ALGERIA_BBOX = {
-      lonMin: -9.5,
-      lonMax: 12.5,
-      latMin: 18,
-      latMax: 38,
-    };
-    const candidates = ['EPSG:30731', 'EPSG:30732', 'EPSG:30730', 'EPSG:32631', 'EPSG:32632', 'EPSG:32630'];
-
-    for (const code of candidates) {
-      try {
-        if (!ensureCrsDefinition(code)) continue;
-        const [lon, lat] = proj4(code, 'EPSG:4326', [avgX, avgY]);
-        if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
-        if (
-          lon >= ALGERIA_BBOX.lonMin && lon <= ALGERIA_BBOX.lonMax
-          && lat >= ALGERIA_BBOX.latMin && lat <= ALGERIA_BBOX.latMax
-        ) {
-          return true;
-        }
-      } catch {
-        // Ignore projection failures for this heuristic.
-      }
-    }
-
-    return false;
-  })();
-
   // UTM detection
   const utmSuggestions = detectUTM(bounds);
   suggestions.push(...utmSuggestions);
@@ -998,55 +988,6 @@ const detectProjected = (bounds) => {
       name: 'RGF93 / Lambert-93 (France)',
       confidence: 0.85,
       reason: `Easting ~${Math.round(avgX/1000)}km, Northing ~${Math.round(avgY/1000)}km matches Lambert-93`
-    });
-  }
-
-  // Algeria projected systems (Nord Sahara 1959 and UTM zones)
-  if (isLikelyAlgeriaProjected && avgX >= 100000 && avgX <= 900000 && avgY >= 3000000 && avgY <= 4200000) {
-    suggestions.push({
-      code: 'EPSG:30731',
-      name: 'Nord Sahara 1959 / UTM zone 31N (Algeria)',
-      confidence: 0.86,
-      reason: `Projected range matches Algeria Nord Sahara UTM candidates (E: ${Math.round(avgX / 1000)}km, N: ${Math.round(avgY / 1000)}km)`
-    });
-    suggestions.push({
-      code: 'EPSG:30732',
-      name: 'Nord Sahara 1959 / UTM zone 32N (Algeria)',
-      confidence: 0.84,
-      reason: 'Projected range matches Algeria Nord Sahara UTM adjacent zone'
-    });
-    suggestions.push({
-      code: 'EPSG:30730',
-      name: 'Nord Sahara 1959 / UTM zone 30N (Algeria)',
-      confidence: 0.82,
-      reason: 'Projected range matches Algeria Nord Sahara UTM adjacent zone'
-    });
-    suggestions.push({
-      code: 'EPSG:32631',
-      name: 'WGS 84 / UTM zone 31N (Algeria)',
-      confidence: 0.79,
-      reason: 'Projected range also matches WGS84 UTM in Algeria'
-    });
-    suggestions.push({
-      code: 'EPSG:32632',
-      name: 'WGS 84 / UTM zone 32N (Algeria)',
-      confidence: 0.77,
-      reason: 'Projected range also matches WGS84 UTM adjacent zone'
-    });
-  }
-
-  if (isLikelyAlgeriaProjected && avgX >= 0 && avgX <= 1300000 && avgY >= 200000 && avgY <= 2200000) {
-    suggestions.push({
-      code: 'EPSG:30791',
-      name: 'Nord Sahara 1959 / Nord Algerie',
-      confidence: 0.78,
-      reason: 'Projected range matches Nord Algerie legacy grid'
-    });
-    suggestions.push({
-      code: 'EPSG:30792',
-      name: 'Nord Sahara 1959 / Sud Algerie',
-      confidence: 0.76,
-      reason: 'Projected range matches Sud Algerie legacy grid'
     });
   }
 
