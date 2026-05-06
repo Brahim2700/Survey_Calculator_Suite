@@ -135,6 +135,44 @@ function normalizeBooleanGroupValues(text) {
   return lines.join('\n');
 }
 
+function rebuildDxfPairsAndNormalizeBooleanGroups(text) {
+  if (typeof text !== 'string' || text.length === 0) return text;
+
+  const normalized = normalizeDxfLineEndings(text);
+  const lines = normalized.split('\n');
+  const repaired = [];
+
+  const asInteger = (value) => {
+    const trimmed = String(value || '').trim();
+    if (!trimmed || !/^-?\d+$/.test(trimmed)) return null;
+    const parsed = Number.parseInt(trimmed, 10);
+    return Number.isInteger(parsed) ? parsed : null;
+  };
+
+  for (let i = 0; i < lines.length - 1;) {
+    const code = asInteger(lines[i]);
+    if (code === null) {
+      i += 1;
+      continue;
+    }
+
+    let value = String(lines[i + 1] || '').trim();
+    if (code >= 290 && code <= 299) {
+      if (value !== '0' && value !== '1') {
+        const numeric = Number.parseFloat(value);
+        if (Number.isFinite(numeric)) {
+          value = numeric === 0 ? '0' : '1';
+        }
+      }
+    }
+
+    repaired.push(String(code), value);
+    i += 2;
+  }
+
+  return repaired.join('\n');
+}
+
 function buildDxfRepairCandidates(rawText) {
   const base = typeof rawText === 'string' ? rawText : String(rawText || '');
   const step1 = stripUtfBom(base);
@@ -143,6 +181,7 @@ function buildDxfRepairCandidates(rawText) {
   const step4 = sanitizeDxfEof(step3);
   const step5 = sanitizeDxfEof(stripNonPrintableControlChars(step3));
   const step6 = sanitizeDxfEof(normalizeBooleanGroupValues(step5));
+  const step7 = sanitizeDxfEof(rebuildDxfPairsAndNormalizeBooleanGroups(step5));
 
   return [
     {
@@ -169,6 +208,11 @@ function buildDxfRepairCandidates(rawText) {
       id: 'boolean-group-normalize',
       text: step6,
       repairsApplied: ['strip-utf-bom', 'remove-nul-bytes', 'normalize-line-endings', 'strip-control-chars', 'normalize-boolean-group-values', 'repair-eof'],
+    },
+    {
+      id: 'pair-realign-boolean-normalize',
+      text: step7,
+      repairsApplied: ['strip-utf-bom', 'remove-nul-bytes', 'normalize-line-endings', 'strip-control-chars', 'realign-code-value-pairs', 'normalize-boolean-group-values', 'repair-eof'],
     },
   ];
 }
