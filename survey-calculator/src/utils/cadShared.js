@@ -719,6 +719,32 @@ const extractInsertPointElevation = (ent) => {
   return null;
 };
 
+const inferCadSymbolFamily = ({ blockName = '', layer = '', attributes = null } = {}) => {
+  const block = String(blockName || '').toLowerCase();
+  const lyr = String(layer || '').toLowerCase();
+  const attrKeys = attributes && typeof attributes === 'object'
+    ? Object.keys(attributes).map((key) => String(key).toLowerCase())
+    : [];
+  const haystack = `${block} ${lyr} ${attrKeys.join(' ')}`;
+
+  const tests = [
+    { family: 'benchmark', re: /bench|borne|bm\b|repere|nivel|niveau|altim/ },
+    { family: 'control-point', re: /\bpt\b|point|station|topo|survey|gps|gnss|canevas|polygon/ },
+    { family: 'boundary-marker', re: /borne|limit|boundary|parcel|parcelle|cadastre|fence|cloture/ },
+    { family: 'manhole', re: /manhole|regard|mh\b|egout|sewer|assain/ },
+    { family: 'valve', re: /valve|vanne|sluice/ },
+    { family: 'hydrant', re: /hydrant|poteau.?incendie|fire.?hydrant/ },
+    { family: 'utility-pole', re: /pole|poteau|support|elec|enedis|telecom|fiber|fibre/ },
+    { family: 'tree', re: /tree|arbre|veget/ },
+    { family: 'lamp', re: /lamp|light|luminaire|candela|eclairage/ },
+    { family: 'traffic-sign', re: /sign|signal|panneau|traffic/ },
+  ];
+
+  const match = tests.find((rule) => rule.re.test(haystack));
+  if (match) return match.family;
+  return 'generic';
+};
+
 const collectTextLabels = (entities) => {
   const labels = [];
 
@@ -944,7 +970,7 @@ const composeCadTransforms = (parent, local) => ({
   tz: parent.sz * local.tz + parent.tz,
 });
 
-const createInsertTransform = (entity) => {
+const createInsertTransform = (entity, block = null) => {
   const position = entity?.position || entity?.insertionPoint || {};
   const rotationDeg = asFiniteNumber(entity?.rotation ?? entity?.angle, 0);
   const rotationRad = (rotationDeg * Math.PI) / 180;
@@ -953,16 +979,32 @@ const createInsertTransform = (entity) => {
   const scaleX = asFiniteNumber(entity?.xScale ?? entity?.scaleX ?? entity?.scale?.x, 1);
   const scaleY = asFiniteNumber(entity?.yScale ?? entity?.scaleY ?? entity?.scale?.y, 1);
   const scaleZ = asFiniteNumber(entity?.zScale ?? entity?.scaleZ ?? entity?.scale?.z, 1);
+  const blockBase = block?.position || block?.basePoint || block?.origin || {
+    x: block?.x,
+    y: block?.y,
+    z: block?.z,
+  };
+  const baseX = asFiniteNumber(blockBase?.x, 0);
+  const baseY = asFiniteNumber(blockBase?.y, 0);
+  const baseZ = asFiniteNumber(blockBase?.z, 0);
+  const a = scaleX * cos;
+  const b = scaleX * sin;
+  const c = -scaleY * sin;
+  const d = scaleY * cos;
+  const px = asFiniteNumber(position?.x, 0);
+  const py = asFiniteNumber(position?.y, 0);
+  const pz = asFiniteNumber(position?.z ?? entity?.z, 0);
 
   return {
-    a: scaleX * cos,
-    b: scaleX * sin,
-    c: -scaleY * sin,
-    d: scaleY * cos,
-    tx: asFiniteNumber(position?.x, 0),
-    ty: asFiniteNumber(position?.y, 0),
+    a,
+    b,
+    c,
+    d,
+    // INSERT applies block definition relative to its base point.
+    tx: px - ((a * baseX) + (c * baseY)),
+    ty: py - ((b * baseX) + (d * baseY)),
     sz: scaleZ,
-    tz: asFiniteNumber(position?.z ?? entity?.z, 0),
+    tz: pz - (scaleZ * baseZ),
   };
 };
 
@@ -1237,7 +1279,7 @@ const expandCadEntities = (dxfData, options = {}) => {
       if (type === 'INSERT') {
         const insertName = String(entity?.name || '').trim();
         const block = insertName ? blocks[insertName] : null;
-        const insertTransform = composeCadTransforms(transform, createInsertTransform(entity));
+        const insertTransform = composeCadTransforms(transform, createInsertTransform(entity, block));
         const insertEntity = {
           ...entity,
           position: applyCadTransform(entity?.position || entity?.insertionPoint || {}, transform),
@@ -1248,6 +1290,8 @@ const expandCadEntities = (dxfData, options = {}) => {
           __blockResolved: Boolean(block),
           __blockPointLike: Boolean(block) && isBlockPointLike(block),
           __pointName: extractInsertPointName(entity),
+          __symbolName: insertName || null,
+          __symbolFamily: inferCadSymbolFamily({ blockName: insertName, layer: entity?.layer }),
         };
         flattened.push(insertEntity);
 
@@ -1830,7 +1874,17 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
     repairs,
   };
 
-  const addRow = (x, y, z, idHint, hasExplicitName = false, source = 'unknown', layer = null, blockAttributes = null) => {
+  const addRow = (
+    x,
+    y,
+    z,
+    idHint,
+    hasExplicitName = false,
+    source = 'unknown',
+    layer = null,
+    blockAttributes = null,
+    cadSymbol = null,
+  ) => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     const coordKey = `${x.toFixed(3)},${y.toFixed(3)}`;
     const normalizedHint = normalizeCadLabelCandidate(idHint);
@@ -1849,6 +1903,9 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
       if (blockAttributes && !existing.blockAttributes) {
         existing.blockAttributes = blockAttributes;
       }
+      if (cadSymbol && !existing.cadSymbol) {
+        existing.cadSymbol = cadSymbol;
+      }
       return;
     }
 
@@ -1862,6 +1919,7 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
       detectedFromCrs,
       hasExplicitName: Boolean(explicitName),
       blockAttributes: blockAttributes || null,
+      cadSymbol: cadSymbol || null,
     };
     rows.push(row);
     seenCoords.set(coordKey, row);
@@ -1880,7 +1938,20 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
       switch (ent?.type) {
         case 'POINT': {
           const z = ent.position?.z ?? ent.z ?? ent.position?.[2] ?? ent.vertices?.[0]?.z;
-          addRow(ent.position?.x, ent.position?.y, z, null, false, 'point-entity', layer || null);
+          addRow(
+            ent.position?.x,
+            ent.position?.y,
+            z,
+            null,
+            false,
+            'point-entity',
+            layer || null,
+            null,
+            {
+              name: String(ent?.__sourceBlock || ent?.type || '').trim() || null,
+              family: inferCadSymbolFamily({ blockName: ent?.__sourceBlock, layer }),
+            },
+          );
           break;
         }
         case 'INSERT': {
@@ -1890,6 +1961,10 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
           // Accept these regardless of block name, so French survey files (blocks like
           // NPI, TER, BM, A15, CIBLE, GP3D, etc.) are not silently discarded.
           const hasAttribs = Array.isArray(ent.attribs) && ent.attribs.length > 0;
+          const symbolMeta = {
+            name: String(ent?.name || ent?.__symbolName || '').trim() || null,
+            family: String(ent?.__symbolFamily || inferCadSymbolFamily({ blockName: ent?.name, layer })) || 'generic',
+          };
           if ((nameLooksPointLike || ent.__blockPointLike || hasAttribs) && ent.__blockResolved) {
             const fallbackElevation = extractInsertPointElevation(ent);
             const iz = ent.position?.z ?? ent.z ?? ent.position?.[2] ?? fallbackElevation;
@@ -1901,8 +1976,31 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
               const val = String(attr?.text ?? attr?.value ?? '').trim();
               if (tag && val) attribMap[tag] = val;
             });
+            if (attribMap.DESCRIPTION || attribMap.DESC || attribMap.NOTE || attribMap.REMARK) {
+              symbolMeta.family = inferCadSymbolFamily({
+                blockName: ent?.name,
+                layer,
+                attributes: attribMap,
+              });
+            }
             const blockAttributes = Object.keys(attribMap).length > 0 ? { blockName: ent.name || null, attributes: attribMap } : null;
-            addRow(ent.position?.x, ent.position?.y, iz, pointName, Boolean(pointName), 'insert-symbol', layer || null, blockAttributes);
+            addRow(ent.position?.x, ent.position?.y, iz, pointName, Boolean(pointName), 'insert-symbol', layer || null, blockAttributes, symbolMeta);
+          } else if ((nameLooksPointLike || hasAttribs) && !ent.__blockResolved) {
+            // Keep unresolved, point-like INSERTs as placeholders so missing xref libraries
+            // do not silently remove survey symbols from the map.
+            const pointName = ent.__pointName || extractInsertPointName(ent);
+            const iz = ent.position?.z ?? ent.z ?? ent.position?.[2] ?? 0;
+            addRow(
+              ent.position?.x,
+              ent.position?.y,
+              iz,
+              pointName,
+              Boolean(pointName),
+              'insert-unresolved',
+              layer || null,
+              null,
+              { ...symbolMeta, unresolved: true },
+            );
           }
           break;
         }
