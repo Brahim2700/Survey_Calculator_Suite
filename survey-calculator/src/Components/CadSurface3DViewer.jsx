@@ -223,6 +223,9 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
   const [contourInterval, setContourInterval] = useState(10);
   const [measurementMode, setMeasurementMode] = useState(false);
   const [measurementPoints, setMeasurementPoints] = useState([]);
+  const [showLightingPanel, setShowLightingPanel] = useState(false);
+  const [showSurfacePanel, setShowSurfacePanel] = useState(false);
+  const [showExportPanel, setShowExportPanel] = useState(false);
   const [lightAzimuth, setLightAzimuth] = useState(45);
   const [lightElevation, setLightElevation] = useState(45);
   const [lightIntensity, setLightIntensity] = useState(0.8);
@@ -920,13 +923,13 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
       </div>
 
       {/* Feature Panels - Left side */}
-      <div style={{ position: 'absolute', top: '50%', left: 14, transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: 'calc(100% - 120px)', overflowY: 'auto', paddingRight: 4 }}>
+      <div style={{ position: 'absolute', top: '50%', left: 14, transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: '0.45rem', maxHeight: 'calc(100% - 120px)', overflowY: 'auto', paddingRight: 4, width: 140 }}>
         
         {/* Mesh Opacity Control */}
         <div style={{
           background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.6rem 0.85rem',
           color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
-          backdropFilter: 'blur(4px)', minWidth: 160,
+          backdropFilter: 'blur(4px)', minWidth: 140, width: '100%',
         }}>
           <div style={{ fontWeight: 700, marginBottom: '0.4rem', fontSize: '0.78rem' }}>Opacity</div>
           <input
@@ -944,28 +947,38 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
         <div style={{
           background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.6rem 0.85rem',
           color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
-          backdropFilter: 'blur(4px)', minWidth: 160,
+          backdropFilter: 'blur(4px)', minWidth: 140, width: '100%',
         }}>
-          <div style={{ fontWeight: 700, marginBottom: '0.4rem', fontSize: '0.78rem' }}>Lighting</div>
-          <div style={{ marginBottom: '0.4rem' }}>
-            <div style={{ fontSize: '0.71rem', color: '#94a3b8', marginBottom: '0.2rem' }}>Azimuth: {lightAzimuth}°</div>
-            <input type="range" min="0" max="360" step="15" value={lightAzimuth} onChange={(e) => setLightAzimuth(Number(e.target.value))} style={{ width: '100%', cursor: 'pointer' }} />
-          </div>
-          <div style={{ marginBottom: '0.4rem' }}>
-            <div style={{ fontSize: '0.71rem', color: '#94a3b8', marginBottom: '0.2rem' }}>Elevation: {lightElevation}°</div>
-            <input type="range" min="0" max="90" step="10" value={lightElevation} onChange={(e) => setLightElevation(Number(e.target.value))} style={{ width: '100%', cursor: 'pointer' }} />
-          </div>
-          <div>
-            <div style={{ fontSize: '0.71rem', color: '#94a3b8', marginBottom: '0.2rem' }}>Intensity</div>
-            <input type="range" min="0" max="200" step="10" value={lightIntensity * 100} onChange={(e) => setLightIntensity(Number(e.target.value) / 100)} style={{ width: '100%', cursor: 'pointer' }} />
-          </div>
+          <button
+            type="button"
+            onClick={() => setShowLightingPanel((value) => !value)}
+            style={{ width: '100%', padding: '0.22rem', borderRadius: 6, fontSize: '0.72rem', fontWeight: 700, border: '1px solid #334155', background: showLightingPanel ? '#1d4ed8' : '#0f172a', color: showLightingPanel ? '#dbeafe' : '#e2e8f0', cursor: 'pointer' }}
+          >
+            {showLightingPanel ? 'Lighting ▼' : 'Lighting ▶'}
+          </button>
+          {showLightingPanel && (
+            <div style={{ marginTop: '0.4rem' }}>
+              <div style={{ marginBottom: '0.4rem' }}>
+                <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginBottom: '0.15rem' }}>Azimuth: {lightAzimuth}°</div>
+                <input type="range" min="0" max="360" step="15" value={lightAzimuth} onChange={(e) => setLightAzimuth(Number(e.target.value))} style={{ width: '100%', cursor: 'pointer' }} />
+              </div>
+              <div style={{ marginBottom: '0.4rem' }}>
+                <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginBottom: '0.15rem' }}>Elevation: {lightElevation}°</div>
+                <input type="range" min="0" max="90" step="10" value={lightElevation} onChange={(e) => setLightElevation(Number(e.target.value))} style={{ width: '100%', cursor: 'pointer' }} />
+              </div>
+              <div>
+                <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginBottom: '0.15rem' }}>Intensity</div>
+                <input type="range" min="0" max="200" step="10" value={lightIntensity * 100} onChange={(e) => setLightIntensity(Number(e.target.value) / 100)} style={{ width: '100%', cursor: 'pointer' }} />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Contour Settings */}
         <div style={{
           background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.6rem 0.85rem',
           color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
-          backdropFilter: 'blur(4px)', minWidth: 160,
+          backdropFilter: 'blur(4px)', minWidth: 140, width: '100%',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.4rem' }}>
             <input type="checkbox" checked={showContours} onChange={(e) => setShowContours(e.target.checked)} />
@@ -984,21 +997,31 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
           <div style={{
             background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.6rem 0.85rem',
             color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
-            backdropFilter: 'blur(4px)', minWidth: 160, maxHeight: 150, overflowY: 'auto',
+            backdropFilter: 'blur(4px)', minWidth: 140, width: '100%', maxHeight: 150, overflowY: 'auto',
           }}>
-            <div style={{ fontWeight: 700, marginBottom: '0.4rem', fontSize: '0.78rem' }}>Surfaces</div>
-            {normalizedSurfaces.map((surface) => (
-              <div key={surface.layerKey} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginBottom: '0.3rem' }}>
-                <input
-                  type="checkbox"
-                  checked={visibleSurfaces[surface.layerKey] !== false}
-                  onChange={(e) => setVisibleSurfaces((prev) => ({ ...prev, [surface.layerKey]: e.target.checked }))}
-                />
-                <span style={{ fontSize: '0.71rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {surface.layerLabel}
-                </span>
+            <button
+              type="button"
+              onClick={() => setShowSurfacePanel((value) => !value)}
+              style={{ width: '100%', padding: '0.22rem', borderRadius: 6, fontSize: '0.72rem', fontWeight: 700, border: '1px solid #334155', background: showSurfacePanel ? '#1d4ed8' : '#0f172a', color: showSurfacePanel ? '#dbeafe' : '#e2e8f0', cursor: 'pointer' }}
+            >
+              {showSurfacePanel ? 'Surfaces ▼' : 'Surfaces ▶'}
+            </button>
+            {showSurfacePanel && (
+              <div style={{ marginTop: '0.35rem' }}>
+                {normalizedSurfaces.map((surface) => (
+                  <div key={surface.layerKey} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginBottom: '0.3rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={visibleSurfaces[surface.layerKey] !== false}
+                      onChange={(e) => setVisibleSurfaces((prev) => ({ ...prev, [surface.layerKey]: e.target.checked }))}
+                    />
+                    <span style={{ fontSize: '0.68rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {surface.layerLabel}
+                    </span>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
         )}
 
@@ -1006,7 +1029,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
         <div style={{
           background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.6rem 0.85rem',
           color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
-          backdropFilter: 'blur(4px)', minWidth: 160,
+          backdropFilter: 'blur(4px)', minWidth: 140, width: '100%',
         }}>
           <button
             type="button"
@@ -1054,7 +1077,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
         <div style={{
           background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.6rem 0.85rem',
           color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
-          backdropFilter: 'blur(4px)', minWidth: 160,
+          backdropFilter: 'blur(4px)', minWidth: 140, width: '100%',
         }}>
           <button
             type="button"
@@ -1092,29 +1115,37 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
           color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
           backdropFilter: 'blur(4px)', minWidth: 160,
         }}>
-          <div style={{ fontWeight: 700, marginBottom: '0.4rem', fontSize: '0.78rem' }}>Export</div>
-          <div style={{ display: 'grid', gap: '0.3rem' }}>
-            <button
-              type="button"
-              onClick={() => exportScreenshot(containerRef.current?.querySelector('canvas'))}
-              style={{
-                width: '100%', padding: '0.25rem', borderRadius: 4, fontSize: '0.68rem', fontWeight: 600,
-                border: '1px solid #334155', background: '#0f172a', color: '#cbd5e1', cursor: 'pointer',
-              }}
-            >
-              Screenshot
-            </button>
-            <button
-              type="button"
-              onClick={() => exportCSV(transformedTriangles, minZ, maxZ)}
-              style={{
-                width: '100%', padding: '0.25rem', borderRadius: 4, fontSize: '0.68rem', fontWeight: 600,
-                border: '1px solid #334155', background: '#0f172a', color: '#cbd5e1', cursor: 'pointer',
-              }}
-            >
-              CSV Points
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setShowExportPanel((value) => !value)}
+            style={{ width: '100%', padding: '0.22rem', borderRadius: 6, fontSize: '0.72rem', fontWeight: 700, border: '1px solid #334155', background: showExportPanel ? '#1d4ed8' : '#0f172a', color: showExportPanel ? '#dbeafe' : '#e2e8f0', cursor: 'pointer' }}
+          >
+            {showExportPanel ? 'Export ▼' : 'Export ▶'}
+          </button>
+          {showExportPanel && (
+            <div style={{ display: 'grid', gap: '0.3rem', marginTop: '0.35rem' }}>
+              <button
+                type="button"
+                onClick={() => exportScreenshot(containerRef.current?.querySelector('canvas'))}
+                style={{
+                  width: '100%', padding: '0.22rem', borderRadius: 4, fontSize: '0.66rem', fontWeight: 600,
+                  border: '1px solid #334155', background: '#0f172a', color: '#cbd5e1', cursor: 'pointer',
+                }}
+              >
+                Screenshot
+              </button>
+              <button
+                type="button"
+                onClick={() => exportCSV(transformedTriangles)}
+                style={{
+                  width: '100%', padding: '0.22rem', borderRadius: 4, fontSize: '0.66rem', fontWeight: 600,
+                  border: '1px solid #334155', background: '#0f172a', color: '#cbd5e1', cursor: 'pointer',
+                }}
+              >
+                CSV Points
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
