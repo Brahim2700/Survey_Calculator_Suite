@@ -1096,16 +1096,29 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
             </div>
           )}
           {measurementPoints.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setMeasurementPoints([])}
-              style={{
-                width: '100%', marginTop: '0.3rem', padding: '0.2rem', borderRadius: 4, fontSize: '0.68rem',
-                border: '1px solid #334155', background: '#0f172a', color: '#94a3b8', cursor: 'pointer',
-              }}
-            >
-              Clear
-            </button>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.3rem', marginTop: '0.3rem' }}>
+              <button
+                type="button"
+                onClick={() => setMeasurementPoints((prev) => prev.slice(0, -1))}
+                style={{
+                  padding: '0.2rem', borderRadius: 4, fontSize: '0.68rem',
+                  border: '1px solid #334155', background: '#0f172a', color: '#94a3b8', cursor: 'pointer',
+                }}
+                title="Remove last picked point"
+              >
+                Undo
+              </button>
+              <button
+                type="button"
+                onClick={() => setMeasurementPoints([])}
+                style={{
+                  padding: '0.2rem', borderRadius: 4, fontSize: '0.68rem',
+                  border: '1px solid #334155', background: '#0f172a', color: '#94a3b8', cursor: 'pointer',
+                }}
+              >
+                Clear
+              </button>
+            </div>
           )}
         </div>
 
