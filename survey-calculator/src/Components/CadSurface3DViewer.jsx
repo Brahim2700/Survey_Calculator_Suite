@@ -502,7 +502,34 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
         color: '#e2e8f0', fontSize: '0.74rem', border: '1px solid #1e293b',
         display: 'grid', gap: '0.35rem', minWidth: 210,
       }}>
-        <div style={{ fontWeight: 700, color: '#cbd5e1' }}>3D Controls</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.4rem' }}>
+          <div style={{ fontWeight: 700, color: '#cbd5e1' }}>3D Controls</div>
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Enter fullscreen'}
+            style={{
+              background: 'rgba(15,23,42,0.82)',
+              border: '1px solid #334155',
+              borderRadius: 6,
+              color: '#94a3b8',
+              cursor: 'pointer',
+              padding: '0.18rem 0.45rem',
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.28rem',
+              lineHeight: 1,
+            }}
+          >
+            {isFullscreen
+              ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3v3a2 2 0 01-2 2H3"/><path d="M21 8h-3a2 2 0 01-2-2V3"/><path d="M3 16h3a2 2 0 012 2v3"/><path d="M16 21v-3a2 2 0 012-2h3"/></svg>
+              : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 00-2 2v3"/><path d="M21 8V5a2 2 0 00-2-2h-3"/><path d="M3 16v3a2 2 0 002 2h3"/><path d="M16 21h3a2 2 0 002-2v-3"/></svg>
+            }
+            {isFullscreen ? 'Exit' : 'Full'}
+          </button>
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
           <span style={{ color: '#94a3b8' }}>Style</span>
           {[{ key: 'smooth', label: 'Smooth' }, { key: 'mesh', label: 'Mesh' }, { key: 'wire', label: 'Wire' }].map((style) => (
@@ -636,35 +663,6 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
           </button>
         </div>
       </div>
-
-      {/* Fullscreen toggle */}
-      <button
-        type="button"
-        onClick={toggleFullscreen}
-        title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Enter fullscreen'}
-        style={{
-          position: 'absolute', top: 12, left: isFullscreen ? 12 : undefined,
-          right: isFullscreen ? undefined : 228,
-          background: 'rgba(15,23,42,0.82)',
-          border: '1px solid #334155',
-          borderRadius: 6,
-          color: '#94a3b8',
-          cursor: 'pointer',
-          padding: '0.28rem 0.5rem',
-          fontSize: '0.78rem',
-          fontWeight: 700,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.3rem',
-          zIndex: 10,
-        }}
-      >
-        {isFullscreen
-          ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3v3a2 2 0 01-2 2H3"/><path d="M21 8h-3a2 2 0 01-2-2V3"/><path d="M3 16h3a2 2 0 012 2v3"/><path d="M16 21v-3a2 2 0 012-2h3"/></svg>
-          : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 00-2 2v3"/><path d="M21 8V5a2 2 0 00-2-2h-3"/><path d="M3 16v3a2 2 0 002 2h3"/><path d="M16 21h3a2 2 0 002-2v-3"/></svg>
-        }
-        {isFullscreen ? 'Exit' : 'Full'}
-      </button>
 
       {/* Surface count badge */}
       <div style={{
