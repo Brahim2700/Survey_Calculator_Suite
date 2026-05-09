@@ -278,8 +278,19 @@ export default function CrsSearchSelector({ value, onChange, label }) {
     }).slice(0, 300); // Keep enough rows for country catalogs like France/Australia
   }, [search, filter, continentFilter, countryFilter, recommendedOnly]);
 
-  // Get current CRS object
-  const currentCrs = CRS_LIST.find(c => c.code === value);
+  // Keep externally selected CRS visible even if it is not in the bundled catalog.
+  const currentCrs = useMemo(() => {
+    const matched = CRS_LIST.find((c) => c.code === value);
+    if (matched) return matched;
+    if (!value) return null;
+    return {
+      code: String(value),
+      label: 'Manual selection (detected suggestion)',
+      region: '',
+      proj4def: '',
+      type: 'projected',
+    };
+  }, [value]);
 
   // Toggle favorite
   const toggleFavorite = (crsCode) => {
