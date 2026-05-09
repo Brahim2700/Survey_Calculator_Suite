@@ -3647,8 +3647,13 @@ const CoordinateConverter = () => {
       }
 
       const detectedFromRows = rows.find((r) => r.detectedFromCrs)?.detectedFromCrs;
+      const topDetectedSuggestions = (rows.find((r) => Array.isArray(r?.crsSuggestions))?.crsSuggestions || []).slice(0, TOP_DETECTION_LIMIT);
+      if (topDetectedSuggestions.length > 0) {
+        setCrsSuggestions(topDetectedSuggestions);
+        setShowCrsSuggestions(true);
+      }
       const detectedFromPayload = cadPayload?.inspection?.detectedFromCrs || cadPayload?.diagnostics?.detectedFromCrs;
-      const sourceCrs = resolveCadSourceCrs(rows, cadPayload, { preferDetected: true });
+      const sourceCrs = resolveCadSourceCrs(rows, cadPayload);
       const referenceStatus = detectLocalReferenceFromRows(rows);
       const isLocalUnreferenced = sourceCrs === "LOCAL:ENGINEERING" || Boolean(referenceStatus?.isLocal);
       const isAmbiguous = referenceStatus?.status === "ambiguous";
@@ -4729,73 +4734,75 @@ const CoordinateConverter = () => {
             🎯 CRS Auto-Detected
           </h3>
           <p style={{ margin: "0 0 0.75rem 0", fontSize: "0.9rem", color: "#555" }}>
-            We detected the following coordinate systems. The top match has been auto-selected:
+            We detected these top {Math.min(TOP_DETECTION_LIMIT, crsSuggestions.length)} coordinate systems. Click any option below to choose it:
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-            {crsSuggestions.slice(0, 3).map((suggestion, idx) => (
-              <div 
-                key={suggestion.code}
-                onClick={() => {
-                  setFromCrsManually(suggestion.code);
-                  setShowCrsSuggestions(false);
-                }}
-                style={{
-                  background: idx === 0 ? "#bae6fd" : "#fff",
-                  border: idx === 0 ? "2px solid #0284c7" : "1px solid #cbd5e1",
-                  borderRadius: "6px",
-                  padding: "0.75rem",
-                  cursor: "pointer",
-                  transition: "all 0.2s"
-                }}
-                onMouseOver={(e) => {
-                  if (idx !== 0) {
-                    e.currentTarget.style.background = "#f8fafc";
-                    e.currentTarget.style.borderColor = "#94a3b8";
-                  }
-                }}
-                onMouseOut={(e) => {
-                  if (idx !== 0) {
-                    e.currentTarget.style.background = "#fff";
-                    e.currentTarget.style.borderColor = "#cbd5e1";
-                  }
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div>
-                    <strong style={{ color: "#1e40af" }}>{suggestion.name}</strong>
-                    <span style={{ marginLeft: "0.5rem", fontSize: "0.85rem", color: "#64748b" }}>
-                      ({suggestion.code})
-                    </span>
-                    {idx === 0 && (
-                      <span style={{
-                        marginLeft: "0.5rem",
-                        background: "#10b981",
-                        color: "#fff",
-                        padding: "0.15rem 0.5rem",
-                        borderRadius: "4px",
-                        fontSize: "0.75rem",
-                        fontWeight: 600
-                      }}>
-                        SELECTED
+            {crsSuggestions.slice(0, TOP_DETECTION_LIMIT).map((suggestion) => {
+              const isSelected = fromCrs === suggestion.code;
+              return (
+                <div 
+                  key={suggestion.code}
+                  onClick={() => {
+                    setFromCrsManually(suggestion.code);
+                  }}
+                  style={{
+                    background: isSelected ? "#bae6fd" : "#fff",
+                    border: isSelected ? "2px solid #0284c7" : "1px solid #cbd5e1",
+                    borderRadius: "6px",
+                    padding: "0.75rem",
+                    cursor: "pointer",
+                    transition: "all 0.2s"
+                  }}
+                  onMouseOver={(e) => {
+                    if (!isSelected) {
+                      e.currentTarget.style.background = "#f8fafc";
+                      e.currentTarget.style.borderColor = "#94a3b8";
+                    }
+                  }}
+                  onMouseOut={(e) => {
+                    if (!isSelected) {
+                      e.currentTarget.style.background = "#fff";
+                      e.currentTarget.style.borderColor = "#cbd5e1";
+                    }
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <strong style={{ color: "#1e40af" }}>{suggestion.name}</strong>
+                      <span style={{ marginLeft: "0.5rem", fontSize: "0.85rem", color: "#64748b" }}>
+                        ({suggestion.code})
                       </span>
-                    )}
+                      {isSelected && (
+                        <span style={{
+                          marginLeft: "0.5rem",
+                          background: "#10b981",
+                          color: "#fff",
+                          padding: "0.15rem 0.5rem",
+                          borderRadius: "4px",
+                          fontSize: "0.75rem",
+                          fontWeight: 600
+                        }}>
+                          SELECTED
+                        </span>
+                      )}
+                    </div>
+                    <div style={{
+                      background: suggestion.confidence > 0.8 ? "#10b981" : suggestion.confidence > 0.6 ? "#f59e0b" : "#64748b",
+                      color: "#fff",
+                      padding: "0.25rem 0.6rem",
+                      borderRadius: "4px",
+                      fontSize: "0.75rem",
+                      fontWeight: 600
+                    }}>
+                      {Math.round(suggestion.confidence * 100)}% match
+                    </div>
                   </div>
-                  <div style={{
-                    background: suggestion.confidence > 0.8 ? "#10b981" : suggestion.confidence > 0.6 ? "#f59e0b" : "#64748b",
-                    color: "#fff",
-                    padding: "0.25rem 0.6rem",
-                    borderRadius: "4px",
-                    fontSize: "0.75rem",
-                    fontWeight: 600
-                  }}>
-                    {Math.round(suggestion.confidence * 100)}% match
+                  <div style={{ marginTop: "0.35rem", fontSize: "0.85rem", color: "#64748b" }}>
+                    {suggestion.reason}
                   </div>
                 </div>
-                <div style={{ marginTop: "0.35rem", fontSize: "0.85rem", color: "#64748b" }}>
-                  {suggestion.reason}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
