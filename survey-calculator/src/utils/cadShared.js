@@ -687,9 +687,11 @@ const isLikelyPointIdentifier = (value) => {
   if (/\.(?:dxf|dwg|kml|kmz|csv|txt|geojson|gpx|json)\b/i.test(text)) return false;
   if (/[\\/]/.test(text)) return false;
   if (/:[^\s]/.test(text)) return false;
-  // Most point labels include at least one digit or mixed token pattern.
-  if (/[0-9]/.test(text)) return true;
-  if (/^[A-Za-z]+[-_][A-Za-z0-9]+$/.test(text)) return true;
+  // Accept any text that contains at least one letter (covers purely alphabetic
+  // names like "REF", "TN", "ALFA" as well as alphanumeric ones like "PT01").
+  if (/[A-Za-z]/.test(text)) return true;
+  // Also accept numeric-only tokens that look like point IDs (digits only, no decimal).
+  if (/^\d+$/.test(text)) return true;
   return false;
 };
 
