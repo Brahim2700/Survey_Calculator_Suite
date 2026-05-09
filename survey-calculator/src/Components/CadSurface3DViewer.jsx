@@ -87,6 +87,46 @@ const calculateTriangleArea = (v1, v2, v3) => {
   return Math.sqrt(cx * cx + cy * cy + cz * cz) / 2;
 };
 
+const projectTrianglesForStats = (surfaces, minZ, maxZ) => {
+  if (!Array.isArray(surfaces) || surfaces.length === 0) return [];
+
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  let minLng = Infinity;
+  let maxLng = -Infinity;
+
+  surfaces.forEach((surface) => {
+    surface.triangles.forEach(({ v1, v2, v3 }) => {
+      [v1, v2, v3].forEach((v) => {
+        if (v.x < minLat) minLat = v.x;
+        if (v.x > maxLat) maxLat = v.x;
+        if (v.y < minLng) minLng = v.y;
+        if (v.y > maxLng) maxLng = v.y;
+      });
+    });
+  });
+
+  if (!Number.isFinite(minLat) || !Number.isFinite(minLng)) return [];
+
+  const degToRad = Math.PI / 180;
+  const centerLat = (minLat + maxLat) / 2;
+  const centerLng = (minLng + maxLng) / 2;
+  const cosLat = Math.max(0.01, Math.cos(centerLat * degToRad));
+  const centerZ = (minZ + maxZ) / 2;
+
+  const projectVertex = (v) => ({
+    x: (v.y - centerLng) * degToRad * EARTH_RADIUS_M * cosLat,
+    y: (v.x - centerLat) * degToRad * EARTH_RADIUS_M,
+    z: Number(v.z) - centerZ,
+  });
+
+  return surfaces.flatMap((surface) => surface.triangles.map(({ v1, v2, v3 }) => ({
+    v1: projectVertex(v1),
+    v2: projectVertex(v2),
+    v3: projectVertex(v3),
+  })));
+};
+
 // Helper: Calculate bounding box
 const calculateBoundingBox = (triangles) => {
   if (!Array.isArray(triangles) || triangles.length === 0) return null;
@@ -103,8 +143,7 @@ const calculateBoundingBox = (triangles) => {
 };
 
 // Helper: Export screenshot
-const exportScreenshot = () => {
-  const canvas = document.querySelector('canvas');
+const exportScreenshot = (canvas) => {
   if (canvas) {
     const link = document.createElement('a');
     link.href = canvas.toDataURL('image/png');
@@ -235,30 +274,6 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
 
   const allTriangles = useMemo(() => normalizedSurfaces.flatMap((surface) => surface.triangles), [normalizedSurfaces]);
 
-  // Calculate surface statistics
-  const statistics = useMemo(() => {
-    const stats = {};
-    normalizedSurfaces.forEach((surface) => {
-      let area = 0;
-      surface.triangles.forEach(({ v1, v2, v3 }) => {
-        area += calculateTriangleArea(v1, v2, v3);
-      });
-      const bbox = calculateBoundingBox(surface.triangles);
-      if (bbox) {
-        const cx = (bbox.minX + bbox.maxX) / 2;
-        const cy = (bbox.minY + bbox.maxY) / 2;
-        const cz = (bbox.minZ + bbox.maxZ) / 2;
-        stats[surface.layerKey] = {
-          area: area.toFixed(2),
-          triangles: surface.triangles.length,
-          bbox,
-          centroid: { x: cx.toFixed(2), y: cy.toFixed(2), z: cz.toFixed(2) },
-        };
-      }
-    });
-    return stats;
-  }, [normalizedSurfaces]);
-
   const { minZ, maxZ } = useMemo(() => {
     let min = Infinity;
     let max = -Infinity;
@@ -349,6 +364,38 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     };
   }, [allTriangles, minZ, maxZ, zScalePreset, normalizedSurfaces]);
 
+  // Calculate surface statistics using projected coordinates in meters.
+  const statistics = useMemo(() => {
+    const projectedTriangles = projectTrianglesForStats(normalizedSurfaces, minZ, maxZ);
+    const stats = {};
+
+    let triangleCursor = 0;
+    normalizedSurfaces.forEach((surface) => {
+      const surfaceTriangles = projectedTriangles.slice(triangleCursor, triangleCursor + surface.triangles.length);
+      triangleCursor += surface.triangles.length;
+
+      let area = 0;
+      surfaceTriangles.forEach(({ v1, v2, v3 }) => {
+        area += calculateTriangleArea(v1, v2, v3);
+      });
+
+      const bbox = calculateBoundingBox(surfaceTriangles);
+      if (bbox) {
+        const cx = (bbox.minX + bbox.maxX) / 2;
+        const cy = (bbox.minY + bbox.maxY) / 2;
+        const cz = (bbox.minZ + bbox.maxZ) / 2;
+        stats[surface.layerKey] = {
+          area: area.toFixed(2),
+          triangles: surface.triangles.length,
+          bbox,
+          centroid: { x: cx.toFixed(2), y: cy.toFixed(2), z: cz.toFixed(2) },
+        };
+      }
+    });
+
+    return stats;
+  }, [normalizedSurfaces, minZ, maxZ]);
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el || transformedTriangles.length === 0) return;
@@ -369,7 +416,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     camera.up.set(0, 0, 1);
 
     // ── Renderer ───────────────────────────────────────────────────────────
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     renderer.setSize(W, H);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     el.appendChild(renderer.domElement);
@@ -440,6 +487,31 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
       });
     }
 
+    const overlayObjects = [];
+    if (measurementPoints.length > 0) {
+      const markerGeo = new THREE.SphereGeometry(maxDim * 0.025, 16, 16);
+      const fromMat = new THREE.MeshBasicMaterial({ color: '#22c55e' });
+      const toMat = new THREE.MeshBasicMaterial({ color: '#ef4444' });
+
+      measurementPoints.forEach((point, index) => {
+        const marker = new THREE.Mesh(markerGeo, index === 0 ? fromMat : toMat);
+        marker.position.copy(point);
+        scene.add(marker);
+        overlayObjects.push(marker);
+      });
+
+      if (measurementPoints.length === 2) {
+        const lineGeo = new THREE.BufferGeometry().setFromPoints(measurementPoints);
+        const lineMat = new THREE.LineBasicMaterial({ color: '#f59e0b', transparent: true, opacity: 0.95 });
+        const line = new THREE.Line(lineGeo, lineMat);
+        scene.add(line);
+        overlayObjects.push({ geometry: lineGeo, material: lineMat });
+      }
+
+      overlayObjects.push({ geometry: markerGeo, material: fromMat });
+      overlayObjects.push({ material: toMat });
+    }
+
     // ── Fit camera ─────────────────────────────────────────────────────────
     geo.computeBoundingBox();
     const box = geo.boundingBox;
@@ -478,7 +550,6 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
         target.z + radius * Math.cos(phi),
       );
       camera.lookAt(target);
-      sun.position.copy(camera.position).normalize();
     };
     updateCamera();
 
@@ -589,10 +660,14 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
       mat.dispose();
       wireGeo.dispose();
       wireMat.dispose();
+      overlayObjects.forEach((object) => {
+        object?.geometry?.dispose?.();
+        object?.material?.dispose?.();
+      });
       renderer.dispose();
       if (el.contains(dom)) el.removeChild(dom);
     };
-  }, [transformedTriangles, transformedSurfaces, fitLayerKey, minZ, maxZ, viewPreset, renderStyle, cameraResetToken, isFullscreen, meshOpacity, showContours, contourInterval, lightAzimuth, lightElevation, lightIntensity, measurementMode, visibleSurfaces]);
+  }, [transformedTriangles, transformedSurfaces, fitLayerKey, minZ, maxZ, viewPreset, renderStyle, cameraResetToken, isFullscreen, meshOpacity, showContours, contourInterval, lightAzimuth, lightElevation, lightIntensity, measurementMode, measurementPoints, visibleSurfaces]);
 
   if (transformedTriangles.length === 0) {
     return (
@@ -845,7 +920,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
       </div>
 
       {/* Feature Panels - Left side */}
-      <div style={{ position: 'absolute', bottom: 14, left: 14, display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+      <div style={{ position: 'absolute', top: '50%', left: 14, transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: 'calc(100% - 120px)', overflowY: 'auto', paddingRight: 4 }}>
         
         {/* Mesh Opacity Control */}
         <div style={{
@@ -952,7 +1027,8 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
           </button>
           {measurementPoints.length > 0 && (
             <div style={{ fontSize: '0.71rem', color: '#64748b' }}>
-              Points: {measurementPoints.length}
+              {measurementPoints[0] && <div>From: {measurementPoints[0].x.toFixed(2)}, {measurementPoints[0].y.toFixed(2)}, {measurementPoints[0].z.toFixed(2)}</div>}
+              {measurementPoints[1] && <div>To: {measurementPoints[1].x.toFixed(2)}, {measurementPoints[1].y.toFixed(2)}, {measurementPoints[1].z.toFixed(2)}</div>}
               {measurementPoints.length === 2 && (
                 <div style={{ marginTop: '0.2rem', color: '#22c55e' }}>
                   Distance: {measurementPoints[0].distanceTo(measurementPoints[1]).toFixed(2)} m
@@ -1020,7 +1096,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
           <div style={{ display: 'grid', gap: '0.3rem' }}>
             <button
               type="button"
-              onClick={exportScreenshot}
+              onClick={() => exportScreenshot(containerRef.current?.querySelector('canvas'))}
               style={{
                 width: '100%', padding: '0.25rem', borderRadius: 4, fontSize: '0.68rem', fontWeight: 600,
                 border: '1px solid #334155', background: '#0f172a', color: '#cbd5e1', cursor: 'pointer',
