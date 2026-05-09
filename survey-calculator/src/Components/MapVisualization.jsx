@@ -823,61 +823,6 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
     });
   };
 
-  const getCadSymbolVisual = useCallback((cadSymbol, fillColor, strokeColor) => {
-    const family = String(cadSymbol?.family || 'generic').toLowerCase();
-    const palette = {
-      'benchmark': { bg: '#7c3aed', fg: '#ffffff', label: 'BM', shape: 'triangle' },
-      'control-point': { bg: '#0ea5e9', fg: '#ffffff', label: 'CP', shape: 'circle' },
-      'boundary-marker': { bg: '#f97316', fg: '#ffffff', label: 'BD', shape: 'diamond' },
-      'manhole': { bg: '#475569', fg: '#f8fafc', label: 'MH', shape: 'square' },
-      'valve': { bg: '#16a34a', fg: '#f8fafc', label: 'V', shape: 'diamond' },
-      'hydrant': { bg: '#dc2626', fg: '#fef2f2', label: 'FH', shape: 'square' },
-      'utility-pole': { bg: '#1d4ed8', fg: '#eff6ff', label: 'P', shape: 'circle' },
-      'tree': { bg: '#15803d', fg: '#ecfdf5', label: 'T', shape: 'circle' },
-      'lamp': { bg: '#ca8a04', fg: '#fffbeb', label: 'L', shape: 'circle' },
-      'traffic-sign': { bg: '#be123c', fg: '#fff1f2', label: 'S', shape: 'triangle' },
-      'generic': { bg: fillColor, fg: '#ffffff', label: '+', shape: 'circle' },
-    };
-    const pick = palette[family] || palette.generic;
-    return {
-      family,
-      shape: pick.shape,
-      bg: pick.bg || fillColor,
-      fg: pick.fg,
-      label: pick.label,
-      stroke: strokeColor,
-    };
-  }, []);
-
-  const createCadSymbolLayer = useCallback((lat, lng, markerRadius, cadSymbol, fallbackFill, strokeColor) => {
-    const visual = getCadSymbolVisual(cadSymbol, fallbackFill, strokeColor);
-    const box = Math.max(14, Math.round(markerRadius * 2.9));
-    const stroke = 2;
-    let shapeMarkup = '';
-
-    if (visual.shape === 'square') {
-      shapeMarkup = `<rect x="3" y="3" width="18" height="18" rx="3" ry="3" fill="${visual.bg}" stroke="${visual.stroke}" stroke-width="${stroke}" />`;
-    } else if (visual.shape === 'diamond') {
-      shapeMarkup = `<polygon points="12,2 22,12 12,22 2,12" fill="${visual.bg}" stroke="${visual.stroke}" stroke-width="${stroke}" />`;
-    } else if (visual.shape === 'triangle') {
-      shapeMarkup = `<polygon points="12,2 22,21 2,21" fill="${visual.bg}" stroke="${visual.stroke}" stroke-width="${stroke}" />`;
-    } else {
-      shapeMarkup = `<circle cx="12" cy="12" r="9" fill="${visual.bg}" stroke="${visual.stroke}" stroke-width="${stroke}" />`;
-    }
-
-    const labelSize = visual.label.length > 1 ? 6.8 : 10;
-    const html = `<svg width="${box}" height="${box}" viewBox="0 0 24 24" aria-hidden="true">${shapeMarkup}<text x="12" y="14" text-anchor="middle" font-size="${labelSize}" font-weight="700" fill="${visual.fg}" font-family="Avenir Next, Segoe UI, sans-serif">${escapeHtml(visual.label)}</text></svg>`;
-    return L.marker([lat, lng], {
-      icon: L.divIcon({
-        className: 'point-symbol-icon cad-symbol-icon',
-        html,
-        iconSize: [box, box],
-        iconAnchor: [box / 2, box / 2],
-      }),
-      keyboard: false,
-    });
-  }, [getCadSymbolVisual]);
-
   const extractCrsCode = (point) => {
     if (!point || !point.label) return null;
     const match = String(point.label).match(/EPSG:\d+/i);
@@ -1404,8 +1349,6 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
           }),
           keyboard: false,
         });
-      } else if (point.sourceType === 'cad-point' && point?.cadSymbol) {
-        pointLayer = createCadSymbolLayer(displayLat, displayLng, markerRadius, point.cadSymbol, normalizeHexColor(color, '#3b82f6'), markerStroke);
       } else {
         pointLayer = createPointSymbolLayer(displayLat, displayLng, {
           symbol: pointSymbol,
@@ -1425,8 +1368,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
         const blockLabel = ba.blockName ? `<span style="color:#94a3b8">Block: </span><b>${escapeHtml(ba.blockName)}</b><br/>` : '';
         return `${blockLabel}<table style="font-size:11px;border-collapse:collapse;margin-top:3px">${rows}</table><br/>`;
       })();
-      const cadSymbolName = String(point?.cadSymbol?.name || '').trim();
-      const cadSymbolFamily = String(point?.cadSymbol?.family || '').trim();
+      const cadBlockName = String(point?.cadSymbol?.name || '').trim();
       const cadSymbolStatus = point?.cadSymbol?.unresolved ? 'unresolved-block' : '';
       const pointDescription = getEntityDescription(point);
       pointLayer
@@ -1434,8 +1376,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
           `<div style="font-size: 12px; min-width: 180px;">
             <b>${escapeHtml(getPointPopupTitle(point))}</b><br/>
             ${pointDescription ? `<span style="color:#94a3b8">Description:</span> ${escapeHtml(pointDescription)}<br/>` : ''}
-            ${cadSymbolName ? `<span style="color:#94a3b8">Symbol:</span> ${escapeHtml(cadSymbolName)}<br/>` : ''}
-            ${cadSymbolFamily ? `<span style="color:#94a3b8">Symbol family:</span> ${escapeHtml(cadSymbolFamily)}<br/>` : ''}
+            ${cadBlockName ? `<span style="color:#94a3b8">Block:</span> ${escapeHtml(cadBlockName)}<br/>` : ''}
             ${cadSymbolStatus ? `<span style="color:#b45309"><b>Library:</b> unresolved CAD block (rendered as placeholder)</span><br/>` : ''}
             Lat: ${point.lat.toFixed(4)}°<br/>
             Lng: ${point.lng.toFixed(4)}°<br/>
@@ -1967,7 +1908,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
         map.current.off('moveend', handleViewChange);
       }
     };
-  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, onMapInstanceReady, getMarkerColor, getPointLabelMarkup, isCadLayerVisible, isGeometryInBounds, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showHatches, solidHatchPreviewOnly, showTinEdges, showTinFill, showLabels, effectiveShowLabels, annotationsVisible, hiddenCadLayers, pointSymbol, pointSizeScale, removeDuplicates, snapMode, snapRadiusPx, markerStyleConfig, cadLodTier, getLabelBudget, getDetectionLabelBudget, createCadSymbolLayer]);
+  }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, onMapInstanceReady, getMarkerColor, getPointLabelMarkup, isCadLayerVisible, isGeometryInBounds, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showHatches, solidHatchPreviewOnly, showTinEdges, showTinFill, showLabels, effectiveShowLabels, annotationsVisible, hiddenCadLayers, pointSymbol, pointSizeScale, removeDuplicates, snapMode, snapRadiusPx, markerStyleConfig, cadLodTier, getLabelBudget, getDetectionLabelBudget]);
 
   return (
     <div
