@@ -472,14 +472,29 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
         backdropFilter: 'blur(4px)',
       }}>
         <div style={{ fontWeight: 700, marginBottom: '0.4rem', fontSize: '0.78rem' }}>Elevation (m)</div>
-        {/* Gradient bar */}
-        <div style={{
-          width: 14, height: 80, borderRadius: 4, marginBottom: '0.3rem',
-          background: 'linear-gradient(to bottom, #ef4444, #eab308, #22c55e, #06b6d4, #3b82f6)',
-        }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
-          <span style={{ color: '#ef4444', fontWeight: 600 }}>{maxZ.toFixed(1)}</span>
-          <span style={{ color: '#3b82f6', fontWeight: 600 }}>{minZ.toFixed(1)}</span>
+        {/* Gradient bar with color indicators */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.3rem' }}>
+          {/* Gradient bar */}
+          <div style={{
+            width: 14, height: 80, borderRadius: 4,
+            background: 'linear-gradient(to bottom, #ef4444, #eab308, #22c55e, #06b6d4, #3b82f6)',
+            flexShrink: 0,
+          }} />
+          {/* Value labels with color swatches */}
+          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 80 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+              <div style={{
+                width: 8, height: 8, borderRadius: 2, background: '#ef4444',
+              }} />
+              <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{maxZ.toFixed(1)}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+              <div style={{
+                width: 8, height: 8, borderRadius: 2, background: '#3b82f6',
+              }} />
+              <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{minZ.toFixed(1)}</span>
+            </div>
+          </div>
         </div>
         <div style={{ marginTop: '0.5rem', color: '#64748b', fontSize: '0.71rem', borderTop: '1px solid #1e293b', paddingTop: '0.4rem' }}>
           {transformedTriangles.length.toLocaleString()} triangles
