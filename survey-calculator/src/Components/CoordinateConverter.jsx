@@ -2108,6 +2108,32 @@ const CoordinateConverter = () => {
         const hasZoneWarning = Boolean(row.utmWarning || row.ccWarning || row.otherZoneWarning);
         const markerSeverity = hasOutlier ? "high" : (hasZoneWarning ? "medium" : "normal");
         const markerColor = hasOutlier ? "#dc2626" : (hasZoneWarning ? "#f59e0b" : null);
+        const blockAttrDescription = (() => {
+          const attrs = row?.blockAttributes?.attributes;
+          if (!attrs || typeof attrs !== 'object') return '';
+          const keys = ['DESCRIPTION', 'DESC', 'COMMENT', 'COMMENTS', 'NOTE', 'NOTES', 'REMARK', 'REMARKS', 'OBS', 'OBSERVATION', 'OBSERVATIONS'];
+          for (const key of keys) {
+            const value = String(attrs[key] ?? '').trim();
+            if (value) return value;
+          }
+          return '';
+        })();
+        const pointDescription = String(
+          row.description
+          || row.desc
+          || row.comment
+          || row.comments
+          || row.note
+          || row.notes
+          || row.remark
+          || row.remarks
+          || row.observation
+          || row.observations
+          || row.inputDescription
+          || row.sourceDescription
+          || blockAttrDescription
+          || ''
+        ).trim();
         const preferredLabel = String(
           row.importedCadName
           || row.label
@@ -2136,6 +2162,8 @@ const CoordinateConverter = () => {
           importedCadName: String(row.importedCadName || '').trim(),
           importedCadElevationText: String(row.importedCadElevationText || row.elevationText || '').trim(),
           sourceType: row.sourceType || 'converted',
+          description: pointDescription,
+          blockAttributes: row?.blockAttributes || null,
           geoidUndulation: row.N ? parseFloat(row.N.toString().replace(/,/g, "")) : 0,
           markerSeverity,
           markerColor,
@@ -2648,6 +2676,30 @@ const CoordinateConverter = () => {
         const annotation = pointAnnotations[index] || { name: '', elevationText: '' };
         const importedCadName = annotation.name || '';
         const importedCadElevationText = annotation.elevationText || '';
+        const blockAttrDescription = (() => {
+          const attrs = row?.blockAttributes?.attributes;
+          if (!attrs || typeof attrs !== 'object') return '';
+          const keys = ['DESCRIPTION', 'DESC', 'COMMENT', 'COMMENTS', 'NOTE', 'NOTES', 'REMARK', 'REMARKS', 'OBS', 'OBSERVATION', 'OBSERVATIONS'];
+          for (const key of keys) {
+            const value = String(attrs[key] ?? '').trim();
+            if (value) return value;
+          }
+          return '';
+        })();
+        const pointDescription = String(
+          row?.description
+          || row?.desc
+          || row?.comment
+          || row?.comments
+          || row?.note
+          || row?.notes
+          || row?.remark
+          || row?.remarks
+          || row?.observation
+          || row?.observations
+          || blockAttrDescription
+          || ''
+        ).trim();
         const fallbackPointId = String(row?.id || '').trim() || `cad_${index + 1}`;
         const pointId = fallbackPointId;
         const pointLabel = importedCadName || pointId;
@@ -2661,6 +2713,8 @@ const CoordinateConverter = () => {
             label: pointLabel,
             importedCadName,
             importedCadElevationText,
+            description: pointDescription,
+            blockAttributes: row?.blockAttributes || null,
             height: Number.isFinite(Number(row?.z)) ? Number(row.z) : 0,
             sourceType: 'cad-point',
             markerSeverity: 'medium',
@@ -2677,6 +2731,8 @@ const CoordinateConverter = () => {
             label: pointLabel,
             importedCadName,
             importedCadElevationText,
+            description: pointDescription,
+            blockAttributes: row?.blockAttributes || null,
             height: Number.isFinite(Number(row?.z)) ? Number(row.z) : 0,
             sourceType: 'cad-point',
             validationMessage: row?.outlierWarning || row?.utmWarning || row?.ccWarning || row?.otherZoneWarning || '',
@@ -2693,6 +2749,8 @@ const CoordinateConverter = () => {
             label: pointLabel,
             importedCadName,
             importedCadElevationText,
+            description: pointDescription,
+            blockAttributes: row?.blockAttributes || null,
             height: Number.isFinite(Number(row?.z)) ? Number(row.z) : 0,
             sourceType: 'cad-point',
             validationMessage: row?.outlierWarning || row?.utmWarning || row?.ccWarning || row?.otherZoneWarning || '',
@@ -3818,6 +3876,9 @@ const CoordinateConverter = () => {
           x: parseFloat(normalizeNumericToken(r.x)),
           y: parseFloat(normalizeNumericToken(r.y)),
           z: r.z !== null && r.z !== undefined ? parseFloat(normalizeNumericToken(r.z)) : null,
+          description: String(r.description || '').trim(),
+          blockAttributes: r.blockAttributes || null,
+          sourceType: r.sourceType || 'converted',
           zType: null,
           zTypeSource: null,
         })).filter(p => Number.isFinite(p.x) && Number.isFinite(p.y));

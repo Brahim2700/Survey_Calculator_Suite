@@ -683,6 +683,23 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
     return 'Point';
   };
 
+  const getEntityDescription = (entity) => {
+    const text = String(
+      entity?.description
+      || entity?.desc
+      || entity?.comment
+      || entity?.comments
+      || entity?.note
+      || entity?.notes
+      || entity?.remark
+      || entity?.remarks
+      || entity?.observation
+      || entity?.observations
+      || ''
+    ).trim();
+    return text;
+  };
+
   const getLabelBudget = useCallback((zoom, totalPoints) => {
     const applyBudget = (value) => Math.max(1, Math.floor(value / cadLoadMultiplier));
 
@@ -1351,10 +1368,12 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
         const blockLabel = ba.blockName ? `<span style="color:#94a3b8">Block: </span><b>${escapeHtml(ba.blockName)}</b><br/>` : '';
         return `${blockLabel}<table style="font-size:11px;border-collapse:collapse;margin-top:3px">${rows}</table><br/>`;
       })();
+      const pointDescription = getEntityDescription(point);
       pointLayer
         .bindPopup(
           `<div style="font-size: 12px; min-width: 180px;">
             <b>${escapeHtml(getPointPopupTitle(point))}</b><br/>
+            ${pointDescription ? `<span style="color:#94a3b8">Description:</span> ${escapeHtml(pointDescription)}<br/>` : ''}
             Lat: ${point.lat.toFixed(4)}°<br/>
             Lng: ${point.lng.toFixed(4)}°<br/>
             Height: ${(point.height || 0).toFixed(2)} m<br/>
@@ -1527,7 +1546,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
             opacity: 0.85,
           }
         )
-          .bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(line.layer || 'CAD line')}</b><br/>Type: ${escapeHtml(line.sourceType || 'LINE')}</div>`)
+          .bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(line.layer || 'CAD line')}</b><br/>Type: ${escapeHtml(line.sourceType || 'LINE')}${getEntityDescription(line) ? `<br/>Description: ${escapeHtml(getEntityDescription(line))}` : ''}</div>`)
           .on('click', () => {
             const dx = (end[0] - start[0]);
             const dy = (end[1] - start[1]);
@@ -1568,7 +1587,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
           opacity: 0.8,
           smoothFactor,
         })
-          .bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(poly.layer || 'CAD polyline')}</b><br/>Type: ${escapeHtml(poly.sourceType || 'POLYLINE')}</div>`)
+          .bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(poly.layer || 'CAD polyline')}</b><br/>Type: ${escapeHtml(poly.sourceType || 'POLYLINE')}${getEntityDescription(poly) ? `<br/>Description: ${escapeHtml(getEntityDescription(poly))}` : ''}</div>`)
           .on('click', () => {
             emit('cad:entityPicked', {
               type: 'POLYLINE',

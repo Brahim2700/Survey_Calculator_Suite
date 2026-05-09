@@ -10,6 +10,20 @@ import { detectCRS } from './crsDetection';
 import { parseCadFileViaBackend } from './cadApi';
 import { isLikelyDxfText, isLikelyNativeDwgData, parseDxfTextContent } from './cadShared';
 
+const DESCRIPTION_KEYS = [
+  'description', 'desc', 'comment', 'comments', 'note', 'notes',
+  'remark', 'remarks', 'observation', 'observations', 'info',
+];
+
+const pickDescriptionFromObject = (obj) => {
+  if (!obj || typeof obj !== 'object') return '';
+  for (const key of DESCRIPTION_KEYS) {
+    const value = String(obj[key] ?? '').trim();
+    if (value) return value;
+  }
+  return '';
+};
+
 // ── File size limits ────────────────────────────────────────────────────────
 // These guard against loading files so large they would crash the browser tab.
 // All limits are in bytes.
@@ -91,7 +105,14 @@ export async function parseGeoJSONFile(file) {
     
     if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
     coordinates.push({ x, y, z: Number.isFinite(z) ? z : null });
-    rows.push({ id: f.properties?.name || idx++, x, y, z: Number.isFinite(z) ? z : null });
+    const description = pickDescriptionFromObject(f?.properties || {});
+    rows.push({
+      id: f.properties?.name || idx++,
+      x,
+      y,
+      z: Number.isFinite(z) ? z : null,
+      ...(description ? { description } : {}),
+    });
   }
   
   // Smart CRS detection
@@ -130,11 +151,14 @@ export async function parseGPXFile(file) {
     const lon = Number(w.getAttribute('lon'));
     const eleNode = w.getElementsByTagName('ele')[0];
     const nameNode = w.getElementsByTagName('name')[0];
+    const descNode = w.getElementsByTagName('desc')[0];
+    const cmtNode = w.getElementsByTagName('cmt')[0];
     const z = eleNode ? Number(eleNode.textContent) : null;
     const id = nameNode?.textContent || idx++;
+    const description = String(descNode?.textContent || cmtNode?.textContent || '').trim();
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
     coordinates.push({ x: lon, y: lat, z: Number.isFinite(z) ? z : null });
-    rows.push({ id, x: lon, y: lat, z: Number.isFinite(z) ? z : null });
+    rows.push({ id, x: lon, y: lat, z: Number.isFinite(z) ? z : null, ...(description ? { description } : {}) });
   }
   
   // Smart CRS detection (GPX is always WGS84 but detect anyway for consistency)
@@ -175,12 +199,12 @@ const getElementsByLocalName = (root, localName) => {
   return Array.from(root.getElementsByTagName('*')).filter((el) => String(el.localName || el.tagName).toLowerCase() === String(localName).toLowerCase());
 };
 
-const appendRow = (rows, coordinates, idPrefix, lon, lat, alt = null, index = null) => {
+const appendRow = (rows, coordinates, idPrefix, lon, lat, alt = null, index = null, description = '') => {
   if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
   const id = index === null ? idPrefix : `${idPrefix} ${index}`;
   const z = Number.isFinite(alt) ? alt : null;
   coordinates.push({ x: lon, y: lat, z });
-  rows.push({ id, x: lon, y: lat, z });
+  rows.push({ id, x: lon, y: lat, z, ...(description ? { description } : {}) });
 };
 
 const parseKmlTextPayload = (text, sourceLabel = 'KML', options = {}) => {
@@ -215,6 +239,8 @@ const parseKmlTextPayload = (text, sourceLabel = 'KML', options = {}) => {
 
   placemarks.forEach((placemark) => {
     const rawName = placemark.getElementsByTagName('name')[0]?.textContent?.trim();
+    const rawDescription = placemark.getElementsByTagName('description')[0]?.textContent;
+    const placemarkDescription = String(rawDescription || '').trim();
     const namePrefix = rawName || nextIdPrefix('Placemark');
 
     const pointNodes = Array.from(placemark.getElementsByTagName('Point'));
@@ -223,7 +249,7 @@ const parseKmlTextPayload = (text, sourceLabel = 'KML', options = {}) => {
       const pointCoords = parseKmlCoordinateList(coordNode?.textContent || '');
       if (!pointCoords.length) return;
       const [lon, lat, alt] = pointCoords[0];
-      appendRow(rows, coordinates, `${namePrefix} P${pointIdx + 1}`, lon, lat, alt, null);
+      appendRow(rows, coordinates, `${namePrefix} P${pointIdx + 1}`, lon, lat, alt, null, placemarkDescription);
     });
 
     const lineNodes = Array.from(placemark.getElementsByTagName('LineString'));
@@ -238,6 +264,7 @@ const parseKmlTextPayload = (text, sourceLabel = 'KML', options = {}) => {
         sourceType: 'LINESTRING',
         points,
         sourceLabel,
+        ...(placemarkDescription ? { description: placemarkDescription } : {}),
       });
       if (lineCoords.length === 2) {
         geometry.lines.push({
@@ -247,11 +274,12 @@ const parseKmlTextPayload = (text, sourceLabel = 'KML', options = {}) => {
           start: points[0],
           end: points[1],
           sourceLabel,
+          ...(placemarkDescription ? { description: placemarkDescription } : {}),
         });
       }
       if (includeAllVerticesAsRows) {
         lineCoords.forEach(([lon, lat, alt], vIdx) => {
-          appendRow(rows, coordinates, `${namePrefix} L${lineIdx + 1} V`, lon, lat, alt, vIdx + 1);
+          appendRow(rows, coordinates, `${namePrefix} L${lineIdx + 1} V`, lon, lat, alt, vIdx + 1, placemarkDescription);
         });
       }
     });
@@ -270,10 +298,11 @@ const parseKmlTextPayload = (text, sourceLabel = 'KML', options = {}) => {
           sourceType: ringIdx === 0 ? 'POLYGON_OUTER_RING' : 'POLYGON_INNER_RING',
           points,
           sourceLabel,
+          ...(placemarkDescription ? { description: placemarkDescription } : {}),
         });
         if (includeAllVerticesAsRows) {
           ringCoords.forEach(([lon, lat, alt], vIdx) => {
-            appendRow(rows, coordinates, `${namePrefix} G${polygonIdx + 1} R${ringIdx + 1} V`, lon, lat, alt, vIdx + 1);
+            appendRow(rows, coordinates, `${namePrefix} G${polygonIdx + 1} R${ringIdx + 1} V`, lon, lat, alt, vIdx + 1, placemarkDescription);
           });
         }
       });
@@ -299,10 +328,11 @@ const parseKmlTextPayload = (text, sourceLabel = 'KML', options = {}) => {
         sourceType: 'TRACK',
         points: trackCoords.map(([lon, lat, alt]) => [lon, lat, Number.isFinite(alt) ? alt : 0]),
         sourceLabel,
+        ...(placemarkDescription ? { description: placemarkDescription } : {}),
       });
       if (includeAllVerticesAsRows) {
         trackCoords.forEach(([lon, lat, alt], vIdx) => {
-          appendRow(rows, coordinates, `${namePrefix} T${trackIdx + 1} V`, lon, lat, alt, vIdx + 1);
+          appendRow(rows, coordinates, `${namePrefix} T${trackIdx + 1} V`, lon, lat, alt, vIdx + 1, placemarkDescription);
         });
       }
     });
@@ -411,10 +441,13 @@ export async function parseXLSXFile(file) {
     const lat = parseFloat(get('lat') ?? get('latitude') ?? get('y') ?? get('northing'));
     let z = parseFloat(get('h') ?? get('height') ?? get('elevation') ?? get('z'));
     const id = r['id'] ?? r['name'] ?? r['point'] ?? idx++;
+    const description = String(
+      r['description'] ?? r['desc'] ?? r['comment'] ?? r['notes'] ?? r['note'] ?? r['remark'] ?? ''
+    ).trim();
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
     if (!Number.isFinite(z)) z = null;
     coordinates.push({ x: lon, y: lat, z });
-    rows.push({ id, x: lon, y: lat, z });
+    rows.push({ id, x: lon, y: lat, z, ...(description ? { description } : {}) });
   }
   
   // Smart CRS detection
