@@ -208,7 +208,7 @@ const exportCSV = (triangles) => {
   link.click();
 };
 
-// Helper: Generate contour lines (simple Z-based slicing)
+// Helper: Generate contour lines by slicing raw elevation and drawing in transformed coordinates.
 const generateContours = (triangles, minZ, maxZ, interval) => {
   const contours = [];
   for (let z = Math.ceil(minZ / interval) * interval; z <= maxZ; z += interval) {
@@ -220,11 +220,14 @@ const generateContours = (triangles, minZ, maxZ, interval) => {
       for (let i = 0; i < 3; i++) {
         const va = vertices[i];
         const vb = vertices[(i + 1) % 3];
-        if ((va.z - zLevel) * (vb.z - zLevel) < 0) {
-          const t = (zLevel - va.z) / (vb.z - va.z);
+        const za = Number.isFinite(va.rawZ) ? va.rawZ : va.z;
+        const zb = Number.isFinite(vb.rawZ) ? vb.rawZ : vb.z;
+        if ((za - zLevel) * (zb - zLevel) < 0) {
+          const t = (zLevel - za) / (zb - za);
           crossings.push({
             x: va.x + t * (vb.x - va.x),
             y: va.y + t * (vb.y - va.y),
+            z: va.z + t * (vb.z - va.z) + 0.02,
           });
         }
       }
@@ -516,9 +519,9 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
         lines.forEach(([p1, p2]) => {
           const cGeo = new THREE.BufferGeometry();
           cGeo.setAttribute('position', new THREE.Float32BufferAttribute([
-            p1.x, p1.y, 0, p2.x, p2.y, 0,
+            p1.x, p1.y, p1.z, p2.x, p2.y, p2.z,
           ], 3));
-          const cMat = new THREE.LineBasicMaterial({ color: '#64748b', transparent: true, opacity: 0.6 });
+          const cMat = new THREE.LineBasicMaterial({ color: '#e2e8f0', transparent: true, opacity: 0.9, depthTest: false });
           const line = new THREE.Line(cGeo, cMat);
           scene.add(line);
         });
