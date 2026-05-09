@@ -87,6 +87,41 @@ const calculateTriangleArea = (v1, v2, v3) => {
   return Math.sqrt(cx * cx + cy * cy + cz * cz) / 2;
 };
 
+const calculatePolylineLength = (points) => {
+  if (!Array.isArray(points) || points.length < 2) return 0;
+  let total = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    total += points[i - 1].distanceTo(points[i]);
+  }
+  return total;
+};
+
+const snapIntersectionToSurface = (intersection, geometry) => {
+  const fallback = intersection?.point?.clone?.() || null;
+  if (!intersection || !geometry) return fallback;
+
+  const pos = geometry.getAttribute('position');
+  const face = intersection.face;
+  if (!pos || !face) return fallback;
+
+  const vA = new THREE.Vector3().fromBufferAttribute(pos, face.a);
+  const vB = new THREE.Vector3().fromBufferAttribute(pos, face.b);
+  const vC = new THREE.Vector3().fromBufferAttribute(pos, face.c);
+  const hit = intersection.point;
+
+  const candidates = [vA, vB, vC];
+  let snapped = candidates[0];
+  let bestDist = hit.distanceToSquared(candidates[0]);
+  for (let i = 1; i < candidates.length; i += 1) {
+    const d = hit.distanceToSquared(candidates[i]);
+    if (d < bestDist) {
+      bestDist = d;
+      snapped = candidates[i];
+    }
+  }
+  return snapped.clone();
+};
+
 const projectTrianglesForStats = (surfaces, minZ, maxZ) => {
   if (!Array.isArray(surfaces) || surfaces.length === 0) return [];
 
@@ -505,7 +540,8 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
 
     const overlayObjects = [];
     if (measurementPoints.length > 0) {
-      const markerGeo = new THREE.SphereGeometry(maxDim * 0.025, 16, 16);
+      const markerRadius = Math.max(maxDim * 0.006, 0.15);
+      const markerGeo = new THREE.SphereGeometry(markerRadius, 12, 12);
       const fromMat = new THREE.MeshBasicMaterial({ color: '#22c55e' });
       const toMat = new THREE.MeshBasicMaterial({ color: '#ef4444' });
 
@@ -516,9 +552,9 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
         overlayObjects.push(marker);
       });
 
-      if (measurementPoints.length === 2) {
+      if (measurementPoints.length >= 2) {
         const lineGeo = new THREE.BufferGeometry().setFromPoints(measurementPoints);
-        const lineMat = new THREE.LineBasicMaterial({ color: '#f59e0b', transparent: true, opacity: 0.95 });
+        const lineMat = new THREE.LineBasicMaterial({ color: '#f59e0b', transparent: true, opacity: 1, depthTest: false });
         const line = new THREE.Line(lineGeo, lineMat);
         scene.add(line);
         overlayObjects.push({ geometry: lineGeo, material: lineMat });
@@ -569,10 +605,10 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
         raycaster.setFromCamera(mouse, camera);
         const intersects = raycaster.intersectObject(mesh);
         if (intersects.length > 0) {
-          const point = intersects[0].point;
+          const point = snapIntersectionToSurface(intersects[0], geo) || intersects[0].point.clone();
           setMeasurementPoints((prev) => {
             const next = [...prev, point];
-            if (next.length > 2) next.shift();
+            if (next.length > 64) next.shift();
             return next;
           });
         }
@@ -1050,11 +1086,11 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
           </button>
           {measurementPoints.length > 0 && (
             <div style={{ fontSize: '0.71rem', color: '#64748b' }}>
-              {measurementPoints[0] && <div>From: {measurementPoints[0].x.toFixed(2)}, {measurementPoints[0].y.toFixed(2)}, {measurementPoints[0].z.toFixed(2)}</div>}
-              {measurementPoints[1] && <div>To: {measurementPoints[1].x.toFixed(2)}, {measurementPoints[1].y.toFixed(2)}, {measurementPoints[1].z.toFixed(2)}</div>}
-              {measurementPoints.length === 2 && (
+              {measurementPoints[0] && <div>Start: {measurementPoints[0].x.toFixed(2)}, {measurementPoints[0].y.toFixed(2)}, {measurementPoints[0].z.toFixed(2)}</div>}
+              {measurementPoints.length > 1 && <div>End: {measurementPoints[measurementPoints.length - 1].x.toFixed(2)}, {measurementPoints[measurementPoints.length - 1].y.toFixed(2)}, {measurementPoints[measurementPoints.length - 1].z.toFixed(2)}</div>}
+              {measurementPoints.length > 1 && (
                 <div style={{ marginTop: '0.2rem', color: '#22c55e' }}>
-                  Distance: {measurementPoints[0].distanceTo(measurementPoints[1]).toFixed(2)} m
+                  Total ({measurementPoints.length - 1} seg): {calculatePolylineLength(measurementPoints).toFixed(2)} m
                 </div>
               )}
             </div>
