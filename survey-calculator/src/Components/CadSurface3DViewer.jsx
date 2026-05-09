@@ -77,6 +77,90 @@ const normalizeTriangle = (tri, vertices) => {
   return null;
 };
 
+// Helper: Calculate triangle area (Heron's formula)
+const calculateTriangleArea = (v1, v2, v3) => {
+  const dx1 = v2.x - v1.x, dy1 = v2.y - v1.y, dz1 = v2.z - v1.z;
+  const dx2 = v3.x - v1.x, dy2 = v3.y - v1.y, dz2 = v3.z - v1.z;
+  const cx = dy1 * dz2 - dz1 * dy2;
+  const cy = dz1 * dx2 - dx1 * dz2;
+  const cz = dx1 * dy2 - dy1 * dx2;
+  return Math.sqrt(cx * cx + cy * cy + cz * cz) / 2;
+};
+
+// Helper: Calculate bounding box
+const calculateBoundingBox = (triangles) => {
+  if (!Array.isArray(triangles) || triangles.length === 0) return null;
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  triangles.forEach(({ v1, v2, v3 }) => {
+    [v1, v2, v3].forEach((v) => {
+      minX = Math.min(minX, v.x); maxX = Math.max(maxX, v.x);
+      minY = Math.min(minY, v.y); maxY = Math.max(maxY, v.y);
+      minZ = Math.min(minZ, v.z); maxZ = Math.max(maxZ, v.z);
+    });
+  });
+  return { minX, maxX, minY, maxY, minZ, maxZ };
+};
+
+// Helper: Export screenshot
+const exportScreenshot = () => {
+  const canvas = document.querySelector('canvas');
+  if (canvas) {
+    const link = document.createElement('a');
+    link.href = canvas.toDataURL('image/png');
+    link.download = `3d-surface-${Date.now()}.png`;
+    link.click();
+  }
+};
+
+// Helper: Export CSV elevation profile
+const exportCSV = (triangles) => {
+  if (triangles.length === 0) return;
+  const rows = [['X', 'Y', 'Z']];
+  const vertexSet = new Set();
+  triangles.forEach(({ v1, v2, v3 }) => {
+    [v1, v2, v3].forEach((v) => {
+      const key = `${v.x.toFixed(4)},${v.y.toFixed(4)},${v.z.toFixed(4)}`;
+      if (!vertexSet.has(key)) {
+        vertexSet.add(key);
+        rows.push([v.x.toFixed(4), v.y.toFixed(4), v.z.toFixed(4)]);
+      }
+    });
+  });
+  const csv = rows.map((r) => r.join(',')).join('\n');
+  const link = document.createElement('a');
+  link.href = `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
+  link.download = `surface-points-${Date.now()}.csv`;
+  link.click();
+};
+
+// Helper: Generate contour lines (simple Z-based slicing)
+const generateContours = (triangles, minZ, maxZ, interval) => {
+  const contours = [];
+  for (let z = Math.ceil(minZ / interval) * interval; z <= maxZ; z += interval) {
+    const lines = [];
+    const zLevel = z;
+    triangles.forEach(({ v1, v2, v3 }) => {
+      const vertices = [v1, v2, v3];
+      const crossings = [];
+      for (let i = 0; i < 3; i++) {
+        const va = vertices[i];
+        const vb = vertices[(i + 1) % 3];
+        if ((va.z - zLevel) * (vb.z - zLevel) < 0) {
+          const t = (zLevel - va.z) / (vb.z - va.z);
+          crossings.push({
+            x: va.x + t * (vb.x - va.x),
+            y: va.y + t * (vb.y - va.y),
+          });
+        }
+      }
+      if (crossings.length === 2) lines.push(crossings);
+    });
+    if (lines.length > 0) contours.push({ z: zLevel, lines });
+  }
+  return contours;
+};
+
 /**
  * CadSurface3DViewer
  * Three.js 3D viewer for CAD surfaces (3DFACE / TIN triangles).
@@ -92,6 +176,19 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
   const [selectedFitLayerKey, setSelectedFitLayerKey] = useState('__all__');
   const [fitLayerKey, setFitLayerKey] = useState('__all__');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  
+  // Feature states
+  const [meshOpacity, setMeshOpacity] = useState(1.0);
+  const [showStats, setShowStats] = useState(false);
+  const [showContours, setShowContours] = useState(false);
+  const [contourInterval, setContourInterval] = useState(10);
+  const [measurementMode, setMeasurementMode] = useState(false);
+  const [measurementPoints, setMeasurementPoints] = useState([]);
+  const [lightAzimuth, setLightAzimuth] = useState(45);
+  const [lightElevation, setLightElevation] = useState(45);
+  const [lightIntensity, setLightIntensity] = useState(0.8);
+
+  const [visibleSurfaces, setVisibleSurfaces] = useState({});
 
   const toggleFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -113,6 +210,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     document.addEventListener('fullscreenchange', onFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
   }, []);
+
 
   const normalizedSurfaces = useMemo(() => {
     const next = [];
@@ -136,6 +234,30 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
   }, [surfaces]);
 
   const allTriangles = useMemo(() => normalizedSurfaces.flatMap((surface) => surface.triangles), [normalizedSurfaces]);
+
+  // Calculate surface statistics
+  const statistics = useMemo(() => {
+    const stats = {};
+    normalizedSurfaces.forEach((surface) => {
+      let area = 0;
+      surface.triangles.forEach(({ v1, v2, v3 }) => {
+        area += calculateTriangleArea(v1, v2, v3);
+      });
+      const bbox = calculateBoundingBox(surface.triangles);
+      if (bbox) {
+        const cx = (bbox.minX + bbox.maxX) / 2;
+        const cy = (bbox.minY + bbox.maxY) / 2;
+        const cz = (bbox.minZ + bbox.maxZ) / 2;
+        stats[surface.layerKey] = {
+          area: area.toFixed(2),
+          triangles: surface.triangles.length,
+          bbox,
+          centroid: { x: cx.toFixed(2), y: cy.toFixed(2), z: cz.toFixed(2) },
+        };
+      }
+    });
+    return stats;
+  }, [normalizedSurfaces]);
 
   const { minZ, maxZ } = useMemo(() => {
     let min = Infinity;
@@ -254,8 +376,14 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
 
     // ── Lights ─────────────────────────────────────────────────────────────
     scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-    const sun = new THREE.DirectionalLight(0xffffff, 0.8);
-    sun.position.set(1, 2, 3);
+    const sun = new THREE.DirectionalLight(0xffffff, lightIntensity);
+    const azRad = (lightAzimuth * Math.PI) / 180;
+    const elRad = (lightElevation * Math.PI) / 180;
+    sun.position.set(
+      Math.cos(azRad) * Math.cos(elRad),
+      Math.sin(azRad) * Math.cos(elRad),
+      Math.sin(elRad)
+    );
     scene.add(sun);
 
     // ── Build mesh ─────────────────────────────────────────────────────────
@@ -284,7 +412,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     geo.computeVertexNormals();
 
-    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: meshOpacity });
     const mesh = new THREE.Mesh(geo, mat);
     if (renderStyle !== 'wire') scene.add(mesh);
 
@@ -295,6 +423,22 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     const wireGeo = renderStyle !== 'smooth' ? new THREE.WireframeGeometry(geo) : new THREE.BufferGeometry();
     const wire = new THREE.LineSegments(wireGeo, wireMat);
     if (renderStyle !== 'smooth') scene.add(wire);
+
+    // Add contour lines if enabled
+    if (showContours && contourInterval > 0) {
+      const contours = generateContours(transformedTriangles, minZ, maxZ, contourInterval);
+      contours.forEach(({ lines }) => {
+        lines.forEach(([p1, p2]) => {
+          const cGeo = new THREE.BufferGeometry();
+          cGeo.setAttribute('position', new THREE.Float32BufferAttribute([
+            p1.x, p1.y, 0, p2.x, p2.y, 0,
+          ], 3));
+          const cMat = new THREE.LineBasicMaterial({ color: '#64748b', transparent: true, opacity: 0.6 });
+          const line = new THREE.Line(cGeo, cMat);
+          scene.add(line);
+        });
+      });
+    }
 
     // ── Fit camera ─────────────────────────────────────────────────────────
     geo.computeBoundingBox();
@@ -340,6 +484,27 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
 
     // ── Pointer events ─────────────────────────────────────────────────────
     const onDown = (e) => {
+      if (measurementMode && e.button === 0) {
+        // Measurement mode: capture click position
+        const rect = renderer.domElement.getBoundingClientRect();
+        const mouse = new THREE.Vector2(
+          ((e.clientX - rect.left) / rect.width) * 2 - 1,
+          -((e.clientY - rect.top) / rect.height) * 2 + 1
+        );
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObject(mesh);
+        if (intersects.length > 0) {
+          const point = intersects[0].point;
+          setMeasurementPoints((prev) => {
+            const next = [...prev, point];
+            if (next.length > 2) next.shift();
+            return next;
+          });
+        }
+        needsRender = true;
+        return;
+      }
       orbitState.isDown = true;
       orbitState.lastX = e.clientX;
       orbitState.lastY = e.clientY;
@@ -427,7 +592,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
       renderer.dispose();
       if (el.contains(dom)) el.removeChild(dom);
     };
-  }, [transformedTriangles, transformedSurfaces, fitLayerKey, minZ, maxZ, viewPreset, renderStyle, cameraResetToken, isFullscreen]);
+  }, [transformedTriangles, transformedSurfaces, fitLayerKey, minZ, maxZ, viewPreset, renderStyle, cameraResetToken, isFullscreen, meshOpacity, showContours, contourInterval, lightAzimuth, lightElevation, lightIntensity, measurementMode, visibleSurfaces]);
 
   if (transformedTriangles.length === 0) {
     return (
@@ -676,6 +841,204 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
           >
             Fit Visible
           </button>
+        </div>
+      </div>
+
+      {/* Feature Panels - Left side */}
+      <div style={{ position: 'absolute', bottom: 14, left: 14, display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+        
+        {/* Mesh Opacity Control */}
+        <div style={{
+          background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.6rem 0.85rem',
+          color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
+          backdropFilter: 'blur(4px)', minWidth: 160,
+        }}>
+          <div style={{ fontWeight: 700, marginBottom: '0.4rem', fontSize: '0.78rem' }}>Opacity</div>
+          <input
+            type="range"
+            min="0" max="100" step="5" value={meshOpacity * 100}
+            onChange={(e) => setMeshOpacity(Number(e.target.value) / 100)}
+            style={{ width: '100%', cursor: 'pointer' }}
+          />
+          <div style={{ marginTop: '0.3rem', color: '#94a3b8', fontSize: '0.71rem' }}>
+            {(meshOpacity * 100).toFixed(0)}%
+          </div>
+        </div>
+
+        {/* Lighting Controls */}
+        <div style={{
+          background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.6rem 0.85rem',
+          color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
+          backdropFilter: 'blur(4px)', minWidth: 160,
+        }}>
+          <div style={{ fontWeight: 700, marginBottom: '0.4rem', fontSize: '0.78rem' }}>Lighting</div>
+          <div style={{ marginBottom: '0.4rem' }}>
+            <div style={{ fontSize: '0.71rem', color: '#94a3b8', marginBottom: '0.2rem' }}>Azimuth: {lightAzimuth}°</div>
+            <input type="range" min="0" max="360" step="15" value={lightAzimuth} onChange={(e) => setLightAzimuth(Number(e.target.value))} style={{ width: '100%', cursor: 'pointer' }} />
+          </div>
+          <div style={{ marginBottom: '0.4rem' }}>
+            <div style={{ fontSize: '0.71rem', color: '#94a3b8', marginBottom: '0.2rem' }}>Elevation: {lightElevation}°</div>
+            <input type="range" min="0" max="90" step="10" value={lightElevation} onChange={(e) => setLightElevation(Number(e.target.value))} style={{ width: '100%', cursor: 'pointer' }} />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.71rem', color: '#94a3b8', marginBottom: '0.2rem' }}>Intensity</div>
+            <input type="range" min="0" max="200" step="10" value={lightIntensity * 100} onChange={(e) => setLightIntensity(Number(e.target.value) / 100)} style={{ width: '100%', cursor: 'pointer' }} />
+          </div>
+        </div>
+
+        {/* Contour Settings */}
+        <div style={{
+          background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.6rem 0.85rem',
+          color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
+          backdropFilter: 'blur(4px)', minWidth: 160,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.4rem' }}>
+            <input type="checkbox" checked={showContours} onChange={(e) => setShowContours(e.target.checked)} />
+            <span style={{ fontWeight: 700, fontSize: '0.78rem' }}>Contour Lines</span>
+          </div>
+          {showContours && (
+            <div>
+              <div style={{ fontSize: '0.71rem', color: '#94a3b8', marginBottom: '0.2rem' }}>Interval (m): {contourInterval}</div>
+              <input type="range" min="1" max="50" step="1" value={contourInterval} onChange={(e) => setContourInterval(Number(e.target.value))} style={{ width: '100%', cursor: 'pointer' }} />
+            </div>
+          )}
+        </div>
+
+        {/* Surface Visibility */}
+        {normalizedSurfaces.length > 1 && (
+          <div style={{
+            background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.6rem 0.85rem',
+            color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
+            backdropFilter: 'blur(4px)', minWidth: 160, maxHeight: 150, overflowY: 'auto',
+          }}>
+            <div style={{ fontWeight: 700, marginBottom: '0.4rem', fontSize: '0.78rem' }}>Surfaces</div>
+            {normalizedSurfaces.map((surface) => (
+              <div key={surface.layerKey} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginBottom: '0.3rem' }}>
+                <input
+                  type="checkbox"
+                  checked={visibleSurfaces[surface.layerKey] !== false}
+                  onChange={(e) => setVisibleSurfaces((prev) => ({ ...prev, [surface.layerKey]: e.target.checked }))}
+                />
+                <span style={{ fontSize: '0.71rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {surface.layerLabel}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Measurement Tool */}
+        <div style={{
+          background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.6rem 0.85rem',
+          color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
+          backdropFilter: 'blur(4px)', minWidth: 160,
+        }}>
+          <button
+            type="button"
+            onClick={() => {
+              setMeasurementMode(!measurementMode);
+              if (!measurementMode) setMeasurementPoints([]);
+            }}
+            style={{
+              width: '100%', padding: '0.3rem', borderRadius: 6, fontSize: '0.75rem', fontWeight: 700,
+              border: measurementMode ? '1px solid #f59e0b' : '1px solid #334155',
+              background: measurementMode ? '#78350f' : '#0f172a',
+              color: measurementMode ? '#fde68a' : '#e2e8f0',
+              cursor: 'pointer',
+              marginBottom: '0.3rem',
+            }}
+          >
+            {measurementMode ? 'Measuring...' : 'Measure'}
+          </button>
+          {measurementPoints.length > 0 && (
+            <div style={{ fontSize: '0.71rem', color: '#64748b' }}>
+              Points: {measurementPoints.length}
+              {measurementPoints.length === 2 && (
+                <div style={{ marginTop: '0.2rem', color: '#22c55e' }}>
+                  Distance: {measurementPoints[0].distanceTo(measurementPoints[1]).toFixed(2)} m
+                </div>
+              )}
+            </div>
+          )}
+          {measurementPoints.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setMeasurementPoints([])}
+              style={{
+                width: '100%', marginTop: '0.3rem', padding: '0.2rem', borderRadius: 4, fontSize: '0.68rem',
+                border: '1px solid #334155', background: '#0f172a', color: '#94a3b8', cursor: 'pointer',
+              }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+
+        {/* Statistics Panel */}
+        <div style={{
+          background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.6rem 0.85rem',
+          color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
+          backdropFilter: 'blur(4px)', minWidth: 160,
+        }}>
+          <button
+            type="button"
+            onClick={() => setShowStats(!showStats)}
+            style={{
+              width: '100%', padding: '0.3rem', borderRadius: 6, fontSize: '0.75rem', fontWeight: 700,
+              border: showStats ? '1px solid #60a5fa' : '1px solid #334155',
+              background: showStats ? '#1d4ed8' : '#0f172a',
+              color: showStats ? '#dbeafe' : '#e2e8f0',
+              cursor: 'pointer',
+              marginBottom: showStats ? '0.4rem' : 0,
+            }}
+          >
+            {showStats ? 'Statistics ▼' : 'Statistics ▶'}
+          </button>
+          {showStats && (
+            <div style={{ fontSize: '0.71rem', color: '#cbd5e1', maxHeight: 200, overflowY: 'auto' }}>
+              {Object.entries(statistics).map(([key, stats]) => (
+                <div key={key} style={{ marginTop: '0.3rem', paddingTop: '0.3rem', borderTop: '1px solid #334155' }}>
+                  <div style={{ fontWeight: 600, color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {key.split('::')[0]}
+                  </div>
+                  <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Area: {stats.area} m²</div>
+                  <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Triangles: {stats.triangles}</div>
+                  <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Centroid: ({stats.centroid.x}, {stats.centroid.y}, {stats.centroid.z})</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Export Panel */}
+        <div style={{
+          background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.6rem 0.85rem',
+          color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
+          backdropFilter: 'blur(4px)', minWidth: 160,
+        }}>
+          <div style={{ fontWeight: 700, marginBottom: '0.4rem', fontSize: '0.78rem' }}>Export</div>
+          <div style={{ display: 'grid', gap: '0.3rem' }}>
+            <button
+              type="button"
+              onClick={exportScreenshot}
+              style={{
+                width: '100%', padding: '0.25rem', borderRadius: 4, fontSize: '0.68rem', fontWeight: 600,
+                border: '1px solid #334155', background: '#0f172a', color: '#cbd5e1', cursor: 'pointer',
+              }}
+            >
+              Screenshot
+            </button>
+            <button
+              type="button"
+              onClick={() => exportCSV(transformedTriangles, minZ, maxZ)}
+              style={{
+                width: '100%', padding: '0.25rem', borderRadius: 4, fontSize: '0.68rem', fontWeight: 600,
+                border: '1px solid #334155', background: '#0f172a', color: '#cbd5e1', cursor: 'pointer',
+              }}
+            >
+              CSV Points
+            </button>
+          </div>
         </div>
       </div>
 
