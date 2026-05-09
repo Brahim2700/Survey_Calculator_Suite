@@ -63,8 +63,9 @@ export const detectCRS = (coordinates, metadata = {}) => {
 
   // 4. Remove duplicates and sort by confidence
   const uniqueSuggestions = deduplicateSuggestions(suggestions);
+  const regionAwareSuggestions = applyRegionalPlausibility(uniqueSuggestions, bounds, metadata);
 
-  return uniqueSuggestions.sort((a, b) => b.confidence - a.confidence).slice(0, 8);
+  return regionAwareSuggestions.sort((a, b) => b.confidence - a.confidence).slice(0, 8);
 };
 
 const hasReferenceMetadata = (metadata = {}) => {
@@ -705,6 +706,158 @@ const lonDelta = (lon, refLon) => {
 };
 
 const clampScore = (value, min, max) => Math.max(min, Math.min(max, value));
+
+const EUROPE_BBOX = { lonMin: -12, lonMax: 45, latMin: 34, latMax: 72 };
+const FRANCE_BBOX = { lonMin: -6.5, lonMax: 11.5, latMin: 41, latMax: 52.5 };
+
+const isWithinBbox = (lon, lat, bbox) => (
+  Number.isFinite(lon)
+  && Number.isFinite(lat)
+  && lon >= bbox.lonMin
+  && lon <= bbox.lonMax
+  && lat >= bbox.latMin
+  && lat <= bbox.latMax
+);
+
+const inferAnchorRegion = (lon, lat) => {
+  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+  if (isWithinBbox(lon, lat, FRANCE_BBOX)) return 'france';
+  if (isWithinBbox(lon, lat, EUROPE_BBOX)) return 'europe';
+  return 'global';
+};
+
+const angularDistance = (aLon, aLat, bLon, bLat) => {
+  if (!Number.isFinite(aLon) || !Number.isFinite(aLat) || !Number.isFinite(bLon) || !Number.isFinite(bLat)) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const dLon = Math.abs((((aLon - bLon) + 180) % 360 + 360) % 360 - 180);
+  const dLat = Math.abs(aLat - bLat);
+  return Math.sqrt((dLon * dLon) + (dLat * dLat));
+};
+
+const getReverseProjectedLonLat = (code, x, y) => {
+  if (!code || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+  if (code === 'EPSG:4326') {
+    if (Math.abs(x) <= 180 && Math.abs(y) <= 90) return [x, y];
+    return null;
+  }
+  if (!ensureCrsDefinition(code)) return null;
+  try {
+    const [lon, lat] = proj4(code, 'EPSG:4326', [x, y]);
+    if (!Number.isFinite(lon) || !Number.isFinite(lat) || Math.abs(lon) > 180 || Math.abs(lat) > 90) {
+      return null;
+    }
+    return [lon, lat];
+  } catch {
+    return null;
+  }
+};
+
+const inferGeographicAnchor = (suggestions, bounds) => {
+  if (!Array.isArray(suggestions) || suggestions.length === 0) return null;
+  if (!Number.isFinite(bounds?.avgX) || !Number.isFinite(bounds?.avgY)) return null;
+
+  if (isGeographic(bounds)) {
+    const region = inferAnchorRegion(bounds.avgX, bounds.avgY);
+    return {
+      lon: bounds.avgX,
+      lat: bounds.avgY,
+      region,
+      stable: true,
+    };
+  }
+
+  const seed = suggestions
+    .filter((entry) => Number.isFinite(entry?.confidence) && entry.confidence >= 0.68)
+    .slice(0, 5);
+  if (!seed.length) return null;
+
+  const samples = seed
+    .map((entry) => {
+      const lonLat = getReverseProjectedLonLat(entry.code, bounds.avgX, bounds.avgY);
+      if (!lonLat) return null;
+      const [lon, lat] = lonLat;
+      return {
+        lon,
+        lat,
+        weight: Math.max(0.2, Number(entry.confidence) || 0),
+      };
+    })
+    .filter(Boolean);
+
+  if (!samples.length) return null;
+
+  const weightSum = samples.reduce((sum, item) => sum + item.weight, 0);
+  if (!Number.isFinite(weightSum) || weightSum <= 0) return null;
+
+  const lon = samples.reduce((sum, item) => sum + (item.lon * item.weight), 0) / weightSum;
+  const lat = samples.reduce((sum, item) => sum + (item.lat * item.weight), 0) / weightSum;
+  const maxDeviation = samples.reduce((max, item) => Math.max(max, angularDistance(item.lon, item.lat, lon, lat)), 0);
+  const stable = maxDeviation <= 14;
+  const region = inferAnchorRegion(lon, lat);
+
+  return {
+    lon,
+    lat,
+    region,
+    stable,
+  };
+};
+
+const applyRegionalPlausibility = (suggestions, bounds, metadata = {}) => {
+  if (!Array.isArray(suggestions) || suggestions.length === 0) return suggestions;
+
+  // Do not override explicit metadata-driven CRS declarations.
+  if (hasReferenceMetadata(metadata)) return suggestions;
+
+  const anchor = inferGeographicAnchor(suggestions, bounds);
+  if (!anchor?.stable || !Number.isFinite(anchor.lon) || !Number.isFinite(anchor.lat)) {
+    return suggestions;
+  }
+
+  return suggestions.map((entry) => {
+    const confidence = Number(entry?.confidence);
+    if (!Number.isFinite(confidence)) return entry;
+
+    const projected = getReverseProjectedLonLat(entry.code, bounds.avgX, bounds.avgY);
+    if (!projected) {
+      return {
+        ...entry,
+        confidence: clampScore(confidence - 0.08, 0.2, 0.99),
+      };
+    }
+
+    const [lon, lat] = projected;
+    const distance = angularDistance(lon, lat, anchor.lon, anchor.lat);
+    let adjusted = confidence;
+    let penaltyNote = '';
+
+    if (anchor.region === 'france') {
+      if (!isWithinBbox(lon, lat, FRANCE_BBOX)) {
+        adjusted -= 0.24;
+        penaltyNote = 'outside inferred France area';
+      } else {
+        adjusted += 0.03;
+      }
+    } else if (anchor.region === 'europe') {
+      if (!isWithinBbox(lon, lat, EUROPE_BBOX)) {
+        adjusted -= 0.18;
+        penaltyNote = 'outside inferred Europe area';
+      }
+    }
+
+    if (Number.isFinite(distance) && distance > 8) {
+      adjusted -= Math.min(0.18, (distance - 8) * 0.015);
+      if (!penaltyNote && distance > 18) penaltyNote = 'far from inferred area';
+    }
+
+    return {
+      ...entry,
+      confidence: clampScore(adjusted, 0.2, 0.99),
+      reason: penaltyNote ? `${entry.reason}; ${penaltyNote}` : entry.reason,
+    };
+  });
+};
 
 const scoreAxisOrientationForCrs = (crsCode, first, second) => {
   if (!ensureCrsDefinition(crsCode)) return Number.NEGATIVE_INFINITY;
