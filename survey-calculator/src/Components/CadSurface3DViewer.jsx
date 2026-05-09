@@ -490,6 +490,19 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
       });
     }
 
+    // ── Fit camera ─────────────────────────────────────────────────────────
+    geo.computeBoundingBox();
+    const box = geo.boundingBox;
+    const focusTriangles = fitLayerKey === '__all__'
+      ? transformedTriangles
+      : (transformedSurfaces.find((surface) => surface.layerKey === fitLayerKey)?.triangles || transformedTriangles);
+    const focusBox = computeBoundsFromTriangles(focusTriangles) || box;
+    const center = new THREE.Vector3();
+    focusBox.getCenter(center);
+    const size = new THREE.Vector3();
+    focusBox.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+
     const overlayObjects = [];
     if (measurementPoints.length > 0) {
       const markerGeo = new THREE.SphereGeometry(maxDim * 0.025, 16, 16);
@@ -514,19 +527,6 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
       overlayObjects.push({ geometry: markerGeo, material: fromMat });
       overlayObjects.push({ material: toMat });
     }
-
-    // ── Fit camera ─────────────────────────────────────────────────────────
-    geo.computeBoundingBox();
-    const box = geo.boundingBox;
-    const focusTriangles = fitLayerKey === '__all__'
-      ? transformedTriangles
-      : (transformedSurfaces.find((surface) => surface.layerKey === fitLayerKey)?.triangles || transformedTriangles);
-    const focusBox = computeBoundsFromTriangles(focusTriangles) || box;
-    const center = new THREE.Vector3();
-    focusBox.getCenter(center);
-    const size = new THREE.Vector3();
-    focusBox.getSize(size);
-    const maxDim = Math.max(size.x, size.y, size.z) || 1;
 
     // Position grid at the min Z level
     gridHelper.rotation.x = Math.PI / 2; // Put grid on XY plane for Z-up scenes
