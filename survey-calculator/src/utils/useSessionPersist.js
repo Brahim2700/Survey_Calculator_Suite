@@ -14,12 +14,12 @@ const SESSION_KEY = 'surveycalc:session:v1';
 const DEBOUNCE_MS = 800;
 
 /**
- * Attempts to read and JSON-parse the persisted session from localStorage.
+ * Attempts to read and JSON-parse the persisted session from sessionStorage.
  * Returns null if nothing is stored or the data is malformed.
  */
 export function loadPersistedSession() {
   try {
-    const raw = localStorage.getItem(SESSION_KEY);
+    const raw = sessionStorage.getItem(SESSION_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return null;
@@ -30,11 +30,11 @@ export function loadPersistedSession() {
 }
 
 /**
- * Immediately clears the persisted session from localStorage.
+ * Immediately clears the persisted session from sessionStorage.
  */
 export function clearPersistedSession() {
   try {
-    localStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(SESSION_KEY);
   } catch {
     // Ignore storage errors (private/incognito mode, quota exceeded, etc.)
   }
@@ -62,7 +62,7 @@ export function useSessionPersist(snapshot) {
       if (Array.isArray(safe.measurePoints) && safe.measurePoints.length > 500) {
         safe.measurePoints = safe.measurePoints.slice(-500);
       }
-      localStorage.setItem(SESSION_KEY, JSON.stringify(safe));
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(safe));
     } catch {
       // Quota exceeded or storage unavailable — degrade silently
     }

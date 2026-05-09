@@ -29,6 +29,9 @@ import "./App.css";
 
 // Load any persisted session once at module evaluation time so initial state
 // is available synchronously during the first render.
+// Also evict any legacy data that may have been saved to localStorage by an
+// older version of the app (session data now lives in sessionStorage).
+try { localStorage.removeItem('surveycalc:session:v1'); } catch { /* ignore */ }
 const _persistedSession = loadPersistedSession();
 
 const PDF_MARGIN_MM = 8;
