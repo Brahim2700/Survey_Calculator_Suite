@@ -211,30 +211,61 @@ const exportCSV = (triangles) => {
 // Helper: Generate contour lines by slicing raw elevation and drawing in transformed coordinates.
 const generateContours = (triangles, minZ, maxZ, interval) => {
   const contours = [];
-  for (let z = Math.ceil(minZ / interval) * interval; z <= maxZ; z += interval) {
+  const eps = 1e-6;
+
+  const pushUniquePoint = (arr, point) => {
+    const exists = arr.some((p) => Math.abs(p.x - point.x) < 1e-6 && Math.abs(p.y - point.y) < 1e-6 && Math.abs(p.z - point.z) < 1e-6);
+    if (!exists) arr.push(point);
+  };
+
+  const intersectEdgeAtLevel = (va, vb, zLevel) => {
+    const za = Number.isFinite(va.rawZ) ? va.rawZ : va.z;
+    const zb = Number.isFinite(vb.rawZ) ? vb.rawZ : vb.z;
+    const da = za - zLevel;
+    const db = zb - zLevel;
+
+    // Entire edge is coplanar with contour level: skip to avoid duplicates.
+    if (Math.abs(da) < eps && Math.abs(db) < eps) return null;
+
+    // Contour passes exactly through one endpoint.
+    if (Math.abs(da) < eps) return { x: va.x, y: va.y, z: va.z + 0.02 };
+    if (Math.abs(db) < eps) return { x: vb.x, y: vb.y, z: vb.z + 0.02 };
+
+    // Standard crossing.
+    if (da * db < 0) {
+      const t = (zLevel - za) / (zb - za);
+      return {
+        x: va.x + t * (vb.x - va.x),
+        y: va.y + t * (vb.y - va.y),
+        z: va.z + t * (vb.z - va.z) + 0.02,
+      };
+    }
+
+    return null;
+  };
+
+  for (let z = Math.ceil(minZ / interval) * interval; z <= maxZ + eps; z += interval) {
     const lines = [];
     const zLevel = z;
     triangles.forEach(({ v1, v2, v3 }) => {
       const vertices = [v1, v2, v3];
       const crossings = [];
-      for (let i = 0; i < 3; i++) {
+
+      for (let i = 0; i < 3; i += 1) {
         const va = vertices[i];
         const vb = vertices[(i + 1) % 3];
-        const za = Number.isFinite(va.rawZ) ? va.rawZ : va.z;
-        const zb = Number.isFinite(vb.rawZ) ? vb.rawZ : vb.z;
-        if ((za - zLevel) * (zb - zLevel) < 0) {
-          const t = (zLevel - za) / (zb - za);
-          crossings.push({
-            x: va.x + t * (vb.x - va.x),
-            y: va.y + t * (vb.y - va.y),
-            z: va.z + t * (vb.z - va.z) + 0.02,
-          });
-        }
+        const point = intersectEdgeAtLevel(va, vb, zLevel);
+        if (point) pushUniquePoint(crossings, point);
       }
-      if (crossings.length === 2) lines.push(crossings);
+
+      if (crossings.length >= 2) {
+        lines.push([crossings[0], crossings[1]]);
+      }
     });
+
     if (lines.length > 0) contours.push({ z: zLevel, lines });
   }
+
   return contours;
 };
 
