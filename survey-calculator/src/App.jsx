@@ -852,21 +852,19 @@ function App() {
                       onClick={() => setMapViewMode((v) => v === '3d' ? '2d' : '3d')}
                     >
                       {mapViewMode === '3d' ? (
-                        <svg width="16" height="16" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-label="2D view">
-                          <path d="M6 24a10 10 0 1 1 20 0" />
-                          <path d="M24 20l2 4-4 2" />
-                          <rect x="8" y="8" width="16" height="12" rx="1.5" />
-                          <line x1="8" y1="12" x2="24" y2="12" />
-                          <text x="16" y="18" textAnchor="middle" fontSize="6" fontWeight="700" fill="currentColor" stroke="none">2D</text>
+                        <svg className="view-mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="2D view">
+                          <path d="M3 6.5 8 4l4 2.5L16 4l5 2.5V17.5L16 20l-4-2.5L8 20l-5-2.5Z" />
+                          <path d="M8 4v16" />
+                          <path d="M12 6.5v11" />
+                          <path d="M16 4v16" />
                         </svg>
                       ) : (
-                        <svg width="16" height="16" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-label="3D view">
-                          <path d="M6 24a10 10 0 1 1 20 0" />
-                          <path d="M24 20l2 4-4 2" />
-                          <path d="M10 8 16 6l6 3v10l-6 3-6-3Z" />
-                          <path d="M10 8l6 3 6-2" />
-                          <path d="M16 11v11" />
-                          <text x="16" y="18" textAnchor="middle" fontSize="6" fontWeight="700" fill="currentColor" stroke="none">3D</text>
+                        <svg className="view-mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="3D view">
+                          <path d="M12 2 4 6.5v11L12 22l8-4.5v-11Z" />
+                          <path d="M4 6.5 12 11l8-4.5" />
+                          <path d="M12 11v11" />
+                          <path d="M18.5 3.6 21 5" />
+                          <path d="M21 19l-2.5 1.4" />
                         </svg>
                       )}
                     </button>

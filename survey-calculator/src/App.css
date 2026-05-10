@@ -261,6 +261,12 @@
   box-shadow: 0 0 0 1px rgba(147, 197, 253, 0.45);
 }
 
+.view-mode-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
 /* ── Floating toolbar tooltips ── */
 .map-tooltip-wrapper {
   position: relative;
