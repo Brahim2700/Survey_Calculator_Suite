@@ -210,7 +210,7 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
   const sourceWidth = sourceCanvas.width;
   const sourceHeight = sourceCanvas.height;
   const imagePixelRatio = 2; // For high-res export
-  const panelScale = 1.15; // For text/panel scaling (was 2)
+  const panelScale = 1.85; // For text/panel scaling (increased for export)
   const panelCssWidth = Math.max(370, Math.min(440, Math.round(sourceWidth * 0.36)));
   const panelWidth = Math.round(panelCssWidth * imagePixelRatio);
   const totalWidth = (sourceWidth + panelCssWidth) * imagePixelRatio;
@@ -441,8 +441,10 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
 
 // Helper: Export screenshot with elevation panel, color scale, and area overlay
 const exportScreenshot = (canvas, elevationData, surfaceStats, minZ, maxZ) => {
-  if (!canvas) return;
-  
+  if (!canvas) {
+    alert('Export failed: 3D view canvas not found.');
+    return;
+  }
   try {
     const exportCanvas = composeExportCanvas(canvas, elevationData, surfaceStats, minZ, maxZ);
     const link = document.createElement('a');
@@ -450,13 +452,16 @@ const exportScreenshot = (canvas, elevationData, surfaceStats, minZ, maxZ) => {
     link.download = `3d-surface-${Date.now()}.png`;
     link.click();
   } catch (error) {
+    alert('Export failed: Unable to generate image.');
     console.warn('Screenshot export blocked (likely cross-origin imagery texture restriction).', error);
   }
 };
 
 const exportPdf = (canvas, elevationData, surfaceStats, minZ, maxZ) => {
-  if (!canvas) return;
-
+  if (!canvas) {
+    alert('Export failed: 3D view canvas not found.');
+    return;
+  }
   try {
     const exportCanvas = composeExportCanvas(canvas, elevationData, surfaceStats, minZ, maxZ);
     const imageData = exportCanvas.toDataURL('image/png', 1.0);
@@ -479,6 +484,7 @@ const exportPdf = (canvas, elevationData, surfaceStats, minZ, maxZ) => {
     pdf.addImage(imageData, 'PNG', x, y, renderW, renderH, undefined, 'SLOW');
     pdf.save(`3d-surface-${Date.now()}.pdf`);
   } catch (error) {
+    alert('Export failed: Unable to generate PDF.');
     console.warn('PDF export failed.', error);
   }
 };
@@ -1183,12 +1189,13 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
         }}
       />
 
-      {/* Elevation legend */}
+      {/* Elevation legend - moved to bottom right to avoid overlap with elevation profile */}
       <div style={{
         position: 'absolute', bottom: 14, right: 14,
         background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.72rem 0.95rem',
         color: '#f1f5f9', fontSize: '0.9rem', border: '1px solid #334155',
         backdropFilter: 'blur(4px)',
+        zIndex: 20,
       }}>
         <div style={{ fontWeight: 700, marginBottom: '0.46rem', fontSize: '0.98rem' }}>Elevation (m)</div>
         {/* Gradient bar with color indicators */}
