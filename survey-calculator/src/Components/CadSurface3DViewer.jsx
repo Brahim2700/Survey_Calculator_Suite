@@ -29,8 +29,12 @@ const latLngToWebMercator = (lat, lng) => {
 };
 
 const buildEsriWorldImageryExportUrls = ({ minLat, maxLat, minLng, maxLng }, size = 1024) => {
-  if (![minLat, maxLat, minLng, maxLng].every(Number.isFinite)) return [];
+  if (![minLat, maxLat, minLng, maxLng].every(Number.isFinite)) {
+    console.error('[3D Imagery] Invalid bounds to buildEsriWorldImageryExportUrls:', { minLat, maxLat, minLng, maxLng });
+    return [];
+  }
   const px = clamp(Math.round(size), 256, 2048);
+  console.log('[3D Imagery] Building URL with bounds:', { minLat, maxLat, minLng, maxLng, size: px });
 
   const proxyParams = new URLSearchParams({
     minLat: String(minLat),
@@ -503,7 +507,18 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
   }, [allTriangles, minZ, maxZ, zScalePreset, normalizedSurfaces]);
 
   const imageryConfig = useMemo(() => {
-    if (!showImagery || imageryProvider !== 'esri' || !projectionMeta) return null;
+    if (!showImagery || imageryProvider !== 'esri' || !projectionMeta) {
+      if (!showImagery) console.log('[3D Imagery] Imagery disabled');
+      if (imageryProvider !== 'esri') console.log('[3D Imagery] Provider is not esri:', imageryProvider);
+      if (!projectionMeta) console.log('[3D Imagery] No projection metadata');
+      return null;
+    }
+    console.log('[3D Imagery] Building config with projectionMeta:', {
+      minLat: projectionMeta.minLat,
+      maxLat: projectionMeta.maxLat,
+      minLng: projectionMeta.minLng,
+      maxLng: projectionMeta.maxLng,
+    });
     const imageryUrls = buildEsriWorldImageryExportUrls(
       {
         minLat: projectionMeta.minLat,
@@ -517,7 +532,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
       console.warn('[3D Imagery] No valid URLs generated');
       return null;
     }
-    console.log('[3D Imagery] Config built with', imageryUrls.length, 'source(s)');
+    console.log('[3D Imagery] Config built with', imageryUrls.length, 'source(s):', imageryUrls);
     return {
       key: 'esri',
       label: 'Esri World Imagery',
@@ -696,6 +711,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
 
     let needsRender = true;
     let imageryTexture = null;
+    console.log('[3D Imagery] Drape enabled:', drapeImageryEnabled, 'imageryConfig:', imageryConfig);
     if (drapeImageryEnabled) {
       if (!isDisposed) {
         setImageryLoadState('loading');
@@ -704,6 +720,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
 
       const imageryLoader = new THREE.TextureLoader();
       imageryLoader.setCrossOrigin('anonymous');
+      console.log('[3D Imagery] Texture loader created with crossOrigin="anonymous"');
 
       const tryLoadImagery = (index) => {
         const sourceUrl = Array.isArray(imageryConfig?.urls) ? imageryConfig.urls[index] : null;
@@ -720,7 +737,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
           return;
         }
 
-        console.log(`[3D Imagery] Attempting to load imagery from backend proxy`);
+        console.log(`[3D Imagery] Attempting to load imagery from backend proxy: ${sourceUrl}`);
 
         imageryLoader.load(
           sourceUrl,
@@ -745,9 +762,13 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
               setImageryLoadMessage('Loaded via backend proxy');
             }
           },
-          undefined,
+          (progress) => {
+            console.log(`[3D Imagery] Load progress: ${Math.round((progress.loaded / progress.total) * 100)}%`);
+          },
           (error) => {
-            console.warn(`[3D Imagery] Failed to load imagery:`, error);
+            const errorMsg = error?.message || error?.type || 'unknown error';
+            const errorStack = error?.stack ? `\n${error.stack}` : '';
+            console.warn(`[3D Imagery] Failed to load from ${sourceUrl}:`, errorMsg + errorStack);
             tryLoadImagery(index + 1);
           }
         );
