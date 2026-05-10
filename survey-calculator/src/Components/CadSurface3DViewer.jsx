@@ -591,21 +591,47 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
 
     const positions = [];
     const colors = [];
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
 
     transformedTriangles.forEach(({ v1, v2, v3 }) => {
       [v1, v2, v3].forEach((v) => {
-        positions.push(Number(v.x) || 0, Number(v.y) || 0, Number(v.z) || 0);
+        const px = Number(v.x) || 0;
+        const py = Number(v.y) || 0;
+        const pz = Number(v.z) || 0;
+        positions.push(px, py, pz);
+        if (px < minX) minX = px;
+        if (px > maxX) maxX = px;
+        if (py < minY) minY = py;
+        if (py > maxY) maxY = py;
         const c = getColor(Number(v.rawZ));
         colors.push(c.r, c.g, c.b);
       });
     });
 
+    const uvs = [];
+    const spanX = Math.max(1e-6, maxX - minX);
+    const spanY = Math.max(1e-6, maxY - minY);
+    for (let i = 0; i < positions.length; i += 3) {
+      const x = positions[i];
+      const y = positions[i + 1];
+      uvs.push((x - minX) / spanX, 1 - ((y - minY) / spanY));
+    }
+
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     geo.computeVertexNormals();
 
-    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: meshOpacity });
+    const drapeImageryEnabled = Boolean(imageryConfig);
+    const mat = new THREE.MeshLambertMaterial(
+      drapeImageryEnabled
+        ? { color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: meshOpacity }
+        : { vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: meshOpacity }
+    );
     const mesh = new THREE.Mesh(geo, mat);
     if (renderStyle !== 'wire') scene.add(mesh);
 
@@ -646,13 +672,9 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     focusBox.getSize(size);
     const maxDim = Math.max(size.x, size.y, size.z) || 1;
 
-    let imageryGeometry = null;
-    let imageryMaterial = null;
+    let needsRender = true;
     let imageryTexture = null;
-    let imageryMesh = null;
-
-    if (imageryConfig) {
-      imageryGeometry = new THREE.PlaneGeometry(imageryConfig.widthMeters, imageryConfig.heightMeters, 1, 1);
+    if (drapeImageryEnabled) {
       const imageryLoader = new THREE.TextureLoader();
       imageryLoader.setCrossOrigin('anonymous');
       imageryLoader.load(
@@ -664,23 +686,17 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
           }
           imageryTexture = texture;
           imageryTexture.colorSpace = THREE.SRGBColorSpace;
+          imageryTexture.wrapS = THREE.ClampToEdgeWrapping;
+          imageryTexture.wrapT = THREE.ClampToEdgeWrapping;
           const anisotropy = renderer?.capabilities?.getMaxAnisotropy?.() || 1;
           imageryTexture.anisotropy = Math.max(1, Math.min(8, anisotropy));
-          imageryMaterial = new THREE.MeshBasicMaterial({
-            map: imageryTexture,
-            transparent: true,
-            opacity: 0.92,
-            side: THREE.DoubleSide,
-            depthWrite: false,
-          });
-          imageryMesh = new THREE.Mesh(imageryGeometry, imageryMaterial);
-          imageryMesh.position.set(0, 0, focusBox.min.z - Math.max(0.06, maxDim * 0.002));
-          scene.add(imageryMesh);
-          renderer.render(scene, camera);
+          mat.map = imageryTexture;
+          mat.needsUpdate = true;
+          needsRender = true;
         },
         undefined,
         (error) => {
-          console.warn('3D imagery underlay failed to load.', error);
+          console.warn('3D imagery drape failed to load.', error);
         }
       );
     }
@@ -814,7 +830,6 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
 
     // ── Render loop (on-demand) ────────────────────────────────────────────
     let animId;
-    let needsRender = true;
     const animate = () => {
       animId = requestAnimationFrame(animate);
       if (!needsRender) return;
@@ -851,9 +866,6 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
         object?.material?.dispose?.();
       });
       isDisposed = true;
-      imageryMesh?.removeFromParent?.();
-      imageryGeometry?.dispose?.();
-      imageryMaterial?.dispose?.();
       imageryTexture?.dispose?.();
       renderer.dispose();
       if (el.contains(dom)) el.removeChild(dom);
