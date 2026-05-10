@@ -1,6 +1,7 @@
 import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { calculateGeodesicDistance } from '../utils/calculations';
+import ElevationProfile from './ElevationProfile';
 
 const EARTH_RADIUS_M = 6378137;
 const CAD_API_BASE_URL = import.meta.env.VITE_CAD_API_BASE_URL || '/api/cad';
@@ -1555,6 +1556,18 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
       }}>
         {surfaces.length} surface{surfaces.length !== 1 ? 's' : ''} · 3D view
       </div>
+
+      {/* Elevation Profile Panel */}
+      {measurePoints && measurePoints.length >= 2 && (
+        <div style={{
+          position: 'absolute', bottom: 14, left: 14,
+          maxWidth: 700, maxHeight: 320,
+          overflow: 'auto',
+          zIndex: 10,
+        }}>
+          <ElevationProfile measurePoints={measurePoints} />
+        </div>
+      )}
     </div>
   );
 };
