@@ -16,6 +16,7 @@ import { exportAsCSV, exportAsGeoJSON, exportAsKML, exportAsGPX, exportAsXLSX, e
 import MapVisualization from "./MapVisualization";
 import { on, emit } from "../utils/eventBus";
 import { safeGetJSON, safeGetString, safeSetJSON, safeSetString, safeRemove } from "../utils/storage";
+import { purgeAppClientData } from "../utils/appDataPurge";
 import { escapeHtml } from "../utils/escapeHtml";
 
 // Lazy-load geoid utilities only when requested so the main bundle stays small
@@ -3514,6 +3515,7 @@ const CoordinateConverter = () => {
     emit("converter:pointsForMap", { points: [] });
     emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [], texts: [], hatches: [], surfaces: [] } });
     emit("converter:resetAll");
+    void purgeAppClientData();
   };
 
   const handleResetAll = () => {

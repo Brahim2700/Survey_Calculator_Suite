@@ -24,15 +24,8 @@ import { on } from "./utils/eventBus";
 import { exportMapAsPdf, exportMapAsPng } from "./utils/mapExport";
 import { EMPTY_CAD_GEOMETRY } from "./utils/cadShared";
 import useUndoable from "./utils/useUndoable";
-import { useSessionPersist, loadPersistedSession, clearPersistedSession } from "./utils/useSessionPersist";
+import { purgeAppClientData } from "./utils/appDataPurge";
 import "./App.css";
-
-// Load any persisted session once at module evaluation time so initial state
-// is available synchronously during the first render.
-// Also evict any legacy data that may have been saved to localStorage by an
-// older version of the app (session data now lives in sessionStorage).
-try { localStorage.removeItem('surveycalc:session:v1'); } catch { /* ignore */ }
-const _persistedSession = loadPersistedSession();
 
 const PDF_MARGIN_MM = 8;
 const EXPORT_PANEL_WIDTH_PX = 350;
@@ -63,14 +56,14 @@ const pickNiceScale = (requiredDenominator) => {
 
 function App() {
   const [converterPoints, setConverterPoints] = useState(
-    () => _persistedSession?.converterPoints ?? []
+    () => []
   );
   const [cadGeometry, setCadGeometry] = useState(EMPTY_CAD_GEOMETRY);
   const [hiddenLayerKeys, setHiddenLayerKeys] = useState(
-    () => _persistedSession?.hiddenLayerKeys ?? []
+    () => []
   );
   const [measureMode, setMeasureMode] = useState(
-    () => _persistedSession?.measureMode ?? false
+    () => false
   );
   // measurePoints uses undo/redo for field-operator workflow
   const [
@@ -81,12 +74,12 @@ function App() {
     canUndoMeasure,
     canRedoMeasure,
     resetMeasurePoints,
-  ] = useUndoable(_persistedSession?.measurePoints ?? []);
+  ] = useUndoable([]);
   const [distanceDisplayUnit, setDistanceDisplayUnit] = useState(
-    () => _persistedSession?.distanceDisplayUnit ?? "m"
+    () => "m"
   );
   const [angleDisplayUnit, setAngleDisplayUnit] = useState(
-    () => _persistedSession?.angleDisplayUnit ?? "deg"
+    () => "deg"
   );
   const [converterSessionKey, setConverterSessionKey] = useState(0);
   const [mapExportRoot, setMapExportRoot] = useState(null);
@@ -136,21 +129,16 @@ function App() {
     resetMeasurePoints([]);
     setDistanceDisplayUnit("m");
     setAngleDisplayUnit("deg");
-    clearPersistedSession();
+    void purgeAppClientData();
     if (remountConverter) {
       setConverterSessionKey((prev) => prev + 1);
     }
   }, [resetMeasurePoints]);
 
-  // Persist workspace state on change (debounced)
-  useSessionPersist({
-    converterPoints,
-    measurePoints,
-    measureMode,
-    distanceDisplayUnit,
-    angleDisplayUnit,
-    hiddenLayerKeys,
-  });
+  // Start each page load with a clean in-browser app state.
+  useEffect(() => {
+    void purgeAppClientData();
+  }, []);
 
   // Global keyboard shortcuts: Ctrl+Z = undo measure point, Ctrl+Y = redo
   useEffect(() => {
