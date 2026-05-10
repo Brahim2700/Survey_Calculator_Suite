@@ -327,13 +327,19 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
   const [showLightingPanel, setShowLightingPanel] = useState(false);
   const [showSurfacePanel, setShowSurfacePanel] = useState(false);
   const [showExportPanel, setShowExportPanel] = useState(false);
-  const [showImagery, setShowImagery] = useState(false);
+  const [showImagery, setShowImagery] = useState(true);
   const [imageryProvider, setImageryProvider] = useState('esri');
   const [lightAzimuth, setLightAzimuth] = useState(45);
   const [lightElevation, setLightElevation] = useState(45);
   const [lightIntensity, setLightIntensity] = useState(0.8);
 
   const [visibleSurfaces, setVisibleSurfaces] = useState({});
+
+  useEffect(() => {
+    if (showImagery && meshOpacity >= 0.99) {
+      setMeshOpacity(0.8);
+    }
+  }, [showImagery, meshOpacity]);
 
   const toggleFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -498,8 +504,8 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
       label: 'Esri World Imagery',
       attribution: 'Imagery © Esri',
       url: imageryUrl,
-      widthMeters: Math.max(1, projectionMeta.lonSpanM),
-      heightMeters: Math.max(1, projectionMeta.latSpanM),
+      widthMeters: Math.max(1, projectionMeta.lonSpanM) * 1.35,
+      heightMeters: Math.max(1, projectionMeta.latSpanM) * 1.35,
     };
   }, [showImagery, imageryProvider, projectionMeta]);
 
