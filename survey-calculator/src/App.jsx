@@ -851,7 +851,20 @@ function App() {
                       className={`btn btn-tool-toggle${mapViewMode === '3d' ? ' active' : ''}`}
                       onClick={() => setMapViewMode((v) => v === '3d' ? '2d' : '3d')}
                     >
-                      {mapViewMode === '3d' ? '🗺' : '🏔'}
+                      {mapViewMode === '3d' ? (
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="2D view">
+                          <rect x="3" y="5" width="18" height="14" rx="2" />
+                          <line x1="3" y1="10" x2="21" y2="10" />
+                          <line x1="9" y1="5" x2="9" y2="19" />
+                          <line x1="15" y1="5" x2="15" y2="19" />
+                        </svg>
+                      ) : (
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="3D view">
+                          <path d="M12 2 4 6v12l8 4 8-4V6l-8-4Z" />
+                          <path d="M4 6l8 4 8-4" />
+                          <path d="M12 10v12" />
+                        </svg>
+                      )}
                     </button>
                   </MapToolTip>
                 )}
