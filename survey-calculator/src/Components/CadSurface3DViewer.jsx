@@ -42,20 +42,8 @@ const buildEsriWorldImageryExportUrls = ({ minLat, maxLat, minLng, maxLng }, siz
   const proxyUrl = `${IMAGERY_API_BASE_URL}/esri-export?${proxyParams.toString()}`;
   console.log('[3D Imagery] Proxy URL:', proxyUrl);
 
-  const sw = latLngToWebMercator(minLat, minLng);
-  const ne = latLngToWebMercator(maxLat, maxLng);
-  const directParams = new URLSearchParams({
-    bbox: `${sw.x},${sw.y},${ne.x},${ne.y}`,
-    bboxSR: '3857',
-    imageSR: '3857',
-    size: `${px},${px}`,
-    format: 'jpg',
-    f: 'image',
-  });
-  const directUrl = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?${directParams.toString()}`;
-  console.log('[3D Imagery] Direct Esri URL:', directUrl);
-
-  return [proxyUrl, directUrl];
+  // Proxy is the only reliable source for browsers (CORS safe)
+  return [proxyUrl];
 };
 
 const getViewAngles = (preset) => {
@@ -727,13 +715,12 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
           needsRender = true;
           if (!isDisposed) {
             setImageryLoadState('failed');
-            setImageryLoadMessage('Imagery unavailable (proxy/direct failed)');
+            setImageryLoadMessage('Imagery unavailable (backend proxy failed)');
           }
           return;
         }
 
-        const sourceName = index === 0 ? 'proxy' : 'direct Esri';
-        console.log(`[3D Imagery] Attempting to load from ${sourceName}:`, sourceUrl);
+        console.log(`[3D Imagery] Attempting to load imagery from backend proxy`);
 
         imageryLoader.load(
           sourceUrl,
@@ -742,7 +729,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
               texture.dispose();
               return;
             }
-            console.log(`[3D Imagery] Successfully loaded from ${sourceName}`);
+            console.log(`[3D Imagery] Successfully loaded imagery`);
             imageryTexture = texture;
             imageryTexture.colorSpace = THREE.SRGBColorSpace;
             imageryTexture.wrapS = THREE.ClampToEdgeWrapping;
@@ -755,12 +742,12 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
             needsRender = true;
             if (!isDisposed) {
               setImageryLoadState('loaded');
-              setImageryLoadMessage(index === 0 ? 'Loaded via proxy' : 'Loaded via direct source');
+              setImageryLoadMessage('Loaded via backend proxy');
             }
           },
           undefined,
           (error) => {
-            console.warn(`[3D Imagery] Failed to load from ${sourceName}:`, error);
+            console.warn(`[3D Imagery] Failed to load imagery:`, error);
             tryLoadImagery(index + 1);
           }
         );

@@ -336,24 +336,28 @@ app.get('/api/imagery/esri-export', generalRateLimit, async (req, res) => {
     const size = clamp(Number(req.query?.size) || 1024, 256, 2048);
 
     if (![minLat, maxLat, minLng, maxLng].every(Number.isFinite)) {
+      console.warn('[Imagery Proxy] Invalid bounds:', { minLat, maxLat, minLng, maxLng });
       res.status(400).json({ message: 'Invalid imagery bounds.' });
       return;
     }
 
     if (maxLat <= minLat || maxLng <= minLng) {
+      console.warn('[Imagery Proxy] Non-zero extent check failed:', { minLat, maxLat, minLng, maxLng });
       res.status(400).json({ message: 'Imagery bounds must define a non-zero extent.' });
       return;
     }
 
     if (Math.abs(minLat) > 90 || Math.abs(maxLat) > 90 || Math.abs(minLng) > 180 || Math.abs(maxLng) > 180) {
+      console.warn('[Imagery Proxy] Out of range bounds:', { minLat, maxLat, minLng, maxLng });
       res.status(400).json({ message: 'Imagery bounds are out of range.' });
       return;
     }
 
     const sw = latLngToWebMercator(minLat, minLng);
     const ne = latLngToWebMercator(maxLat, maxLng);
+    console.log('[Imagery Proxy] Converted to Web Mercator:', { sw, ne });
 
-    const params = new URLSearchParams({
+    const esriParams = new URLSearchParams({
       bbox: `${sw.x},${sw.y},${ne.x},${ne.y}`,
       bboxSR: '3857',
       imageSR: '3857',
@@ -361,20 +365,30 @@ app.get('/api/imagery/esri-export', generalRateLimit, async (req, res) => {
       format: 'jpg',
       f: 'image',
     });
+    const esriUrl = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?${esriParams.toString()}`;
+    console.log('[Imagery Proxy] Requesting Esri:', esriUrl);
 
-    const upstream = await fetch(`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?${params.toString()}`);
+    const upstream = await fetch(esriUrl, { timeout: 30000 });
+    console.log('[Imagery Proxy] Esri response status:', upstream.status);
+    
     if (!upstream.ok) {
+      const errorText = await upstream.text().catch(() => '(unable to read error)');
+      console.error('[Imagery Proxy] Esri request failed:', upstream.status, errorText);
       res.status(upstream.status || 502).json({ message: `Imagery upstream request failed (${upstream.status}).` });
       return;
     }
 
     const buffer = Buffer.from(await upstream.arrayBuffer());
+    console.log('[Imagery Proxy] Received buffer:', buffer.length, 'bytes');
+    
     const contentType = upstream.headers.get('content-type') || 'image/jpeg';
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'public, max-age=300');
     res.status(200).send(buffer);
+    console.log('[Imagery Proxy] Sent image to client');
   } catch (err) {
-    res.status(502).json({ message: err?.message || 'Imagery upstream request failed.' });
+    console.error('[Imagery Proxy] Exception:', err?.message || err);
+    res.status(500).json({ message: err?.message || 'Imagery upstream request failed.' });
   }
 });
 
