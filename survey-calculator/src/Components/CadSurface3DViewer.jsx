@@ -2,6 +2,7 @@ import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { calculateGeodesicDistance } from '../utils/calculations';
 import ElevationProfile from './ElevationProfile';
+import { jsPDF } from 'jspdf';
 
 const EARTH_RADIUS_M = 6378137;
 const CAD_API_BASE_URL = import.meta.env.VITE_CAD_API_BASE_URL || '/api/cad';
@@ -204,175 +205,208 @@ const getElevationColor = (elevation, minElev, maxElev) => {
   return `hsl(${hue}, 100%, 50%)`;
 };
 
+const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, maxZ) => {
+  const sourceWidth = sourceCanvas.width;
+  const sourceHeight = sourceCanvas.height;
+  const pixelRatio = 2;
+  const panelCssWidth = 360;
+  const panelWidth = panelCssWidth * pixelRatio;
+  const totalWidth = (sourceWidth + panelCssWidth) * pixelRatio;
+  const totalHeight = sourceHeight * pixelRatio;
+
+  const exportCanvas = document.createElement('canvas');
+  exportCanvas.width = totalWidth;
+  exportCanvas.height = totalHeight;
+
+  const ctx = exportCanvas.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+
+  // Draw 3D surface area
+  ctx.drawImage(sourceCanvas, 0, 0, totalWidth - panelWidth, totalHeight);
+
+  const panelX = totalWidth - panelWidth;
+  const panelY = 0;
+  const panelPadding = 16 * pixelRatio;
+  const contentX = panelX + panelPadding;
+  const contentW = panelWidth - panelPadding * 2;
+
+  // Panel background
+  ctx.fillStyle = '#0b1736';
+  ctx.fillRect(panelX, panelY, panelWidth, totalHeight);
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.25)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(panelX, panelY, panelWidth, totalHeight);
+
+  const titleSize = 16 * pixelRatio;
+  const h2Size = 12 * pixelRatio;
+  const labelSize = 9 * pixelRatio;
+  const valueSize = 11 * pixelRatio;
+  const sectionGap = 12 * pixelRatio;
+
+  let cursorY = panelPadding + titleSize;
+
+  // Title
+  ctx.font = `700 ${titleSize}px "Segoe UI", sans-serif`;
+  ctx.fillStyle = '#f8fafc';
+  ctx.fillText('3D Surface Export', contentX, cursorY);
+  cursorY += 12 * pixelRatio;
+
+  const drawCard = (title, rows = []) => {
+    const rowHeight = 18 * pixelRatio;
+    const cardPad = 10 * pixelRatio;
+    const cardHeaderH = 16 * pixelRatio;
+    const cardHeight = cardPad + cardHeaderH + (rows.length * rowHeight) + cardPad;
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.72)';
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(contentX, cursorY, contentW, cardHeight, 8 * pixelRatio);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.font = `700 ${h2Size}px "Segoe UI", sans-serif`;
+    ctx.fillStyle = '#a5f3fc';
+    ctx.fillText(title, contentX + cardPad, cursorY + cardPad + cardHeaderH - 2 * pixelRatio);
+
+    let rowY = cursorY + cardPad + cardHeaderH + 2 * pixelRatio;
+    rows.forEach(({ label, value, valueColor }) => {
+      ctx.font = `600 ${labelSize}px "Segoe UI", sans-serif`;
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText(label, contentX + cardPad, rowY + 10 * pixelRatio);
+
+      ctx.font = `700 ${valueSize}px "Segoe UI", sans-serif`;
+      ctx.fillStyle = valueColor || '#e2e8f0';
+      const textWidth = ctx.measureText(value).width;
+      ctx.fillText(value, contentX + contentW - cardPad - textWidth, rowY + 10 * pixelRatio);
+
+      rowY += rowHeight;
+    });
+
+    cursorY += cardHeight + sectionGap;
+  };
+
+  // Elevation scale card
+  if (Number.isFinite(minZ) && Number.isFinite(maxZ)) {
+    const cardPad = 10 * pixelRatio;
+    const scaleH = 120 * pixelRatio;
+    const cardHeight = 160 * pixelRatio;
+    const barW = 22 * pixelRatio;
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.72)';
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(contentX, cursorY, contentW, cardHeight, 8 * pixelRatio);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.font = `700 ${h2Size}px "Segoe UI", sans-serif`;
+    ctx.fillStyle = '#a5f3fc';
+    ctx.fillText('Elevation (m)', contentX + cardPad, cursorY + cardPad + 10 * pixelRatio);
+
+    const barX = contentX + cardPad;
+    const barY = cursorY + cardPad + 20 * pixelRatio;
+    for (let i = 0; i < scaleH; i += 1) {
+      const ratio = i / scaleH;
+      const elev = maxZ - ratio * (maxZ - minZ);
+      ctx.fillStyle = getElevationColor(elev, minZ, maxZ);
+      ctx.fillRect(barX, barY + i, barW, 1);
+    }
+
+    ctx.strokeStyle = 'rgba(226, 232, 240, 0.45)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barX, barY, barW, scaleH);
+
+    const scaleLabelX = barX + barW + 12 * pixelRatio;
+    ctx.font = `700 ${valueSize}px "Segoe UI", sans-serif`;
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillText(maxZ.toFixed(1), scaleLabelX, barY + 10 * pixelRatio);
+    ctx.fillText(((minZ + maxZ) / 2).toFixed(1), scaleLabelX, barY + (scaleH / 2) + 4 * pixelRatio);
+    ctx.fillText(minZ.toFixed(1), scaleLabelX, barY + scaleH);
+
+    cursorY += cardHeight + sectionGap;
+  }
+
+  // Elevation metrics card
+  if (elevationData && elevationData.pointCount > 0) {
+    const rows = [
+      { label: 'Points', value: String(elevationData.pointCount) },
+      { label: 'Distance', value: `${(elevationData.totalDistance / 1000).toFixed(3)} km` },
+      { label: 'Min / Max', value: `${elevationData.minElevation.toFixed(2)} / ${elevationData.maxElevation.toFixed(2)} m` },
+      { label: 'Average', value: `${elevationData.avgElevation.toFixed(2)} m` },
+      { label: 'Gain / Loss', value: `${elevationData.totalElevationGain.toFixed(1)} / ${elevationData.totalElevationLoss.toFixed(1)} m` },
+    ];
+    if (elevationData.isClosed) {
+      rows.push({ label: 'Area', value: `${elevationData.polygonArea.toFixed(0)} m²`, valueColor: '#86efac' });
+      rows.push({ label: 'Perimeter', value: `${elevationData.perimeter.toFixed(2)} m` });
+    }
+    drawCard('Elevation Profile', rows);
+  }
+
+  // Surface areas card
+  if (surfaceStats && Object.keys(surfaceStats).length > 0) {
+    const rows = Object.entries(surfaceStats)
+      .slice(0, 4)
+      .map(([key, stats], index) => {
+        const label = key.split('::')[0];
+        const compactLabel = label.length > 16 ? `${label.slice(0, 16)}...` : label;
+        return { label: compactLabel || `Surface ${index + 1}`, value: `${stats.area} m²` };
+      });
+    drawCard('Surface Areas', rows);
+  }
+
+  // Footer timestamp
+  ctx.font = `600 ${labelSize}px "Segoe UI", sans-serif`;
+  ctx.fillStyle = '#94a3b8';
+  const timestamp = new Date().toLocaleString();
+  ctx.fillText(timestamp, contentX, totalHeight - 14 * pixelRatio);
+
+  return exportCanvas;
+};
+
 // Helper: Export screenshot with elevation panel, color scale, and area overlay
 const exportScreenshot = (canvas, elevationData, surfaceStats, minZ, maxZ) => {
   if (!canvas) return;
   
   try {
-    const sourceCanvas = canvas;
-    const sourceWidth = sourceCanvas.width;
-    const sourceHeight = sourceCanvas.height;
-    
-    // Create high-quality export canvas with 2x resolution
-    const pixelRatio = 2;
-    const panelWidth = 320 * pixelRatio;
-    const totalWidth = (sourceWidth + 320) * pixelRatio;
-    const totalHeight = sourceHeight * pixelRatio;
-    
-    const exportCanvas = document.createElement('canvas');
-    exportCanvas.width = totalWidth;
-    exportCanvas.height = totalHeight;
-    
-    const ctx = exportCanvas.getContext('2d');
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    
-    // Scale the source canvas to high quality
-    ctx.drawImage(sourceCanvas, 0, 0, totalWidth - panelWidth, totalHeight);
-    
-    // Draw the info panel background
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.98)';
-    ctx.fillRect(totalWidth - panelWidth, 0, panelWidth, totalHeight);
-    
-    // Draw panel border
-    ctx.strokeStyle = 'rgba(51, 65, 85, 0.9)';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(totalWidth - panelWidth, 0, panelWidth, totalHeight);
-    
-    // Panel content
-    let yOffset = 24 * pixelRatio;
-    const lineHeight = 20 * pixelRatio;
-    const sectionGap = 14 * pixelRatio;
-    const panelLeft = totalWidth - panelWidth + 16 * pixelRatio;
-    
-    // Title
-    ctx.font = `bold ${14 * pixelRatio}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-    ctx.fillStyle = '#e2e8f0';
-    ctx.fillText('3D Surface Export', panelLeft, yOffset);
-    yOffset += lineHeight + 10;
-    
-    // Elevation color scale
-    if (Number.isFinite(minZ) && Number.isFinite(maxZ)) {
-      ctx.font = `bold ${11 * pixelRatio}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-      ctx.fillStyle = '#d1d5db';
-      ctx.fillText('Elevation (m)', panelLeft, yOffset);
-      yOffset += lineHeight;
-      
-      // Draw color gradient bar
-      const barWidth = 20 * pixelRatio;
-      const barHeight = 120 * pixelRatio;
-      const barX = panelLeft;
-      const barY = yOffset;
-      
-      // Draw gradient
-      for (let i = 0; i < barHeight; i++) {
-        const ratio = i / barHeight;
-        const elev = maxZ - (ratio * (maxZ - minZ));
-        const color = getElevationColor(elev, minZ, maxZ);
-        ctx.fillStyle = color;
-        ctx.fillRect(barX, barY + i, barWidth, 1);
-      }
-      
-      // Draw scale values
-      ctx.font = `${10 * pixelRatio}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-      ctx.fillStyle = '#cbd5e1';
-      ctx.textAlign = 'left';
-      ctx.fillText(`█ ${maxZ.toFixed(1)}`, panelLeft + barWidth + 10 * pixelRatio, barY + 12 * pixelRatio);
-      ctx.fillText(`█ ${((minZ + maxZ) / 2).toFixed(1)}`, panelLeft + barWidth + 10 * pixelRatio, barY + barHeight / 2);
-      ctx.fillText(`█ ${minZ.toFixed(1)}`, panelLeft + barWidth + 10 * pixelRatio, barY + barHeight - 5 * pixelRatio);
-      ctx.textAlign = 'start';
-      
-      yOffset += barHeight + sectionGap;
-    }
-    
-    // Elevation Panel Section
-    if (elevationData && elevationData.pointCount > 0) {
-      ctx.font = `bold ${11 * pixelRatio}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-      ctx.fillStyle = '#93c5fd';
-      ctx.fillText('Elevation Profile', panelLeft, yOffset);
-      yOffset += lineHeight;
-      
-      ctx.font = `${10 * pixelRatio}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-      ctx.fillStyle = '#cbd5e1';
-      
-      ctx.fillText(`Points: ${elevationData.pointCount}`, panelLeft, yOffset);
-      yOffset += lineHeight;
-      
-      ctx.fillText(`Distance: ${(elevationData.totalDistance / 1000).toFixed(3)} km`, panelLeft, yOffset);
-      yOffset += lineHeight;
-      
-      ctx.fillText(`Min Elev: ${elevationData.minElevation.toFixed(2)} m`, panelLeft, yOffset);
-      yOffset += lineHeight;
-      
-      ctx.fillText(`Max Elev: ${elevationData.maxElevation.toFixed(2)} m`, panelLeft, yOffset);
-      yOffset += lineHeight;
-      
-      ctx.fillText(`Avg Elev: ${elevationData.avgElevation.toFixed(2)} m`, panelLeft, yOffset);
-      yOffset += lineHeight;
-      
-      ctx.fillText(`↑ Gain: ${elevationData.totalElevationGain.toFixed(1)} m`, panelLeft, yOffset);
-      yOffset += lineHeight;
-      
-      ctx.fillText(`↓ Loss: ${elevationData.totalElevationLoss.toFixed(1)} m`, panelLeft, yOffset);
-      yOffset += lineHeight;
-      
-      // Area section if polygon is closed
-      if (elevationData.isClosed) {
-        yOffset += sectionGap;
-        ctx.fillStyle = '#86efac';
-        ctx.font = `bold ${10 * pixelRatio}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-        ctx.fillText(`Area: ${elevationData.polygonArea.toFixed(0)} m²`, panelLeft, yOffset);
-        yOffset += lineHeight;
-        
-        ctx.fillStyle = '#cbd5e1';
-        ctx.font = `${10 * pixelRatio}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-        ctx.fillText(`Perimeter: ${elevationData.perimeter.toFixed(2)} m`, panelLeft, yOffset);
-        yOffset += lineHeight;
-      }
-      
-      yOffset += sectionGap;
-    }
-    
-    // Surface Area Section
-    if (surfaceStats && Object.keys(surfaceStats).length > 0) {
-      ctx.font = `bold ${11 * pixelRatio}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-      ctx.fillStyle = '#a7f3d0';
-      ctx.fillText('Surface Area', panelLeft, yOffset);
-      yOffset += lineHeight;
-      
-      ctx.font = `${10 * pixelRatio}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-      ctx.fillStyle = '#cbd5e1';
-      
-      let statsCount = 0;
-      Object.entries(surfaceStats).forEach(([key, stats]) => {
-        if (statsCount > 3) return; // Limit display to 3 surfaces
-        
-        const label = key.split('::')[0];
-        const truncatedLabel = label.length > 20 ? label.substring(0, 17) + '...' : label;
-        ctx.fillText(`${truncatedLabel}:`, panelLeft, yOffset);
-        yOffset += lineHeight - 4 * pixelRatio;
-        
-        ctx.fillText(`${stats.area} m²`, panelLeft + 20 * pixelRatio, yOffset);
-        yOffset += lineHeight + 2 * pixelRatio;
-        
-        statsCount++;
-      });
-    }
-    
-    // Add timestamp
-    yOffset = totalHeight - 24 * pixelRatio;
-    ctx.font = `${9 * pixelRatio}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-    ctx.fillStyle = '#94a3b8';
-    const timestamp = new Date().toLocaleString();
-    ctx.fillText(timestamp, panelLeft, yOffset);
-    
-    // Download
+    const exportCanvas = composeExportCanvas(canvas, elevationData, surfaceStats, minZ, maxZ);
     const link = document.createElement('a');
     link.href = exportCanvas.toDataURL('image/png', 0.95);
     link.download = `3d-surface-${Date.now()}.png`;
     link.click();
   } catch (error) {
     console.warn('Screenshot export blocked (likely cross-origin imagery texture restriction).', error);
+  }
+};
+
+const exportPdf = (canvas, elevationData, surfaceStats, minZ, maxZ) => {
+  if (!canvas) return;
+
+  try {
+    const exportCanvas = composeExportCanvas(canvas, elevationData, surfaceStats, minZ, maxZ);
+    const imageData = exportCanvas.toDataURL('image/png', 1.0);
+
+    const orientation = exportCanvas.width >= exportCanvas.height ? 'landscape' : 'portrait';
+    const pdf = new jsPDF({ orientation, unit: 'mm', format: 'a4', compress: true });
+
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const margin = 6;
+    const maxW = pageW - margin * 2;
+    const maxH = pageH - margin * 2;
+
+    const scale = Math.min(maxW / exportCanvas.width, maxH / exportCanvas.height);
+    const renderW = exportCanvas.width * scale;
+    const renderH = exportCanvas.height * scale;
+    const x = (pageW - renderW) / 2;
+    const y = (pageH - renderH) / 2;
+
+    pdf.addImage(imageData, 'PNG', x, y, renderW, renderH, undefined, 'SLOW');
+    pdf.save(`3d-surface-${Date.now()}.pdf`);
+  } catch (error) {
+    console.warn('PDF export failed.', error);
   }
 };
 
@@ -1531,7 +1565,17 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
                   border: '1px solid #334155', background: '#0f172a', color: '#cbd5e1', cursor: 'pointer',
                 }}
               >
-                Screenshot
+                Export PNG
+              </button>
+              <button
+                type="button"
+                onClick={() => exportPdf(containerRef.current?.querySelector('canvas'), elevationProfileData, statistics, minZ, maxZ)}
+                style={{
+                  width: '100%', padding: '0.22rem', borderRadius: 4, fontSize: '0.66rem', fontWeight: 600,
+                  border: '1px solid rgba(56,189,248,0.55)', background: 'rgba(56,189,248,0.10)', color: '#a5f3fc', cursor: 'pointer',
+                }}
+              >
+                Export PDF (HQ)
               </button>
               <button
                 type="button"
