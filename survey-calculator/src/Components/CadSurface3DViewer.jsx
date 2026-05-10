@@ -7,16 +7,6 @@ const CAD_API_BASE_URL = import.meta.env.VITE_CAD_API_BASE_URL || '/api/cad';
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const WEB_MERCATOR_MAX_LAT = 85.05112878;
 
-const deriveImageryApiBaseUrl = (cadApiBaseUrl) => {
-  const base = String(cadApiBaseUrl || '').trim();
-  if (!base) return '/api/imagery';
-  if (base.endsWith('/api/cad')) return `${base.slice(0, -'/api/cad'.length)}/api/imagery`;
-  if (base.endsWith('/api/cad/')) return `${base.slice(0, -'/api/cad/'.length)}/api/imagery`;
-  return '/api/imagery';
-};
-
-const IMAGERY_API_BASE_URL = import.meta.env.VITE_IMAGERY_API_BASE_URL || deriveImageryApiBaseUrl(CAD_API_BASE_URL);
-
 const latLngToWebMercator = (lat, lng) => {
   const safeLat = clamp(Number(lat) || 0, -WEB_MERCATOR_MAX_LAT, WEB_MERCATOR_MAX_LAT);
   const safeLng = clamp(Number(lng) || 0, -180, 180);
@@ -28,27 +18,7 @@ const latLngToWebMercator = (lat, lng) => {
   };
 };
 
-const buildEsriWorldImageryExportUrls = ({ minLat, maxLat, minLng, maxLng }, size = 1024) => {
-  if (![minLat, maxLat, minLng, maxLng].every(Number.isFinite)) {
-    console.error('[3D Imagery] Invalid bounds to buildEsriWorldImageryExportUrls:', { minLat, maxLat, minLng, maxLng });
-    return [];
-  }
-  const px = clamp(Math.round(size), 256, 2048);
-  console.log('[3D Imagery] Building URL with bounds:', { minLat, maxLat, minLng, maxLng, size: px });
 
-  const proxyParams = new URLSearchParams({
-    minLat: String(minLat),
-    maxLat: String(maxLat),
-    minLng: String(minLng),
-    maxLng: String(maxLng),
-    size: String(px),
-  });
-  const proxyUrl = `${IMAGERY_API_BASE_URL}/esri-export?${proxyParams.toString()}`;
-  console.log('[3D Imagery] Proxy URL:', proxyUrl);
-
-  // Proxy is the only reliable source for browsers (CORS safe)
-  return [proxyUrl];
-};
 
 const getViewAngles = (preset) => {
   if (preset === 'top') return { theta: 0, phi: 0.12 };
@@ -344,21 +314,11 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
   const [showLightingPanel, setShowLightingPanel] = useState(false);
   const [showSurfacePanel, setShowSurfacePanel] = useState(false);
   const [showExportPanel, setShowExportPanel] = useState(false);
-  const [showImagery, setShowImagery] = useState(true);
-  const [imageryProvider, setImageryProvider] = useState('esri');
-  const [imageryLoadState, setImageryLoadState] = useState('idle');
-  const [imageryLoadMessage, setImageryLoadMessage] = useState('');
   const [lightAzimuth, setLightAzimuth] = useState(45);
   const [lightElevation, setLightElevation] = useState(45);
   const [lightIntensity, setLightIntensity] = useState(0.8);
 
   const [visibleSurfaces, setVisibleSurfaces] = useState({});
-
-  useEffect(() => {
-    if (showImagery && meshOpacity >= 0.99) {
-      setMeshOpacity(0.8);
-    }
-  }, [showImagery, meshOpacity]);
 
   const toggleFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -506,42 +466,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     };
   }, [allTriangles, minZ, maxZ, zScalePreset, normalizedSurfaces]);
 
-  const imageryConfig = useMemo(() => {
-    if (!showImagery || imageryProvider !== 'esri' || !projectionMeta) {
-      if (!showImagery) console.log('[3D Imagery] Imagery disabled');
-      if (imageryProvider !== 'esri') console.log('[3D Imagery] Provider is not esri:', imageryProvider);
-      if (!projectionMeta) console.log('[3D Imagery] No projection metadata');
-      return null;
-    }
-    console.log('[3D Imagery] Building config with projectionMeta:', {
-      minLat: projectionMeta.minLat,
-      maxLat: projectionMeta.maxLat,
-      minLng: projectionMeta.minLng,
-      maxLng: projectionMeta.maxLng,
-    });
-    const imageryUrls = buildEsriWorldImageryExportUrls(
-      {
-        minLat: projectionMeta.minLat,
-        maxLat: projectionMeta.maxLat,
-        minLng: projectionMeta.minLng,
-        maxLng: projectionMeta.maxLng,
-      },
-      1024
-    ).filter(Boolean);
-    if (imageryUrls.length === 0) {
-      console.warn('[3D Imagery] No valid URLs generated');
-      return null;
-    }
-    console.log('[3D Imagery] Config built with', imageryUrls.length, 'source(s):', imageryUrls);
-    return {
-      key: 'esri',
-      label: 'Esri World Imagery',
-      attribution: 'Imagery © Esri',
-      urls: imageryUrls,
-      widthMeters: Math.max(1, projectionMeta.lonSpanM) * 1.35,
-      heightMeters: Math.max(1, projectionMeta.latSpanM) * 1.35,
-    };
-  }, [showImagery, imageryProvider, projectionMeta]);
+
 
   // Calculate surface statistics using projected coordinates in meters.
   const statistics = useMemo(() => {
@@ -660,8 +585,8 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     geo.computeVertexNormals();
 
-    const drapeImageryEnabled = Boolean(imageryConfig);
-    // Always start with vertex colors so failed imagery fetch never leaves the mesh flat grey.
+
+    // Vertex colors for elevation visualization
     const mat = new THREE.MeshLambertMaterial({
       vertexColors: true,
       side: THREE.DoubleSide,
@@ -710,75 +635,6 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     const maxDim = Math.max(size.x, size.y, size.z) || 1;
 
     let needsRender = true;
-    let imageryTexture = null;
-    console.log('[3D Imagery] Drape enabled:', drapeImageryEnabled, 'imageryConfig:', imageryConfig);
-    if (drapeImageryEnabled) {
-      if (!isDisposed) {
-        setImageryLoadState('loading');
-        setImageryLoadMessage('Loading imagery…');
-      }
-
-      const imageryLoader = new THREE.TextureLoader();
-      imageryLoader.setCrossOrigin('anonymous');
-      console.log('[3D Imagery] Texture loader created with crossOrigin="anonymous"');
-
-      const tryLoadImagery = (index) => {
-        const sourceUrl = Array.isArray(imageryConfig?.urls) ? imageryConfig.urls[index] : null;
-        if (!sourceUrl) {
-          console.warn('[3D Imagery] All sources exhausted, using color fallback');
-          mat.vertexColors = true;
-          mat.map = null;
-          mat.needsUpdate = true;
-          needsRender = true;
-          if (!isDisposed) {
-            setImageryLoadState('failed');
-            setImageryLoadMessage('Imagery unavailable (backend proxy failed)');
-          }
-          return;
-        }
-
-        console.log(`[3D Imagery] Attempting to load imagery from backend proxy: ${sourceUrl}`);
-
-        imageryLoader.load(
-          sourceUrl,
-          (texture) => {
-            if (isDisposed) {
-              texture.dispose();
-              return;
-            }
-            console.log(`[3D Imagery] Successfully loaded imagery`);
-            imageryTexture = texture;
-            imageryTexture.colorSpace = THREE.SRGBColorSpace;
-            imageryTexture.wrapS = THREE.ClampToEdgeWrapping;
-            imageryTexture.wrapT = THREE.ClampToEdgeWrapping;
-            const anisotropy = renderer?.capabilities?.getMaxAnisotropy?.() || 1;
-            imageryTexture.anisotropy = Math.max(1, Math.min(8, anisotropy));
-            mat.vertexColors = false;
-            mat.map = imageryTexture;
-            mat.needsUpdate = true;
-            needsRender = true;
-            if (!isDisposed) {
-              setImageryLoadState('loaded');
-              setImageryLoadMessage('Loaded via backend proxy');
-            }
-          },
-          (progress) => {
-            console.log(`[3D Imagery] Load progress: ${Math.round((progress.loaded / progress.total) * 100)}%`);
-          },
-          (error) => {
-            const errorMsg = error?.message || error?.type || 'unknown error';
-            const errorStack = error?.stack ? `\n${error.stack}` : '';
-            console.warn(`[3D Imagery] Failed to load from ${sourceUrl}:`, errorMsg + errorStack);
-            tryLoadImagery(index + 1);
-          }
-        );
-      };
-
-      tryLoadImagery(0);
-    } else if (!isDisposed) {
-      setImageryLoadState('idle');
-      setImageryLoadMessage('');
-    }
 
     const overlayObjects = [];
     if (measurementPoints.length > 0) {
@@ -945,11 +801,10 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
         object?.material?.dispose?.();
       });
       isDisposed = true;
-      imageryTexture?.dispose?.();
       renderer.dispose();
       if (el.contains(dom)) el.removeChild(dom);
     };
-  }, [transformedTriangles, transformedSurfaces, fitLayerKey, minZ, maxZ, viewPreset, renderStyle, cameraResetToken, isFullscreen, meshOpacity, showContours, contourInterval, lightAzimuth, lightElevation, lightIntensity, measurementMode, measurementPoints, visibleSurfaces, imageryConfig]);
+  }, [transformedTriangles, transformedSurfaces, fitLayerKey, minZ, maxZ, viewPreset, renderStyle, cameraResetToken, isFullscreen, meshOpacity, showContours, contourInterval, lightAzimuth, lightElevation, lightIntensity, measurementMode, measurementPoints, visibleSurfaces]);
 
   if (transformedTriangles.length === 0) {
     return (
@@ -1106,36 +961,6 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
           ))}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
-          <span style={{ color: '#94a3b8' }}>Imagery</span>
-          <button
-            type="button"
-            onClick={() => setShowImagery((value) => !value)}
-            style={{
-              padding: '0.16rem 0.45rem', borderRadius: 999, fontSize: '0.68rem', fontWeight: 700,
-              border: showImagery ? '1px solid #22c55e' : '1px solid #334155',
-              background: showImagery ? '#14532d' : '#0f172a',
-              color: showImagery ? '#dcfce7' : '#94a3b8',
-              cursor: 'pointer',
-            }}
-          >
-            {showImagery ? 'On' : 'Off'}
-          </button>
-          <select
-            value={imageryProvider}
-            onChange={(e) => setImageryProvider(e.target.value)}
-            disabled={!showImagery}
-            style={{
-              minWidth: 108,
-              background: showImagery ? '#0f172a' : '#111827',
-              color: showImagery ? '#cbd5e1' : '#64748b',
-              border: '1px solid #334155',
-              borderRadius: 6,
-              padding: '0.16rem 0.3rem',
-              fontSize: '0.68rem',
-            }}
-          >
-            <option value="esri">Esri imagery</option>
-          </select>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
           <span style={{ color: '#94a3b8' }}>View</span>
@@ -1233,22 +1058,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
         </div>
       </div>
 
-      {imageryConfig && (
-        <div style={{
-          position: 'absolute', bottom: 12, left: 12,
-          background: 'rgba(15,23,42,0.82)', borderRadius: 6, padding: '0.28rem 0.55rem',
-          color: '#94a3b8', fontSize: '0.7rem', border: '1px solid #1e293b',
-          display: 'grid', gap: '0.2rem',
-        }}>
-          <div>{imageryConfig.attribution}</div>
-          <div style={{
-            color: imageryLoadState === 'loaded' ? '#34d399' : imageryLoadState === 'failed' ? '#fda4af' : '#93c5fd',
-            fontSize: '0.66rem',
-          }}>
-            Imagery: {imageryLoadMessage || imageryLoadState}
-          </div>
-        </div>
-      )}
+
 
       {/* Feature Panels - Left side */}
       <div style={{ position: 'absolute', top: '50%', left: 14, transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: '0.45rem', maxHeight: 'calc(100% - 120px)', overflowY: 'auto', paddingRight: 4, width: 140 }}>

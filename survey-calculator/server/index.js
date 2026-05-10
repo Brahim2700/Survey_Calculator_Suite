@@ -269,9 +269,6 @@ function normalizeCadParseResponse(payload, preScan = null) {
 
 app.use(helmet());
 
-// Imagery endpoints allow all CORS origins (imagery is public/non-sensitive)
-app.use('/api/imagery', cors({ origin: '*' }));
-
 app.use(cors({
   origin(origin, callback) {
     // When no origins are configured, only allow requests with no origin (same-origin / server-to-server).
@@ -330,100 +327,6 @@ function latLngToWebMercator(lat, lng) {
   };
 }
 
-app.get('/api/imagery/esri-export', generalRateLimit, async (req, res) => {
-  try {
-    console.log('[Imagery Proxy] Request received:', req.query);
-    
-    const minLat = Number(req.query?.minLat);
-    const maxLat = Number(req.query?.maxLat);
-    const minLng = Number(req.query?.minLng);
-    const maxLng = Number(req.query?.maxLng);
-    const size = clamp(Number(req.query?.size) || 1024, 256, 2048);
-
-    if (![minLat, maxLat, minLng, maxLng].every(Number.isFinite)) {
-      console.warn('[Imagery Proxy] Invalid bounds:', { minLat, maxLat, minLng, maxLng });
-      res.status(400).json({ message: 'Invalid imagery bounds.' });
-      return;
-    }
-
-    if (maxLat <= minLat || maxLng <= minLng) {
-      console.warn('[Imagery Proxy] Non-zero extent check failed:', { minLat, maxLat, minLng, maxLng });
-      res.status(400).json({ message: 'Imagery bounds must define a non-zero extent.' });
-      return;
-    }
-
-    if (Math.abs(minLat) > 90 || Math.abs(maxLat) > 90 || Math.abs(minLng) > 180 || Math.abs(maxLng) > 180) {
-      console.warn('[Imagery Proxy] Out of range bounds:', { minLat, maxLat, minLng, maxLng });
-      res.status(400).json({ message: 'Imagery bounds are out of range.' });
-      return;
-    }
-
-    const sw = latLngToWebMercator(minLat, minLng);
-    const ne = latLngToWebMercator(maxLat, maxLng);
-    console.log('[Imagery Proxy] Web Mercator bounds:', { sw, ne });
-
-    const esriParams = new URLSearchParams({
-      bbox: `${sw.x},${sw.y},${ne.x},${ne.y}`,
-      bboxSR: '3857',
-      imageSR: '3857',
-      size: `${Math.round(size)},${Math.round(size)}`,
-      format: 'jpg',
-      f: 'image',
-    });
-    const esriUrl = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?${esriParams.toString()}`;
-    console.log('[Imagery Proxy] Fetching from Esri:', esriUrl);
-
-    let upstream;
-    try {
-      upstream = await fetch(esriUrl);
-    } catch (fetchErr) {
-      console.error('[Imagery Proxy] Fetch error:', fetchErr?.message);
-      res.status(502).json({ message: `Failed to reach Esri service: ${fetchErr?.message || 'unknown'}` });
-      return;
-    }
-
-    console.log('[Imagery Proxy] Esri response status:', upstream.status, upstream.statusText);
-    
-    if (!upstream.ok) {
-      let errorBody = '';
-      try {
-        errorBody = await upstream.text();
-      } catch (e) {
-        errorBody = '(unable to read body)';
-      }
-      console.error('[Imagery Proxy] Esri error response:', { status: upstream.status, body: errorBody });
-      res.status(upstream.status || 502).json({ message: `Esri service error: ${upstream.status}` });
-      return;
-    }
-
-    let buffer;
-    try {
-      buffer = Buffer.from(await upstream.arrayBuffer());
-    } catch (bufferErr) {
-      console.error('[Imagery Proxy] Failed to read response buffer:', bufferErr?.message);
-      res.status(502).json({ message: `Failed to read imagery buffer: ${bufferErr?.message}` });
-      return;
-    }
-
-    console.log('[Imagery Proxy] Received buffer:', buffer.length, 'bytes');
-    
-    if (buffer.length === 0) {
-      console.warn('[Imagery Proxy] Empty buffer received from Esri');
-      res.status(502).json({ message: 'Esri returned empty image' });
-      return;
-    }
-
-    const contentType = upstream.headers.get('content-type') || 'image/jpeg';
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=300');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.status(200).send(buffer);
-    console.log('[Imagery Proxy] Successfully sent imagery to client');
-  } catch (err) {
-    console.error('[Imagery Proxy] Uncaught exception:', err?.message || String(err), err?.stack);
-    res.status(500).json({ message: err?.message || 'Imagery request failed.' });
-  }
-});
 
 app.post('/api/elevation/opentopodata', generalRateLimit, express.json({ limit: '256kb' }), async (req, res) => {
   try {
