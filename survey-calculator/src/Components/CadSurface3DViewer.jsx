@@ -205,14 +205,16 @@ const getElevationColor = (elevation, minElev, maxElev) => {
   return `hsl(${hue}, 100%, 50%)`;
 };
 
+
 const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, maxZ) => {
   const sourceWidth = sourceCanvas.width;
   const sourceHeight = sourceCanvas.height;
-  const pixelRatio = 2;
-  const panelCssWidth = Math.max(420, Math.min(560, Math.round(sourceWidth * 0.42)));
-  const panelWidth = panelCssWidth * pixelRatio;
-  const totalWidth = (sourceWidth + panelCssWidth) * pixelRatio;
-  const totalHeight = sourceHeight * pixelRatio;
+  const imagePixelRatio = 2; // For high-res export
+  const panelScale = 1.15; // For text/panel scaling (was 2)
+  const panelCssWidth = Math.max(370, Math.min(440, Math.round(sourceWidth * 0.36)));
+  const panelWidth = Math.round(panelCssWidth * imagePixelRatio);
+  const totalWidth = (sourceWidth + panelCssWidth) * imagePixelRatio;
+  const totalHeight = sourceHeight * imagePixelRatio;
 
   const exportCanvas = document.createElement('canvas');
   exportCanvas.width = totalWidth;
@@ -227,7 +229,7 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
 
   const panelX = totalWidth - panelWidth;
   const panelY = 0;
-  const panelPadding = 20 * pixelRatio;
+  const panelPadding = Math.round(16 * panelScale);
   const contentX = panelX + panelPadding;
   const contentW = panelWidth - panelPadding * 2;
 
@@ -238,11 +240,12 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
   ctx.lineWidth = 2;
   ctx.strokeRect(panelX, panelY, panelWidth, totalHeight);
 
-  const titleSize = 20 * pixelRatio;
-  const h2Size = 15 * pixelRatio;
-  const labelSize = 11 * pixelRatio;
-  const valueSize = 14 * pixelRatio;
-  const sectionGap = 16 * pixelRatio;
+  // Font sizes (smaller, decoupled from imagePixelRatio)
+  const titleSize = Math.round(18 * panelScale);
+  const h2Size = Math.round(13.5 * panelScale);
+  const labelSize = Math.round(9.5 * panelScale);
+  const valueSize = Math.round(12 * panelScale);
+  const sectionGap = Math.round(12 * panelScale);
 
   let cursorY = panelPadding + titleSize;
 
@@ -299,20 +302,20 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
   };
 
   const drawCard = (title, rows = []) => {
-    const cardPad = 12 * pixelRatio;
-    const cardHeaderH = 20 * pixelRatio;
+    const cardPad = Math.round(9 * panelScale);
+    const cardHeaderH = Math.round(16 * panelScale);
     const labelFont = `600 ${labelSize}px "Segoe UI", sans-serif`;
     const valueFont = `700 ${valueSize}px "Segoe UI", sans-serif`;
-    const valueColumnW = Math.max(140 * pixelRatio, contentW * 0.42);
-    const labelMaxW = Math.max(80 * pixelRatio, contentW - (cardPad * 2) - valueColumnW - (8 * pixelRatio));
+    const valueColumnW = Math.max(Math.round(90 * panelScale), contentW * 0.38);
+    const labelMaxW = Math.max(Math.round(60 * panelScale), contentW - (cardPad * 2) - valueColumnW - Math.round(6 * panelScale));
 
     const rowLayouts = rows.map((row) => {
       const labelLines = row.wrapLabel
         ? wrapTextToWidth(row.label, labelMaxW, labelFont)
         : [String(row.label || '')];
-      const minRowHeight = 24 * pixelRatio;
-      const lineHeight = 14 * pixelRatio;
-      const computedHeight = Math.max(minRowHeight, (labelLines.length * lineHeight) + (9 * pixelRatio));
+      const minRowHeight = Math.round(18 * panelScale);
+      const lineHeight = Math.round(11 * panelScale);
+      const computedHeight = Math.max(minRowHeight, (labelLines.length * lineHeight) + Math.round(7 * panelScale));
       return {
         ...row,
         labelLines,
@@ -327,26 +330,26 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
     ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.roundRect(contentX, cursorY, contentW, cardHeight, 8 * pixelRatio);
+    ctx.roundRect(contentX, cursorY, contentW, cardHeight, Math.round(7 * panelScale));
     ctx.fill();
     ctx.stroke();
 
     ctx.font = `700 ${h2Size}px "Segoe UI", sans-serif`;
     ctx.fillStyle = '#a5f3fc';
-    ctx.fillText(title, contentX + cardPad, cursorY + cardPad + cardHeaderH - 3 * pixelRatio);
+    ctx.fillText(title, contentX + cardPad, cursorY + cardPad + cardHeaderH - Math.round(2.5 * panelScale));
 
-    let rowY = cursorY + cardPad + cardHeaderH + 4 * pixelRatio;
+    let rowY = cursorY + cardPad + cardHeaderH + Math.round(3 * panelScale);
     rowLayouts.forEach(({ labelLines, value, valueColor, rowHeight }) => {
       ctx.font = labelFont;
       ctx.fillStyle = '#94a3b8';
       labelLines.forEach((line, lineIndex) => {
-        ctx.fillText(line, contentX + cardPad, rowY + 12 * pixelRatio + (lineIndex * 14 * pixelRatio));
+        ctx.fillText(line, contentX + cardPad, rowY + Math.round(9 * panelScale) + (lineIndex * Math.round(11 * panelScale)));
       });
 
       ctx.font = valueFont;
       ctx.fillStyle = valueColor || '#e2e8f0';
       const textWidth = ctx.measureText(value).width;
-      ctx.fillText(value, contentX + contentW - cardPad - textWidth, rowY + 13 * pixelRatio);
+      ctx.fillText(value, contentX + contentW - cardPad - textWidth, rowY + Math.round(10 * panelScale));
 
       rowY += rowHeight;
     });
@@ -356,25 +359,25 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
 
   // Elevation scale card
   if (Number.isFinite(minZ) && Number.isFinite(maxZ)) {
-    const cardPad = 12 * pixelRatio;
-    const scaleH = 150 * pixelRatio;
-    const cardHeight = 205 * pixelRatio;
-    const barW = 28 * pixelRatio;
+    const cardPad = Math.round(9 * panelScale);
+    const scaleH = Math.round(110 * panelScale);
+    const cardHeight = Math.round(150 * panelScale);
+    const barW = Math.round(18 * panelScale);
 
     ctx.fillStyle = 'rgba(15, 23, 42, 0.72)';
     ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.roundRect(contentX, cursorY, contentW, cardHeight, 8 * pixelRatio);
+    ctx.roundRect(contentX, cursorY, contentW, cardHeight, Math.round(7 * panelScale));
     ctx.fill();
     ctx.stroke();
 
     ctx.font = `700 ${h2Size}px "Segoe UI", sans-serif`;
     ctx.fillStyle = '#a5f3fc';
-    ctx.fillText('Elevation (m)', contentX + cardPad, cursorY + cardPad + 12 * pixelRatio);
+    ctx.fillText('Elevation (m)', contentX + cardPad, cursorY + cardPad + Math.round(9 * panelScale));
 
     const barX = contentX + cardPad;
-    const barY = cursorY + cardPad + 26 * pixelRatio;
+    const barY = cursorY + cardPad + Math.round(18 * panelScale);
     for (let i = 0; i < scaleH; i += 1) {
       const ratio = i / scaleH;
       const elev = maxZ - ratio * (maxZ - minZ);
@@ -386,12 +389,12 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
     ctx.lineWidth = 1;
     ctx.strokeRect(barX, barY, barW, scaleH);
 
-    const scaleLabelX = barX + barW + 12 * pixelRatio;
+    const scaleLabelX = barX + barW + Math.round(8 * panelScale);
     ctx.font = `700 ${valueSize}px "Segoe UI", sans-serif`;
     ctx.fillStyle = '#e2e8f0';
-    ctx.fillText(maxZ.toFixed(1), scaleLabelX, barY + 12 * pixelRatio);
-    ctx.fillText(((minZ + maxZ) / 2).toFixed(1), scaleLabelX, barY + (scaleH / 2) + 5 * pixelRatio);
-    ctx.fillText(minZ.toFixed(1), scaleLabelX, barY + scaleH + 1 * pixelRatio);
+    ctx.fillText(maxZ.toFixed(1), scaleLabelX, barY + Math.round(9 * panelScale));
+    ctx.fillText(((minZ + maxZ) / 2).toFixed(1), scaleLabelX, barY + Math.round(scaleH / 2) + Math.round(3 * panelScale));
+    ctx.fillText(minZ.toFixed(1), scaleLabelX, barY + scaleH + Math.round(1 * panelScale));
 
     cursorY += cardHeight + sectionGap;
   }
@@ -428,10 +431,10 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
   }
 
   // Footer timestamp
-  ctx.font = `600 ${Math.max(labelSize, 12 * pixelRatio)}px "Segoe UI", sans-serif`;
+  ctx.font = `600 ${Math.max(labelSize, Math.round(10 * panelScale))}px "Segoe UI", sans-serif`;
   ctx.fillStyle = '#94a3b8';
   const timestamp = new Date().toLocaleString();
-  ctx.fillText(timestamp, contentX, totalHeight - 16 * pixelRatio);
+  ctx.fillText(timestamp, contentX, totalHeight - Math.round(12 * panelScale));
 
   return exportCanvas;
 };
