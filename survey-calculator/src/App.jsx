@@ -993,6 +993,7 @@ function App() {
                     points={allPoints}
                     cadGeometry={visibleCadGeometry}
                     isVisible={true}
+                    mapFocusMode={mapFocusMode}
                     measureMode={measureMode}
                     measurePoints={measurePoints}
                     onPointSelect={handleMapPointSelect}

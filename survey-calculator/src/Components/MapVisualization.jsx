@@ -11,6 +11,10 @@ import { escapeHtml } from '../utils/escapeHtml';
 const BASEMAP_STORAGE_KEY = 'survey_calc_basemap';
 const MAP_ADVANCED_TOOLS_STORAGE_KEY = 'survey_calc_map_advanced_tools';
 const IGN_FRANCE_BOUNDS = L.latLngBounds([41.0, -5.8], [51.5, 9.8]);
+const WORLD_WEB_MERCATOR_BOUNDS = L.latLngBounds(
+  L.latLng(-85.05112878, -180),
+  L.latLng(85.05112878, 180)
+);
 const LABEL_AUTO_HIDE_THRESHOLD = 300;
 const CAD_HEAVY_VERTEX_THRESHOLD = 90000;
 const CAD_EXTREME_VERTEX_THRESHOLD = 180000;
@@ -254,7 +258,7 @@ const getTinElevationColor = (avgZ, minZ, maxZ) => {
   return `hsl(${hue.toFixed(0)} 78% 48%)`;
 };
 
-const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerformanceProfile = null, isVisible, onPointSelect, measureMode = false, measurePoints = [], onMapContainerReady = null, onMapMetricsChange = null, onMapInstanceReady = null, markerStyleConfig = null }) => {
+const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerformanceProfile = null, isVisible, onPointSelect, measureMode = false, measurePoints = [], onMapContainerReady = null, onMapMetricsChange = null, onMapInstanceReady = null, markerStyleConfig = null, mapFocusMode = false }) => {
   const mapContainer = useRef(null);
   const mapRootContainer = useRef(null);
   const map = useRef(null);
@@ -906,9 +910,18 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
         zoomSnap: 0.25,
         zoomDelta: 0.5,
         maxZoom: 23,
-        minZoom: 2,
+        minZoom: 1,
+        worldCopyJump: true,
       }).setView([20, 0], 2);
       canvasRendererRef.current = L.canvas({ padding: 0.5 });
+      map.current.setMaxBounds(WORLD_WEB_MERCATOR_BOUNDS);
+      const initialMinZoom = Math.max(1, map.current.getBoundsZoom(WORLD_WEB_MERCATOR_BOUNDS, true));
+      if (Number.isFinite(initialMinZoom)) {
+        map.current.setMinZoom(initialMinZoom);
+        if (map.current.getZoom() < initialMinZoom) {
+          map.current.setZoom(initialMinZoom);
+        }
+      }
 
       basemapLayers.current = {
         'Street (OSM)': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -1909,6 +1922,45 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
       }
     };
   }, [points, cadGeometry, isVisible, onPointSelect, onMapMetricsChange, onMapInstanceReady, getMarkerColor, getPointLabelMarkup, isCadLayerVisible, isGeometryInBounds, measureMode, measurePoints, selectedPoint, showPointLayer, showLineLayer, showPolylineLayer, showHatches, solidHatchPreviewOnly, showTinEdges, showTinFill, showLabels, effectiveShowLabels, annotationsVisible, hiddenCadLayers, pointSymbol, pointSizeScale, removeDuplicates, snapMode, snapRadiusPx, markerStyleConfig, cadLodTier, getLabelBudget, getDetectionLabelBudget]);
+
+  useEffect(() => {
+    if (!isVisible || !map.current || !mapContainer.current) return;
+
+    const applyViewportConstraints = () => {
+      if (!map.current) return;
+      map.current.invalidateSize({ pan: false, debounceMoveend: true });
+      map.current.setMaxBounds(WORLD_WEB_MERCATOR_BOUNDS);
+      const minZoomForViewport = Math.max(1, map.current.getBoundsZoom(WORLD_WEB_MERCATOR_BOUNDS, true));
+      if (Number.isFinite(minZoomForViewport)) {
+        map.current.setMinZoom(minZoomForViewport);
+        if (map.current.getZoom() < minZoomForViewport) {
+          map.current.setZoom(minZoomForViewport);
+        }
+      }
+    };
+
+    const initialFrame = requestAnimationFrame(applyViewportConstraints);
+
+    let resizeObserver = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        requestAnimationFrame(applyViewportConstraints);
+      });
+      resizeObserver.observe(mapContainer.current);
+      if (mapRootContainer.current) {
+        resizeObserver.observe(mapRootContainer.current);
+      }
+    }
+
+    const handleWindowResize = () => requestAnimationFrame(applyViewportConstraints);
+    window.addEventListener('resize', handleWindowResize);
+
+    return () => {
+      cancelAnimationFrame(initialFrame);
+      window.removeEventListener('resize', handleWindowResize);
+      if (resizeObserver) resizeObserver.disconnect();
+    };
+  }, [isVisible, mapFocusMode]);
 
   return (
     <div
