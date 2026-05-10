@@ -905,7 +905,7 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
     const orbitState = {
       theta: initialAngles.theta,
       phi: initialAngles.phi,
-      radius: maxDim * 2.2,
+      radius: maxDim * 1.8,
       target: center.clone(),
       isDown: false,
       button: 0,
@@ -1509,6 +1509,16 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
           </button>
           {showExportPanel && (
             <div style={{ display: 'grid', gap: '0.3rem', marginTop: '0.35rem' }}>
+              <button
+                type="button"
+                onClick={() => setCameraResetToken(v => v + 1)}
+                style={{
+                  width: '100%', padding: '0.22rem', borderRadius: 4, fontSize: '0.66rem', fontWeight: 600,
+                  border: '1px solid #fbbf24', background: 'rgba(251, 191, 36, 0.1)', color: '#fcd34d', cursor: 'pointer',
+                }}
+              >
+                Reset View
+              </button>
               <button
                 type="button"
                 onClick={() => exportScreenshot(containerRef.current?.querySelector('canvas'), elevationProfileData, statistics, minZ, maxZ)}
