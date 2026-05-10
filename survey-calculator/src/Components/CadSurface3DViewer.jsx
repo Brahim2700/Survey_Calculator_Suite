@@ -627,11 +627,14 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     geo.computeVertexNormals();
 
     const drapeImageryEnabled = Boolean(imageryConfig);
-    const mat = new THREE.MeshLambertMaterial(
-      drapeImageryEnabled
-        ? { color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: meshOpacity }
-        : { vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: meshOpacity }
-    );
+    // Always start with vertex colors so failed imagery fetch never leaves the mesh flat grey.
+    const mat = new THREE.MeshLambertMaterial({
+      vertexColors: true,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: meshOpacity,
+      color: 0xffffff,
+    });
     const mesh = new THREE.Mesh(geo, mat);
     if (renderStyle !== 'wire') scene.add(mesh);
 
@@ -690,13 +693,20 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
           imageryTexture.wrapT = THREE.ClampToEdgeWrapping;
           const anisotropy = renderer?.capabilities?.getMaxAnisotropy?.() || 1;
           imageryTexture.anisotropy = Math.max(1, Math.min(8, anisotropy));
+          // Switch to texture-only shading once imagery is ready.
+          mat.vertexColors = false;
           mat.map = imageryTexture;
           mat.needsUpdate = true;
           needsRender = true;
         },
         undefined,
         (error) => {
-          console.warn('3D imagery drape failed to load.', error);
+          // Keep elevation colors as fallback if imagery cannot be fetched.
+          mat.vertexColors = true;
+          mat.map = null;
+          mat.needsUpdate = true;
+          needsRender = true;
+          console.warn('3D imagery drape failed to load. Using elevation color fallback.', error);
         }
       );
     }
