@@ -1,5 +1,6 @@
 import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import * as THREE from 'three';
+import { calculateGeodesicDistance } from '../utils/calculations';
 
 const EARTH_RADIUS_M = 6378137;
 const CAD_API_BASE_URL = import.meta.env.VITE_CAD_API_BASE_URL || '/api/cad';
@@ -192,17 +193,132 @@ const calculateBoundingBox = (triangles) => {
   return { minX, maxX, minY, maxY, minZ, maxZ };
 };
 
-// Helper: Export screenshot
-const exportScreenshot = (canvas) => {
-  if (canvas) {
-    try {
-      const link = document.createElement('a');
-      link.href = canvas.toDataURL('image/png');
-      link.download = `3d-surface-${Date.now()}.png`;
-      link.click();
-    } catch (error) {
-      console.warn('Screenshot export blocked (likely cross-origin imagery texture restriction).', error);
+// Helper: Export screenshot with elevation panel and area overlay
+const exportScreenshot = (canvas, elevationData, surfaceStats) => {
+  if (!canvas) return;
+  
+  try {
+    const sourceCanvas = canvas;
+    const width = sourceCanvas.width;
+    const height = sourceCanvas.height;
+    
+    // Create a new canvas with extra space for the info panel
+    const panelWidth = 280;
+    const totalWidth = width + panelWidth;
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = totalWidth;
+    exportCanvas.height = height;
+    
+    const ctx = exportCanvas.getContext('2d');
+    
+    // Draw the 3D view
+    ctx.drawImage(sourceCanvas, 0, 0);
+    
+    // Draw the info panel background
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
+    ctx.fillRect(width, 0, panelWidth, height);
+    
+    // Draw panel border
+    ctx.strokeStyle = 'rgba(51, 65, 85, 0.8)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(width, 0, panelWidth, height);
+    
+    // Panel content
+    let yOffset = 16;
+    const lineHeight = 18;
+    const sectionGap = 12;
+    
+    ctx.font = 'bold 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillText('3D Surface Export', width + 12, yOffset);
+    yOffset += lineHeight + 8;
+    
+    // Elevation Panel Section
+    if (elevationData && elevationData.pointCount > 0) {
+      ctx.font = 'bold 10px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.fillStyle = '#93c5fd';
+      ctx.fillText('Elevation Profile', width + 12, yOffset);
+      yOffset += lineHeight;
+      
+      ctx.font = '9px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.fillStyle = '#cbd5e1';
+      
+      ctx.fillText(`Points: ${elevationData.pointCount}`, width + 12, yOffset);
+      yOffset += lineHeight;
+      
+      ctx.fillText(`Distance: ${(elevationData.totalDistance / 1000).toFixed(3)} km`, width + 12, yOffset);
+      yOffset += lineHeight;
+      
+      ctx.fillText(`Min Elev: ${elevationData.minElevation.toFixed(2)} m`, width + 12, yOffset);
+      yOffset += lineHeight;
+      
+      ctx.fillText(`Max Elev: ${elevationData.maxElevation.toFixed(2)} m`, width + 12, yOffset);
+      yOffset += lineHeight;
+      
+      ctx.fillText(`Avg Elev: ${elevationData.avgElevation.toFixed(2)} m`, width + 12, yOffset);
+      yOffset += lineHeight;
+      
+      ctx.fillText(`↑ Gain: ${elevationData.totalElevationGain.toFixed(1)} m`, width + 12, yOffset);
+      yOffset += lineHeight;
+      
+      ctx.fillText(`↓ Loss: ${elevationData.totalElevationLoss.toFixed(1)} m`, width + 12, yOffset);
+      yOffset += lineHeight;
+      
+      // Area section if polygon is closed
+      if (elevationData.isClosed) {
+        yOffset += sectionGap;
+        ctx.fillStyle = '#86efac';
+        ctx.fillText(`Area: ${elevationData.polygonArea.toFixed(0)} m²`, width + 12, yOffset);
+        yOffset += lineHeight;
+        
+        ctx.fillStyle = '#cbd5e1';
+        ctx.fillText(`Perimeter: ${elevationData.perimeter.toFixed(2)} m`, width + 12, yOffset);
+        yOffset += lineHeight;
+      }
+      
+      yOffset += sectionGap;
     }
+    
+    // Surface Area Section
+    if (surfaceStats && Object.keys(surfaceStats).length > 0) {
+      ctx.font = 'bold 10px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.fillStyle = '#a7f3d0';
+      ctx.fillText('Surface Area', width + 12, yOffset);
+      yOffset += lineHeight;
+      
+      ctx.font = '9px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.fillStyle = '#cbd5e1';
+      
+      let statsCount = 0;
+      Object.entries(surfaceStats).forEach(([key, stats]) => {
+        if (statsCount > 3) return; // Limit display to 3 surfaces
+        
+        const label = key.split('::')[0];
+        const truncatedLabel = label.length > 20 ? label.substring(0, 17) + '...' : label;
+        ctx.fillText(`${truncatedLabel}:`, width + 12, yOffset);
+        yOffset += lineHeight - 4;
+        
+        ctx.fillText(`${stats.area} m²`, width + 24, yOffset);
+        yOffset += lineHeight + 2;
+        
+        statsCount++;
+      });
+    }
+    
+    // Add timestamp
+    yOffset = height - 24;
+    ctx.font = '8px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.fillStyle = '#94a3b8';
+    const timestamp = new Date().toLocaleString();
+    ctx.fillText(timestamp, width + 12, yOffset);
+    
+    // Download
+    const link = document.createElement('a');
+    link.href = exportCanvas.toDataURL('image/png');
+    link.download = `3d-surface-${Date.now()}.png`;
+    link.click();
+  } catch (error) {
+    console.warn('Screenshot export blocked (likely cross-origin imagery texture restriction).', error);
   }
 };
 
@@ -293,7 +409,7 @@ const generateContours = (triangles, minZ, maxZ, interval) => {
  * Three.js 3D viewer for CAD surfaces (3DFACE / TIN triangles).
  * Supports orbit (left-drag), pan (right-drag), and zoom (scroll).
  */
-const CadSurface3DViewer = ({ surfaces = [] }) => {
+const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
   const containerRef = useRef(null);
   const wrapperRef = useRef(null);
   const [zScalePreset, setZScalePreset] = useState('auto');
@@ -499,6 +615,71 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
 
     return stats;
   }, [normalizedSurfaces, minZ, maxZ]);
+
+  // Calculate elevation profile data from measurement points
+  const elevationProfileData = useMemo(() => {
+    const pts = Array.isArray(measurePoints) ? measurePoints : [];
+    if (pts.length < 2) return null;
+
+    let totalDistance = 0;
+    let totalElevationGain = 0;
+    let totalElevationLoss = 0;
+    let minElevation = Infinity;
+    let maxElevation = -Infinity;
+
+    for (let i = 0; i < pts.length - 1; i += 1) {
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const distResult = calculateGeodesicDistance(p1.lat, p1.lng, p2.lat, p2.lng);
+      const dist = Number(distResult?.distance) || 0;
+      const dh = (Number(p2.height) || 0) - (Number(p1.height) || 0);
+      totalDistance += dist;
+      
+      if (dh > 0) totalElevationGain += dh;
+      else totalElevationLoss += Math.abs(dh);
+    }
+
+    pts.forEach((p, i) => {
+      const h = Number(p?.height || 0);
+      minElevation = Math.min(minElevation, h);
+      maxElevation = Math.max(maxElevation, h);
+    });
+
+    const isClosed = pts.length >= 3 &&
+      Math.abs(pts[0].lat - pts[pts.length - 1].lat) < 0.00001 &&
+      Math.abs(pts[0].lng - pts[pts.length - 1].lng) < 0.00001;
+
+    const avgElevation = pts.reduce((s, p) => s + (Number(p?.height) || 0), 0) / pts.length;
+
+    // Calculate polygon area if closed
+    let polygonArea = 0;
+    if (isClosed) {
+      const cosLat = Math.cos((pts.reduce((s, p) => s + p.lat, 0) / pts.length) * (Math.PI / 180));
+      const R = 6371000;
+      const proj = pts.map((p) => [
+        (p.lng - pts[0].lng) * cosLat * R * (Math.PI / 180),
+        (p.lat - pts[0].lat) * R * (Math.PI / 180),
+      ]);
+      let sum = 0;
+      for (let i = 0; i < proj.length - 1; i += 1) {
+        sum += proj[i][0] * proj[i + 1][1] - proj[i + 1][0] * proj[i][1];
+      }
+      polygonArea = Math.abs(sum) / 2;
+    }
+
+    return {
+      pointCount: pts.length,
+      totalDistance,
+      totalElevationGain,
+      totalElevationLoss,
+      minElevation,
+      maxElevation,
+      avgElevation,
+      polygonArea,
+      perimeter: isClosed ? totalDistance : 0,
+      isClosed,
+    };
+  }, [measurePoints]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -1277,7 +1458,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
             <div style={{ display: 'grid', gap: '0.3rem', marginTop: '0.35rem' }}>
               <button
                 type="button"
-                onClick={() => exportScreenshot(containerRef.current?.querySelector('canvas'))}
+                onClick={() => exportScreenshot(containerRef.current?.querySelector('canvas'), elevationProfileData, statistics)}
                 style={{
                   width: '100%', padding: '0.22rem', borderRadius: 4, fontSize: '0.66rem', fontWeight: 600,
                   border: '1px solid #334155', background: '#0f172a', color: '#cbd5e1', cursor: 'pointer',

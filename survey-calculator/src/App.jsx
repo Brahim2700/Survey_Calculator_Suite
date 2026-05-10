@@ -984,7 +984,7 @@ function App() {
             {/* Map / 3D viewer */}
             {mapViewMode === '3d' && visibleCadGeometry.surfaces.length > 0 ? (
               <ErrorBoundary label="3D Surface Viewer">
-                <CadSurface3DViewer surfaces={visibleCadGeometry.surfaces} />
+                <CadSurface3DViewer surfaces={visibleCadGeometry.surfaces} measurePoints={measurePoints} />
               </ErrorBoundary>
             ) : (
               <div style={{ width: "100%", height: mapFocusMode ? "72vh" : "520px", flexShrink: 0 }}>
