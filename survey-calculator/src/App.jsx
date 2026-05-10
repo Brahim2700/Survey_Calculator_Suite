@@ -852,19 +852,21 @@ function App() {
                       onClick={() => setMapViewMode((v) => v === '3d' ? '2d' : '3d')}
                     >
                       {mapViewMode === '3d' ? (
-                        <svg className="view-mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="2D view">
-                          <path d="M3 6.5 8 4l4 2.5L16 4l5 2.5V17.5L16 20l-4-2.5L8 20l-5-2.5Z" />
-                          <path d="M8 4v16" />
-                          <path d="M12 6.5v11" />
-                          <path d="M16 4v16" />
+                        <svg className="view-mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-label="2D view">
+                          <rect x="3" y="5" width="18" height="14" rx="2" />
+                          <line x1="3" y1="10" x2="21" y2="10" />
+                          <line x1="9" y1="5" x2="9" y2="19" />
+                          <line x1="15" y1="5" x2="15" y2="19" />
+                          <rect x="6" y="12" width="12" height="5" fill="currentColor" stroke="none" rx="1" />
+                          <text x="12" y="15.8" textAnchor="middle" fontSize="4.2" fontWeight="900" fill="#0b1736" stroke="none">2D</text>
                         </svg>
                       ) : (
-                        <svg className="view-mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="3D view">
+                        <svg className="view-mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-label="3D view">
                           <path d="M12 2 4 6.5v11L12 22l8-4.5v-11Z" />
                           <path d="M4 6.5 12 11l8-4.5" />
                           <path d="M12 11v11" />
-                          <path d="M18.5 3.6 21 5" />
-                          <path d="M21 19l-2.5 1.4" />
+                          <rect x="7" y="12.2" width="10" height="5" fill="currentColor" stroke="none" rx="1" />
+                          <text x="12" y="16" textAnchor="middle" fontSize="3.8" fontWeight="900" fill="#0b1736" stroke="none">3D</text>
                         </svg>
                       )}
                     </button>
