@@ -310,6 +310,73 @@ const generalRateLimit = rateLimit({
 
 const OTD_ALLOWED_DATASETS = new Set(['srtm30m', 'aster30m', 'eudem25m']);
 const OTD_MAX_LOCATIONS = 100;
+const WEB_MERCATOR_MAX_LAT = 85.05112878;
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function latLngToWebMercator(lat, lng) {
+  const safeLat = clamp(Number(lat) || 0, -WEB_MERCATOR_MAX_LAT, WEB_MERCATOR_MAX_LAT);
+  const safeLng = clamp(Number(lng) || 0, -180, 180);
+  const x = (safeLng * 20037508.34) / 180;
+  const y = Math.log(Math.tan(((90 + safeLat) * Math.PI) / 360)) / (Math.PI / 180);
+  return {
+    x,
+    y: (y * 20037508.34) / 180,
+  };
+}
+
+app.get('/api/imagery/esri-export', generalRateLimit, async (req, res) => {
+  try {
+    const minLat = Number(req.query?.minLat);
+    const maxLat = Number(req.query?.maxLat);
+    const minLng = Number(req.query?.minLng);
+    const maxLng = Number(req.query?.maxLng);
+    const size = clamp(Number(req.query?.size) || 1024, 256, 2048);
+
+    if (![minLat, maxLat, minLng, maxLng].every(Number.isFinite)) {
+      res.status(400).json({ message: 'Invalid imagery bounds.' });
+      return;
+    }
+
+    if (maxLat <= minLat || maxLng <= minLng) {
+      res.status(400).json({ message: 'Imagery bounds must define a non-zero extent.' });
+      return;
+    }
+
+    if (Math.abs(minLat) > 90 || Math.abs(maxLat) > 90 || Math.abs(minLng) > 180 || Math.abs(maxLng) > 180) {
+      res.status(400).json({ message: 'Imagery bounds are out of range.' });
+      return;
+    }
+
+    const sw = latLngToWebMercator(minLat, minLng);
+    const ne = latLngToWebMercator(maxLat, maxLng);
+
+    const params = new URLSearchParams({
+      bbox: `${sw.x},${sw.y},${ne.x},${ne.y}`,
+      bboxSR: '3857',
+      imageSR: '3857',
+      size: `${Math.round(size)},${Math.round(size)}`,
+      format: 'jpg',
+      f: 'image',
+    });
+
+    const upstream = await fetch(`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?${params.toString()}`);
+    if (!upstream.ok) {
+      res.status(upstream.status || 502).json({ message: `Imagery upstream request failed (${upstream.status}).` });
+      return;
+    }
+
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+    const contentType = upstream.headers.get('content-type') || 'image/jpeg';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.status(200).send(buffer);
+  } catch (err) {
+    res.status(502).json({ message: err?.message || 'Imagery upstream request failed.' });
+  }
+});
 
 app.post('/api/elevation/opentopodata', generalRateLimit, express.json({ limit: '256kb' }), async (req, res) => {
   try {

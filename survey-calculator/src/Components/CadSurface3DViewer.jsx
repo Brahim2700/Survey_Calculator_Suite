@@ -2,9 +2,20 @@ import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import * as THREE from 'three';
 
 const EARTH_RADIUS_M = 6378137;
+const CAD_API_BASE_URL = import.meta.env.VITE_CAD_API_BASE_URL || '/api/cad';
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const WEB_MERCATOR_MAX_LAT = 85.05112878;
+
+const deriveImageryApiBaseUrl = (cadApiBaseUrl) => {
+  const base = String(cadApiBaseUrl || '').trim();
+  if (!base) return '/api/imagery';
+  if (base.endsWith('/api/cad')) return `${base.slice(0, -'/api/cad'.length)}/api/imagery`;
+  if (base.endsWith('/api/cad/')) return `${base.slice(0, -'/api/cad/'.length)}/api/imagery`;
+  return '/api/imagery';
+};
+
+const IMAGERY_API_BASE_URL = import.meta.env.VITE_IMAGERY_API_BASE_URL || deriveImageryApiBaseUrl(CAD_API_BASE_URL);
 
 const latLngToWebMercator = (lat, lng) => {
   const safeLat = clamp(Number(lat) || 0, -WEB_MERCATOR_MAX_LAT, WEB_MERCATOR_MAX_LAT);
@@ -19,18 +30,15 @@ const latLngToWebMercator = (lat, lng) => {
 
 const buildEsriWorldImageryExportUrl = ({ minLat, maxLat, minLng, maxLng }, size = 1024) => {
   if (![minLat, maxLat, minLng, maxLng].every(Number.isFinite)) return null;
-  const sw = latLngToWebMercator(minLat, minLng);
-  const ne = latLngToWebMercator(maxLat, maxLng);
   const px = clamp(Math.round(size), 256, 2048);
   const params = new URLSearchParams({
-    bbox: `${sw.x},${sw.y},${ne.x},${ne.y}`,
-    bboxSR: '3857',
-    imageSR: '3857',
-    size: `${px},${px}`,
-    format: 'jpg',
-    f: 'image',
+    minLat: String(minLat),
+    maxLat: String(maxLat),
+    minLng: String(minLng),
+    maxLng: String(maxLng),
+    size: String(px),
   });
-  return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?${params.toString()}`;
+  return `${IMAGERY_API_BASE_URL}/esri-export?${params.toString()}`;
 };
 
 const getViewAngles = (preset) => {
