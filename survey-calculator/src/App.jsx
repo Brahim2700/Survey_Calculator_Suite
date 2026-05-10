@@ -852,17 +852,21 @@ function App() {
                       onClick={() => setMapViewMode((v) => v === '3d' ? '2d' : '3d')}
                     >
                       {mapViewMode === '3d' ? (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="2D view">
-                          <rect x="3" y="5" width="18" height="14" rx="2" />
-                          <line x1="3" y1="10" x2="21" y2="10" />
-                          <line x1="9" y1="5" x2="9" y2="19" />
-                          <line x1="15" y1="5" x2="15" y2="19" />
+                        <svg width="16" height="16" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-label="2D view">
+                          <path d="M6 24a10 10 0 1 1 20 0" />
+                          <path d="M24 20l2 4-4 2" />
+                          <rect x="8" y="8" width="16" height="12" rx="1.5" />
+                          <line x1="8" y1="12" x2="24" y2="12" />
+                          <text x="16" y="18" textAnchor="middle" fontSize="6" fontWeight="700" fill="currentColor" stroke="none">2D</text>
                         </svg>
                       ) : (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="3D view">
-                          <path d="M12 2 4 6v12l8 4 8-4V6l-8-4Z" />
-                          <path d="M4 6l8 4 8-4" />
-                          <path d="M12 10v12" />
+                        <svg width="16" height="16" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-label="3D view">
+                          <path d="M6 24a10 10 0 1 1 20 0" />
+                          <path d="M24 20l2 4-4 2" />
+                          <path d="M10 8 16 6l6 3v10l-6 3-6-3Z" />
+                          <path d="M10 8l6 3 6-2" />
+                          <path d="M16 11v11" />
+                          <text x="16" y="18" textAnchor="middle" fontSize="6" fontWeight="700" fill="currentColor" stroke="none">3D</text>
                         </svg>
                       )}
                     </button>
