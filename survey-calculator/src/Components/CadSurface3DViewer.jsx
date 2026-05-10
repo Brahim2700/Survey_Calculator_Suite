@@ -252,11 +252,76 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
   ctx.fillText('3D Surface Export', contentX, cursorY);
   cursorY += 12 * pixelRatio;
 
+  const wrapTextToWidth = (text, maxWidth, font) => {
+    ctx.font = font;
+    const raw = String(text || '');
+    if (!raw) return [''];
+
+    const tokens = raw.split(/([_\-\s]+)/).filter((token) => token.length > 0);
+    const lines = [];
+    let current = '';
+
+    const pushCurrent = () => {
+      const clean = current.trim();
+      if (clean) lines.push(clean);
+      current = '';
+    };
+
+    tokens.forEach((token) => {
+      const candidate = current + token;
+      if (ctx.measureText(candidate).width <= maxWidth || current.length === 0) {
+        current = candidate;
+        return;
+      }
+
+      pushCurrent();
+
+      if (ctx.measureText(token).width <= maxWidth) {
+        current = token;
+        return;
+      }
+
+      let chunk = '';
+      for (let i = 0; i < token.length; i += 1) {
+        const nextChunk = chunk + token[i];
+        if (ctx.measureText(nextChunk).width <= maxWidth || chunk.length === 0) {
+          chunk = nextChunk;
+        } else {
+          lines.push(chunk);
+          chunk = token[i];
+        }
+      }
+      current = chunk;
+    });
+
+    pushCurrent();
+    return lines.length > 0 ? lines : [''];
+  };
+
   const drawCard = (title, rows = []) => {
-    const rowHeight = 18 * pixelRatio;
     const cardPad = 10 * pixelRatio;
     const cardHeaderH = 16 * pixelRatio;
-    const cardHeight = cardPad + cardHeaderH + (rows.length * rowHeight) + cardPad;
+    const labelFont = `600 ${labelSize}px "Segoe UI", sans-serif`;
+    const valueFont = `700 ${valueSize}px "Segoe UI", sans-serif`;
+    const valueColumnW = Math.max(110 * pixelRatio, contentW * 0.35);
+    const labelMaxW = Math.max(80 * pixelRatio, contentW - (cardPad * 2) - valueColumnW - (8 * pixelRatio));
+
+    const rowLayouts = rows.map((row) => {
+      const labelLines = row.wrapLabel
+        ? wrapTextToWidth(row.label, labelMaxW, labelFont)
+        : [String(row.label || '')];
+      const minRowHeight = 18 * pixelRatio;
+      const lineHeight = 11 * pixelRatio;
+      const computedHeight = Math.max(minRowHeight, (labelLines.length * lineHeight) + (7 * pixelRatio));
+      return {
+        ...row,
+        labelLines,
+        rowHeight: computedHeight,
+      };
+    });
+
+    const rowsTotalHeight = rowLayouts.reduce((sum, row) => sum + row.rowHeight, 0);
+    const cardHeight = cardPad + cardHeaderH + rowsTotalHeight + cardPad;
 
     ctx.fillStyle = 'rgba(15, 23, 42, 0.72)';
     ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
@@ -271,12 +336,14 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
     ctx.fillText(title, contentX + cardPad, cursorY + cardPad + cardHeaderH - 2 * pixelRatio);
 
     let rowY = cursorY + cardPad + cardHeaderH + 2 * pixelRatio;
-    rows.forEach(({ label, value, valueColor }) => {
-      ctx.font = `600 ${labelSize}px "Segoe UI", sans-serif`;
+    rowLayouts.forEach(({ labelLines, value, valueColor, rowHeight }) => {
+      ctx.font = labelFont;
       ctx.fillStyle = '#94a3b8';
-      ctx.fillText(label, contentX + cardPad, rowY + 10 * pixelRatio);
+      labelLines.forEach((line, lineIndex) => {
+        ctx.fillText(line, contentX + cardPad, rowY + 10 * pixelRatio + (lineIndex * 11 * pixelRatio));
+      });
 
-      ctx.font = `700 ${valueSize}px "Segoe UI", sans-serif`;
+      ctx.font = valueFont;
       ctx.fillStyle = valueColor || '#e2e8f0';
       const textWidth = ctx.measureText(value).width;
       ctx.fillText(value, contentX + contentW - cardPad - textWidth, rowY + 10 * pixelRatio);
@@ -351,8 +418,7 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
       .slice(0, 4)
       .map(([key, stats], index) => {
         const label = key.split('::')[0];
-        const compactLabel = label.length > 16 ? `${label.slice(0, 16)}...` : label;
-        return { label: compactLabel || `Surface ${index + 1}`, value: `${stats.area} m²` };
+        return { label: label || `Surface ${index + 1}`, value: `${stats.area} m²`, wrapLabel: true };
       });
     drawCard('Surface Areas', rows);
   }
