@@ -224,6 +224,21 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
 
+  const roundedRectPath = (x, y, width, height, radius) => {
+    const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + width - r, y);
+    ctx.arcTo(x + width, y, x + width, y + r, r);
+    ctx.lineTo(x + width, y + height - r);
+    ctx.arcTo(x + width, y + height, x + width - r, y + height, r);
+    ctx.lineTo(x + r, y + height);
+    ctx.arcTo(x, y + height, x, y + height - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+  };
+
   // Draw 3D surface area
   ctx.drawImage(sourceCanvas, 0, 0, totalWidth - panelWidth, totalHeight);
 
@@ -253,7 +268,7 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
   ctx.font = `700 ${titleSize}px "Segoe UI", sans-serif`;
   ctx.fillStyle = '#f8fafc';
   ctx.fillText('3D Surface Export', contentX, cursorY);
-  cursorY += 18 * pixelRatio;
+  cursorY += Math.round(22 * panelScale);
 
   const wrapTextToWidth = (text, maxWidth, font) => {
     ctx.font = font;
@@ -329,8 +344,7 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
     ctx.fillStyle = 'rgba(15, 23, 42, 0.72)';
     ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
     ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.roundRect(contentX, cursorY, contentW, cardHeight, Math.round(7 * panelScale));
+    roundedRectPath(contentX, cursorY, contentW, cardHeight, Math.round(7 * panelScale));
     ctx.fill();
     ctx.stroke();
 
@@ -367,8 +381,7 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
     ctx.fillStyle = 'rgba(15, 23, 42, 0.72)';
     ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
     ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.roundRect(contentX, cursorY, contentW, cardHeight, Math.round(7 * panelScale));
+    roundedRectPath(contentX, cursorY, contentW, cardHeight, Math.round(7 * panelScale));
     ctx.fill();
     ctx.stroke();
 
@@ -1189,60 +1202,22 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
         }}
       />
 
-      {/* Elevation legend - moved to bottom right to avoid overlap with elevation profile */}
-      <div style={{
-        position: 'absolute', bottom: 14, right: 14,
-        background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.72rem 0.95rem',
-        color: '#f1f5f9', fontSize: '0.9rem', border: '1px solid #334155',
-        backdropFilter: 'blur(4px)',
-        zIndex: 20,
-      }}>
-        <div style={{ fontWeight: 700, marginBottom: '0.46rem', fontSize: '0.98rem' }}>Elevation (m)</div>
-        {/* Gradient bar with color indicators */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', marginBottom: '0.4rem' }}>
-          {/* Gradient bar */}
-          <div style={{
-            width: 18, height: 108, borderRadius: 4,
-            background: 'linear-gradient(to bottom, #ef4444, #eab308, #22c55e, #06b6d4, #3b82f6)',
-            flexShrink: 0,
-          }} />
-          {/* Value labels with color swatches */}
-          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 108 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-              <div style={{
-                width: 10, height: 10, borderRadius: 2, background: '#ef4444',
-              }} />
-              <span style={{ fontWeight: 700, whiteSpace: 'nowrap', fontSize: '0.98rem' }}>{maxZ.toFixed(1)}</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-              <div style={{
-                width: 10, height: 10, borderRadius: 2, background: '#3b82f6',
-              }} />
-              <span style={{ fontWeight: 700, whiteSpace: 'nowrap', fontSize: '0.98rem' }}>{minZ.toFixed(1)}</span>
-            </div>
-          </div>
-        </div>
-        <div style={{ marginTop: '0.55rem', color: '#64748b', fontSize: '0.82rem', borderTop: '1px solid #1e293b', paddingTop: '0.45rem' }}>
-          {transformedTriangles.length.toLocaleString()} triangles
-        </div>
-        <div style={{ color: '#64748b', fontSize: '0.82rem' }}>
-          Vertical scale x{zExaggeration.toFixed(1)}
-          {zScalePreset !== 'auto' ? ` (Auto x${autoExaggeration.toFixed(1)})` : ''}
-        </div>
-        <div style={{ color: '#475569', fontSize: '0.78rem', marginTop: '0.25rem', lineHeight: 1.45 }}>
-          Drag: orbit<br />
-          Right-drag: pan<br />
-          Scroll: zoom
-        </div>
-      </div>
-
-      {/* 3D controls */}
+      {/* Right dock: controls + elevation legend (stacked to avoid overlap) */}
       <div style={{
         position: 'absolute', top: 12, right: 12,
-        background: 'rgba(15,23,42,0.82)', borderRadius: 8, padding: '0.45rem',
-        color: '#e2e8f0', fontSize: '0.74rem', border: '1px solid #1e293b',
-        display: 'grid', gap: '0.35rem', minWidth: 210,
+        width: 222,
+        display: 'grid',
+        gap: '0.5rem',
+        maxHeight: 'calc(100% - 24px)',
+        overflowY: 'auto',
+        zIndex: 20,
       }}>
+        {/* 3D controls */}
+        <div style={{
+          background: 'rgba(15,23,42,0.82)', borderRadius: 8, padding: '0.45rem',
+          color: '#e2e8f0', fontSize: '0.74rem', border: '1px solid #1e293b',
+          display: 'grid', gap: '0.35rem',
+        }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.4rem' }}>
           <div style={{ fontWeight: 700, color: '#cbd5e1' }}>3D Controls</div>
           <button
@@ -1404,6 +1379,45 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
           >
             Fit Visible
           </button>
+        </div>
+        </div>
+
+        {/* Elevation legend */}
+        <div style={{
+          background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.72rem 0.95rem',
+          color: '#f1f5f9', fontSize: '0.9rem', border: '1px solid #334155',
+          backdropFilter: 'blur(4px)',
+        }}>
+          <div style={{ fontWeight: 700, marginBottom: '0.46rem', fontSize: '0.98rem' }}>Elevation (m)</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', marginBottom: '0.4rem' }}>
+            <div style={{
+              width: 18, height: 108, borderRadius: 4,
+              background: 'linear-gradient(to bottom, #ef4444, #eab308, #22c55e, #06b6d4, #3b82f6)',
+              flexShrink: 0,
+            }} />
+            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 108 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <div style={{ width: 10, height: 10, borderRadius: 2, background: '#ef4444' }} />
+                <span style={{ fontWeight: 700, whiteSpace: 'nowrap', fontSize: '0.98rem' }}>{maxZ.toFixed(1)}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <div style={{ width: 10, height: 10, borderRadius: 2, background: '#3b82f6' }} />
+                <span style={{ fontWeight: 700, whiteSpace: 'nowrap', fontSize: '0.98rem' }}>{minZ.toFixed(1)}</span>
+              </div>
+            </div>
+          </div>
+          <div style={{ marginTop: '0.55rem', color: '#64748b', fontSize: '0.82rem', borderTop: '1px solid #1e293b', paddingTop: '0.45rem' }}>
+            {transformedTriangles.length.toLocaleString()} triangles
+          </div>
+          <div style={{ color: '#64748b', fontSize: '0.82rem' }}>
+            Vertical scale x{zExaggeration.toFixed(1)}
+            {zScalePreset !== 'auto' ? ` (Auto x${autoExaggeration.toFixed(1)})` : ''}
+          </div>
+          <div style={{ color: '#475569', fontSize: '0.78rem', marginTop: '0.25rem', lineHeight: 1.45 }}>
+            Drag: orbit<br />
+            Right-drag: pan<br />
+            Scroll: zoom
+          </div>
         </div>
       </div>
 
