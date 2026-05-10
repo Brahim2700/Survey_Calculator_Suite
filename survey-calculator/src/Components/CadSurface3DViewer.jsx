@@ -4,6 +4,34 @@ import * as THREE from 'three';
 const EARTH_RADIUS_M = 6378137;
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const WEB_MERCATOR_MAX_LAT = 85.05112878;
+
+const latLngToWebMercator = (lat, lng) => {
+  const safeLat = clamp(Number(lat) || 0, -WEB_MERCATOR_MAX_LAT, WEB_MERCATOR_MAX_LAT);
+  const safeLng = clamp(Number(lng) || 0, -180, 180);
+  const x = (safeLng * 20037508.34) / 180;
+  const y = Math.log(Math.tan(((90 + safeLat) * Math.PI) / 360)) / (Math.PI / 180);
+  return {
+    x,
+    y: (y * 20037508.34) / 180,
+  };
+};
+
+const buildEsriWorldImageryExportUrl = ({ minLat, maxLat, minLng, maxLng }, size = 1024) => {
+  if (![minLat, maxLat, minLng, maxLng].every(Number.isFinite)) return null;
+  const sw = latLngToWebMercator(minLat, minLng);
+  const ne = latLngToWebMercator(maxLat, maxLng);
+  const px = clamp(Math.round(size), 256, 2048);
+  const params = new URLSearchParams({
+    bbox: `${sw.x},${sw.y},${ne.x},${ne.y}`,
+    bboxSR: '3857',
+    imageSR: '3857',
+    size: `${px},${px}`,
+    format: 'jpg',
+    f: 'image',
+  });
+  return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?${params.toString()}`;
+};
 
 const getViewAngles = (preset) => {
   if (preset === 'top') return { theta: 0, phi: 0.12 };
@@ -180,10 +208,14 @@ const calculateBoundingBox = (triangles) => {
 // Helper: Export screenshot
 const exportScreenshot = (canvas) => {
   if (canvas) {
-    const link = document.createElement('a');
-    link.href = canvas.toDataURL('image/png');
-    link.download = `3d-surface-${Date.now()}.png`;
-    link.click();
+    try {
+      const link = document.createElement('a');
+      link.href = canvas.toDataURL('image/png');
+      link.download = `3d-surface-${Date.now()}.png`;
+      link.click();
+    } catch (error) {
+      console.warn('Screenshot export blocked (likely cross-origin imagery texture restriction).', error);
+    }
   }
 };
 
@@ -295,6 +327,8 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
   const [showLightingPanel, setShowLightingPanel] = useState(false);
   const [showSurfacePanel, setShowSurfacePanel] = useState(false);
   const [showExportPanel, setShowExportPanel] = useState(false);
+  const [showImagery, setShowImagery] = useState(false);
+  const [imageryProvider, setImageryProvider] = useState('esri');
   const [lightAzimuth, setLightAzimuth] = useState(45);
   const [lightElevation, setLightElevation] = useState(45);
   const [lightIntensity, setLightIntensity] = useState(0.8);
@@ -364,7 +398,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     return { minZ: min, maxZ: max };
   }, [allTriangles]);
 
-  const { transformedSurfaces, transformedTriangles, zExaggeration, autoExaggeration, fitLayerOptions } = useMemo(() => {
+  const { transformedSurfaces, transformedTriangles, zExaggeration, autoExaggeration, fitLayerOptions, projectionMeta } = useMemo(() => {
     if (allTriangles.length === 0) {
       return {
         transformedSurfaces: [],
@@ -372,6 +406,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
         zExaggeration: 1,
         autoExaggeration: 1,
         fitLayerOptions: [],
+        projectionMeta: null,
       };
     }
 
@@ -428,6 +463,16 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
       transformedTriangles: nextSurfaces.flatMap((surface) => surface.triangles),
       zExaggeration: selectedExaggeration,
       autoExaggeration: computedAutoExaggeration,
+      projectionMeta: {
+        centerLat,
+        centerLng,
+        minLat,
+        maxLat,
+        minLng,
+        maxLng,
+        lonSpanM,
+        latSpanM,
+      },
       fitLayerOptions: nextSurfaces.map((surface) => ({
         layerKey: surface.layerKey,
         layerLabel: surface.layerLabel,
@@ -435,6 +480,28 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
       })),
     };
   }, [allTriangles, minZ, maxZ, zScalePreset, normalizedSurfaces]);
+
+  const imageryConfig = useMemo(() => {
+    if (!showImagery || imageryProvider !== 'esri' || !projectionMeta) return null;
+    const imageryUrl = buildEsriWorldImageryExportUrl(
+      {
+        minLat: projectionMeta.minLat,
+        maxLat: projectionMeta.maxLat,
+        minLng: projectionMeta.minLng,
+        maxLng: projectionMeta.maxLng,
+      },
+      1024
+    );
+    if (!imageryUrl) return null;
+    return {
+      key: 'esri',
+      label: 'Esri World Imagery',
+      attribution: 'Imagery © Esri',
+      url: imageryUrl,
+      widthMeters: Math.max(1, projectionMeta.lonSpanM),
+      heightMeters: Math.max(1, projectionMeta.latSpanM),
+    };
+  }, [showImagery, imageryProvider, projectionMeta]);
 
   // Calculate surface statistics using projected coordinates in meters.
   const statistics = useMemo(() => {
@@ -471,6 +538,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
   useEffect(() => {
     const el = containerRef.current;
     if (!el || transformedTriangles.length === 0) return;
+    let isDisposed = false;
 
     const W = el.clientWidth || 800;
     const H = isFullscreen ? (el.clientHeight || window.innerHeight || 520) : 520;
@@ -571,6 +639,45 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     const size = new THREE.Vector3();
     focusBox.getSize(size);
     const maxDim = Math.max(size.x, size.y, size.z) || 1;
+
+    let imageryGeometry = null;
+    let imageryMaterial = null;
+    let imageryTexture = null;
+    let imageryMesh = null;
+
+    if (imageryConfig) {
+      imageryGeometry = new THREE.PlaneGeometry(imageryConfig.widthMeters, imageryConfig.heightMeters, 1, 1);
+      const imageryLoader = new THREE.TextureLoader();
+      imageryLoader.setCrossOrigin('anonymous');
+      imageryLoader.load(
+        imageryConfig.url,
+        (texture) => {
+          if (isDisposed) {
+            texture.dispose();
+            return;
+          }
+          imageryTexture = texture;
+          imageryTexture.colorSpace = THREE.SRGBColorSpace;
+          const anisotropy = renderer?.capabilities?.getMaxAnisotropy?.() || 1;
+          imageryTexture.anisotropy = Math.max(1, Math.min(8, anisotropy));
+          imageryMaterial = new THREE.MeshBasicMaterial({
+            map: imageryTexture,
+            transparent: true,
+            opacity: 0.92,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          });
+          imageryMesh = new THREE.Mesh(imageryGeometry, imageryMaterial);
+          imageryMesh.position.set(0, 0, focusBox.min.z - Math.max(0.06, maxDim * 0.002));
+          scene.add(imageryMesh);
+          renderer.render(scene, camera);
+        },
+        undefined,
+        (error) => {
+          console.warn('3D imagery underlay failed to load.', error);
+        }
+      );
+    }
 
     const overlayObjects = [];
     if (measurementPoints.length > 0) {
@@ -737,10 +844,15 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
         object?.geometry?.dispose?.();
         object?.material?.dispose?.();
       });
+      isDisposed = true;
+      imageryMesh?.removeFromParent?.();
+      imageryGeometry?.dispose?.();
+      imageryMaterial?.dispose?.();
+      imageryTexture?.dispose?.();
       renderer.dispose();
       if (el.contains(dom)) el.removeChild(dom);
     };
-  }, [transformedTriangles, transformedSurfaces, fitLayerKey, minZ, maxZ, viewPreset, renderStyle, cameraResetToken, isFullscreen, meshOpacity, showContours, contourInterval, lightAzimuth, lightElevation, lightIntensity, measurementMode, measurementPoints, visibleSurfaces]);
+  }, [transformedTriangles, transformedSurfaces, fitLayerKey, minZ, maxZ, viewPreset, renderStyle, cameraResetToken, isFullscreen, meshOpacity, showContours, contourInterval, lightAzimuth, lightElevation, lightIntensity, measurementMode, measurementPoints, visibleSurfaces, imageryConfig]);
 
   if (transformedTriangles.length === 0) {
     return (
@@ -897,6 +1009,38 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
           ))}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
+          <span style={{ color: '#94a3b8' }}>Imagery</span>
+          <button
+            type="button"
+            onClick={() => setShowImagery((value) => !value)}
+            style={{
+              padding: '0.16rem 0.45rem', borderRadius: 999, fontSize: '0.68rem', fontWeight: 700,
+              border: showImagery ? '1px solid #22c55e' : '1px solid #334155',
+              background: showImagery ? '#14532d' : '#0f172a',
+              color: showImagery ? '#dcfce7' : '#94a3b8',
+              cursor: 'pointer',
+            }}
+          >
+            {showImagery ? 'On' : 'Off'}
+          </button>
+          <select
+            value={imageryProvider}
+            onChange={(e) => setImageryProvider(e.target.value)}
+            disabled={!showImagery}
+            style={{
+              minWidth: 108,
+              background: showImagery ? '#0f172a' : '#111827',
+              color: showImagery ? '#cbd5e1' : '#64748b',
+              border: '1px solid #334155',
+              borderRadius: 6,
+              padding: '0.16rem 0.3rem',
+              fontSize: '0.68rem',
+            }}
+          >
+            <option value="esri">Esri imagery</option>
+          </select>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
           <span style={{ color: '#94a3b8' }}>View</span>
           {[{ key: 'iso', label: 'Iso' }, { key: 'top', label: 'Top' }, { key: 'side', label: 'Side' }].map((view) => (
             <button
@@ -991,6 +1135,16 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
           </button>
         </div>
       </div>
+
+      {imageryConfig && (
+        <div style={{
+          position: 'absolute', bottom: 12, left: 12,
+          background: 'rgba(15,23,42,0.82)', borderRadius: 6, padding: '0.28rem 0.55rem',
+          color: '#94a3b8', fontSize: '0.7rem', border: '1px solid #1e293b',
+        }}>
+          {imageryConfig.attribution}
+        </div>
+      )}
 
       {/* Feature Panels - Left side */}
       <div style={{ position: 'absolute', top: '50%', left: 14, transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: '0.45rem', maxHeight: 'calc(100% - 120px)', overflowY: 'auto', paddingRight: 4, width: 140 }}>
