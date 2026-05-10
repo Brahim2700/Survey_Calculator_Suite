@@ -308,6 +308,76 @@ const generalRateLimit = rateLimit({
   legacyHeaders: false,
 });
 
+const OTD_ALLOWED_DATASETS = new Set(['srtm30m', 'aster30m', 'eudem25m']);
+const OTD_MAX_LOCATIONS = 100;
+
+app.post('/api/elevation/opentopodata', generalRateLimit, express.json({ limit: '256kb' }), async (req, res) => {
+  try {
+    const dataset = String(req.body?.dataset || '').trim().toLowerCase();
+    const interpolation = String(req.body?.interpolation || 'bilinear').trim().toLowerCase();
+    const rawLocations = Array.isArray(req.body?.locations) ? req.body.locations : [];
+
+    if (!OTD_ALLOWED_DATASETS.has(dataset)) {
+      res.status(400).json({ status: 'ERROR', error: 'Unsupported OpenTopoData dataset.' });
+      return;
+    }
+
+    if (rawLocations.length < 2 || rawLocations.length > OTD_MAX_LOCATIONS) {
+      res.status(400).json({ status: 'ERROR', error: `OpenTopoData requires 2-${OTD_MAX_LOCATIONS} locations.` });
+      return;
+    }
+
+    const locations = rawLocations
+      .map((loc) => ({ lat: Number(loc?.lat), lng: Number(loc?.lng) }))
+      .filter((loc) => (
+        Number.isFinite(loc.lat)
+        && Number.isFinite(loc.lng)
+        && Math.abs(loc.lat) <= 90
+        && Math.abs(loc.lng) <= 180
+      ));
+
+    if (locations.length !== rawLocations.length) {
+      res.status(400).json({ status: 'ERROR', error: 'Invalid OpenTopoData location coordinates.' });
+      return;
+    }
+
+    const locationsParam = locations
+      .map((loc) => `${loc.lat.toFixed(7)},${loc.lng.toFixed(7)}`)
+      .join('|');
+
+    const params = new URLSearchParams({
+      locations: locationsParam,
+      interpolation: interpolation === 'nearest' ? 'nearest' : 'bilinear',
+    });
+
+    const upstream = await fetch(`https://api.opentopodata.org/v1/${dataset}?${params.toString()}`, {
+      headers: { accept: 'application/json' },
+    });
+
+    let payload = null;
+    try {
+      payload = await upstream.json();
+    } catch {
+      payload = null;
+    }
+
+    if (!upstream.ok || payload?.status !== 'OK') {
+      res.status(upstream.status || 502).json({
+        status: payload?.status || 'ERROR',
+        error: payload?.error || `OpenTopoData request failed (${upstream.status}).`,
+      });
+      return;
+    }
+
+    res.json(payload);
+  } catch (err) {
+    res.status(502).json({
+      status: 'ERROR',
+      error: err?.message || 'OpenTopoData upstream request failed.',
+    });
+  }
+});
+
 app.get('/api/cad/health', generalRateLimit, (_req, res) => {
   res.json(getCadBackendStatus());
 });

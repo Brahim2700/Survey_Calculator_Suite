@@ -79,6 +79,10 @@ export default defineConfig(({ mode }) => {
         '/api/cad': {
           target: cadProxyTarget,
           changeOrigin: true,
+        },
+        '/api/elevation': {
+          target: cadProxyTarget,
+          changeOrigin: true,
         }
       }
     },
