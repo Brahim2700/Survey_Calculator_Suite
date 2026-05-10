@@ -209,7 +209,7 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
   const sourceWidth = sourceCanvas.width;
   const sourceHeight = sourceCanvas.height;
   const pixelRatio = 2;
-  const panelCssWidth = 360;
+  const panelCssWidth = Math.max(420, Math.min(560, Math.round(sourceWidth * 0.42)));
   const panelWidth = panelCssWidth * pixelRatio;
   const totalWidth = (sourceWidth + panelCssWidth) * pixelRatio;
   const totalHeight = sourceHeight * pixelRatio;
@@ -227,7 +227,7 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
 
   const panelX = totalWidth - panelWidth;
   const panelY = 0;
-  const panelPadding = 16 * pixelRatio;
+  const panelPadding = 20 * pixelRatio;
   const contentX = panelX + panelPadding;
   const contentW = panelWidth - panelPadding * 2;
 
@@ -238,11 +238,11 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
   ctx.lineWidth = 2;
   ctx.strokeRect(panelX, panelY, panelWidth, totalHeight);
 
-  const titleSize = 16 * pixelRatio;
-  const h2Size = 12 * pixelRatio;
-  const labelSize = 9 * pixelRatio;
-  const valueSize = 11 * pixelRatio;
-  const sectionGap = 12 * pixelRatio;
+  const titleSize = 20 * pixelRatio;
+  const h2Size = 15 * pixelRatio;
+  const labelSize = 11 * pixelRatio;
+  const valueSize = 14 * pixelRatio;
+  const sectionGap = 16 * pixelRatio;
 
   let cursorY = panelPadding + titleSize;
 
@@ -250,7 +250,7 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
   ctx.font = `700 ${titleSize}px "Segoe UI", sans-serif`;
   ctx.fillStyle = '#f8fafc';
   ctx.fillText('3D Surface Export', contentX, cursorY);
-  cursorY += 12 * pixelRatio;
+  cursorY += 18 * pixelRatio;
 
   const wrapTextToWidth = (text, maxWidth, font) => {
     ctx.font = font;
@@ -299,20 +299,20 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
   };
 
   const drawCard = (title, rows = []) => {
-    const cardPad = 10 * pixelRatio;
-    const cardHeaderH = 16 * pixelRatio;
+    const cardPad = 12 * pixelRatio;
+    const cardHeaderH = 20 * pixelRatio;
     const labelFont = `600 ${labelSize}px "Segoe UI", sans-serif`;
     const valueFont = `700 ${valueSize}px "Segoe UI", sans-serif`;
-    const valueColumnW = Math.max(110 * pixelRatio, contentW * 0.35);
+    const valueColumnW = Math.max(140 * pixelRatio, contentW * 0.42);
     const labelMaxW = Math.max(80 * pixelRatio, contentW - (cardPad * 2) - valueColumnW - (8 * pixelRatio));
 
     const rowLayouts = rows.map((row) => {
       const labelLines = row.wrapLabel
         ? wrapTextToWidth(row.label, labelMaxW, labelFont)
         : [String(row.label || '')];
-      const minRowHeight = 18 * pixelRatio;
-      const lineHeight = 11 * pixelRatio;
-      const computedHeight = Math.max(minRowHeight, (labelLines.length * lineHeight) + (7 * pixelRatio));
+      const minRowHeight = 24 * pixelRatio;
+      const lineHeight = 14 * pixelRatio;
+      const computedHeight = Math.max(minRowHeight, (labelLines.length * lineHeight) + (9 * pixelRatio));
       return {
         ...row,
         labelLines,
@@ -333,20 +333,20 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
 
     ctx.font = `700 ${h2Size}px "Segoe UI", sans-serif`;
     ctx.fillStyle = '#a5f3fc';
-    ctx.fillText(title, contentX + cardPad, cursorY + cardPad + cardHeaderH - 2 * pixelRatio);
+    ctx.fillText(title, contentX + cardPad, cursorY + cardPad + cardHeaderH - 3 * pixelRatio);
 
-    let rowY = cursorY + cardPad + cardHeaderH + 2 * pixelRatio;
+    let rowY = cursorY + cardPad + cardHeaderH + 4 * pixelRatio;
     rowLayouts.forEach(({ labelLines, value, valueColor, rowHeight }) => {
       ctx.font = labelFont;
       ctx.fillStyle = '#94a3b8';
       labelLines.forEach((line, lineIndex) => {
-        ctx.fillText(line, contentX + cardPad, rowY + 10 * pixelRatio + (lineIndex * 11 * pixelRatio));
+        ctx.fillText(line, contentX + cardPad, rowY + 12 * pixelRatio + (lineIndex * 14 * pixelRatio));
       });
 
       ctx.font = valueFont;
       ctx.fillStyle = valueColor || '#e2e8f0';
       const textWidth = ctx.measureText(value).width;
-      ctx.fillText(value, contentX + contentW - cardPad - textWidth, rowY + 10 * pixelRatio);
+      ctx.fillText(value, contentX + contentW - cardPad - textWidth, rowY + 13 * pixelRatio);
 
       rowY += rowHeight;
     });
@@ -356,10 +356,10 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
 
   // Elevation scale card
   if (Number.isFinite(minZ) && Number.isFinite(maxZ)) {
-    const cardPad = 10 * pixelRatio;
-    const scaleH = 120 * pixelRatio;
-    const cardHeight = 160 * pixelRatio;
-    const barW = 22 * pixelRatio;
+    const cardPad = 12 * pixelRatio;
+    const scaleH = 150 * pixelRatio;
+    const cardHeight = 205 * pixelRatio;
+    const barW = 28 * pixelRatio;
 
     ctx.fillStyle = 'rgba(15, 23, 42, 0.72)';
     ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
@@ -371,10 +371,10 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
 
     ctx.font = `700 ${h2Size}px "Segoe UI", sans-serif`;
     ctx.fillStyle = '#a5f3fc';
-    ctx.fillText('Elevation (m)', contentX + cardPad, cursorY + cardPad + 10 * pixelRatio);
+    ctx.fillText('Elevation (m)', contentX + cardPad, cursorY + cardPad + 12 * pixelRatio);
 
     const barX = contentX + cardPad;
-    const barY = cursorY + cardPad + 20 * pixelRatio;
+    const barY = cursorY + cardPad + 26 * pixelRatio;
     for (let i = 0; i < scaleH; i += 1) {
       const ratio = i / scaleH;
       const elev = maxZ - ratio * (maxZ - minZ);
@@ -389,9 +389,9 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
     const scaleLabelX = barX + barW + 12 * pixelRatio;
     ctx.font = `700 ${valueSize}px "Segoe UI", sans-serif`;
     ctx.fillStyle = '#e2e8f0';
-    ctx.fillText(maxZ.toFixed(1), scaleLabelX, barY + 10 * pixelRatio);
-    ctx.fillText(((minZ + maxZ) / 2).toFixed(1), scaleLabelX, barY + (scaleH / 2) + 4 * pixelRatio);
-    ctx.fillText(minZ.toFixed(1), scaleLabelX, barY + scaleH);
+    ctx.fillText(maxZ.toFixed(1), scaleLabelX, barY + 12 * pixelRatio);
+    ctx.fillText(((minZ + maxZ) / 2).toFixed(1), scaleLabelX, barY + (scaleH / 2) + 5 * pixelRatio);
+    ctx.fillText(minZ.toFixed(1), scaleLabelX, barY + scaleH + 1 * pixelRatio);
 
     cursorY += cardHeight + sectionGap;
   }
@@ -428,10 +428,10 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
   }
 
   // Footer timestamp
-  ctx.font = `600 ${labelSize}px "Segoe UI", sans-serif`;
+  ctx.font = `600 ${Math.max(labelSize, 12 * pixelRatio)}px "Segoe UI", sans-serif`;
   ctx.fillStyle = '#94a3b8';
   const timestamp = new Date().toLocaleString();
-  ctx.fillText(timestamp, contentX, totalHeight - 14 * pixelRatio);
+  ctx.fillText(timestamp, contentX, totalHeight - 16 * pixelRatio);
 
   return exportCanvas;
 };
@@ -1183,43 +1183,43 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
       {/* Elevation legend */}
       <div style={{
         position: 'absolute', bottom: 14, right: 14,
-        background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.6rem 0.85rem',
-        color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
+        background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.72rem 0.95rem',
+        color: '#f1f5f9', fontSize: '0.9rem', border: '1px solid #334155',
         backdropFilter: 'blur(4px)',
       }}>
-        <div style={{ fontWeight: 700, marginBottom: '0.4rem', fontSize: '0.78rem' }}>Elevation (m)</div>
+        <div style={{ fontWeight: 700, marginBottom: '0.46rem', fontSize: '0.98rem' }}>Elevation (m)</div>
         {/* Gradient bar with color indicators */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.3rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', marginBottom: '0.4rem' }}>
           {/* Gradient bar */}
           <div style={{
-            width: 14, height: 80, borderRadius: 4,
+            width: 18, height: 108, borderRadius: 4,
             background: 'linear-gradient(to bottom, #ef4444, #eab308, #22c55e, #06b6d4, #3b82f6)',
             flexShrink: 0,
           }} />
           {/* Value labels with color swatches */}
-          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 80 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 108 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
               <div style={{
-                width: 8, height: 8, borderRadius: 2, background: '#ef4444',
+                width: 10, height: 10, borderRadius: 2, background: '#ef4444',
               }} />
-              <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{maxZ.toFixed(1)}</span>
+              <span style={{ fontWeight: 700, whiteSpace: 'nowrap', fontSize: '0.98rem' }}>{maxZ.toFixed(1)}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
               <div style={{
-                width: 8, height: 8, borderRadius: 2, background: '#3b82f6',
+                width: 10, height: 10, borderRadius: 2, background: '#3b82f6',
               }} />
-              <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{minZ.toFixed(1)}</span>
+              <span style={{ fontWeight: 700, whiteSpace: 'nowrap', fontSize: '0.98rem' }}>{minZ.toFixed(1)}</span>
             </div>
           </div>
         </div>
-        <div style={{ marginTop: '0.5rem', color: '#64748b', fontSize: '0.71rem', borderTop: '1px solid #1e293b', paddingTop: '0.4rem' }}>
+        <div style={{ marginTop: '0.55rem', color: '#64748b', fontSize: '0.82rem', borderTop: '1px solid #1e293b', paddingTop: '0.45rem' }}>
           {transformedTriangles.length.toLocaleString()} triangles
         </div>
-        <div style={{ color: '#64748b', fontSize: '0.71rem' }}>
+        <div style={{ color: '#64748b', fontSize: '0.82rem' }}>
           Vertical scale x{zExaggeration.toFixed(1)}
           {zScalePreset !== 'auto' ? ` (Auto x${autoExaggeration.toFixed(1)})` : ''}
         </div>
-        <div style={{ color: '#475569', fontSize: '0.68rem', marginTop: '0.2rem', lineHeight: 1.4 }}>
+        <div style={{ color: '#475569', fontSize: '0.78rem', marginTop: '0.25rem', lineHeight: 1.45 }}>
           Drag: orbit<br />
           Right-drag: pan<br />
           Scroll: zoom
@@ -1584,15 +1584,15 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
             {showStats ? 'Statistics ▼' : 'Statistics ▶'}
           </button>
           {showStats && (
-            <div style={{ fontSize: '0.71rem', color: '#cbd5e1', maxHeight: 200, overflowY: 'auto' }}>
+            <div style={{ fontSize: '0.82rem', color: '#cbd5e1', maxHeight: 220, overflowY: 'auto' }}>
               {Object.entries(statistics).map(([key, stats]) => (
                 <div key={key} style={{ marginTop: '0.3rem', paddingTop: '0.3rem', borderTop: '1px solid #334155' }}>
-                  <div style={{ fontWeight: 600, color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <div style={{ fontWeight: 700, color: '#e2e8f0', whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: 1.35 }}>
                     {key.split('::')[0]}
                   </div>
-                  <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Area: {stats.area} m²</div>
-                  <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Triangles: {stats.triangles}</div>
-                  <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Centroid: ({stats.centroid.x}, {stats.centroid.y}, {stats.centroid.z})</div>
+                  <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>Area: {stats.area} m²</div>
+                  <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>Triangles: {stats.triangles}</div>
+                  <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>Centroid: ({stats.centroid.x}, {stats.centroid.y}, {stats.centroid.z})</div>
                 </div>
               ))}
             </div>
