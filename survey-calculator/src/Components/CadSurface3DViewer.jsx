@@ -419,7 +419,7 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
       .map(([key, stats], index) => {
         const label = key.split('::')[0];
         return {
-          label: `${label || 'Surface'} (item ${index + 1}, ${stats.triangles} tris)`,
+          label: `${label || 'Surface'} (item ${index + 1}, ${stats.triangles} triangles)`,
           value: `${stats.area} m²`,
           wrapLabel: true,
         };
