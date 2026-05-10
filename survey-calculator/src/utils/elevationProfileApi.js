@@ -2,7 +2,24 @@ import { calculateGeodesicDistance } from './calculations';
 
 const IGN_ALTI_API_BASE_URL = import.meta.env.VITE_IGN_ALTI_API_BASE_URL || 'https://data.geopf.fr/altimetrie/1.0/calcul/alti/rest';
 const IGN_ALTI_RESOURCE = import.meta.env.VITE_IGN_ALTI_RESOURCE || 'ign_rge_alti_wld';
-const ELEVATION_API_BASE_URL = import.meta.env.VITE_ELEVATION_API_BASE_URL || '/api/elevation';
+const CAD_API_BASE_URL = import.meta.env.VITE_CAD_API_BASE_URL || '/api/cad';
+
+const deriveElevationApiBaseUrl = (cadApiBaseUrl) => {
+  const base = String(cadApiBaseUrl || '').trim();
+  if (!base) return '/api/elevation';
+
+  if (base.endsWith('/api/cad')) {
+    return `${base.slice(0, -'/api/cad'.length)}/api/elevation`;
+  }
+
+  if (base.endsWith('/api/cad/')) {
+    return `${base.slice(0, -'/api/cad/'.length)}/api/elevation`;
+  }
+
+  return '/api/elevation';
+};
+
+const ELEVATION_API_BASE_URL = import.meta.env.VITE_ELEVATION_API_BASE_URL || deriveElevationApiBaseUrl(CAD_API_BASE_URL);
 const IGN_NO_DATA_VALUE = -99999;
 
 // Providers exposed for the switcher UI
@@ -279,15 +296,25 @@ export async function fetchOpenTopoDataProfile(measurePoints, providerId, option
   if (!payload) {
     const locationsParam = sampleLocations.map((l) => `${l.lat},${l.lng}`).join('|');
     const directUrl = `https://api.opentopodata.org/v1/${dataset}?locations=${encodeURIComponent(locationsParam)}&interpolation=bilinear`;
-    const response = await fetch(directUrl, { signal: options.signal });
+    let directError = null;
 
-    try { payload = await response.json(); } catch { payload = null; }
+    try {
+      const response = await fetch(directUrl, { signal: options.signal });
+      try { payload = await response.json(); } catch { payload = null; }
 
-    if (!response.ok || payload?.status !== 'OK') {
+      if (!response.ok || payload?.status !== 'OK') {
+        throw new Error(payload?.error || `OpenTopoData request failed (${response.status}).`);
+      }
+    } catch (error) {
+      if (options.signal?.aborted) throw error;
+      directError = error;
+    }
+
+    if (!payload) {
       throw new Error(
-        payload?.error
-          || proxyError?.message
-          || `OpenTopoData request failed (${response.status}).`
+        proxyError?.message
+          || directError?.message
+          || 'Unable to fetch OpenTopoData elevation profile. Check backend elevation API routing/CORS configuration.'
       );
     }
   }
