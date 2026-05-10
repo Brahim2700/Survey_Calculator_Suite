@@ -1509,6 +1509,9 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
           </button>
           {showExportPanel && (
             <div style={{ display: 'grid', gap: '0.3rem', marginTop: '0.35rem' }}>
+              <div style={{ fontSize: '0.65rem', color: '#94a3b8', padding: '0.3rem', background: 'rgba(15,23,42,0.5)', borderRadius: 3 }}>
+                📌 Scroll: zoom | Drag: orbit | Right-click: pan
+              </div>
               <button
                 type="button"
                 onClick={() => setCameraResetToken(v => v + 1)}
