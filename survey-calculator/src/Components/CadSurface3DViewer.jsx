@@ -28,17 +28,32 @@ const latLngToWebMercator = (lat, lng) => {
   };
 };
 
-const buildEsriWorldImageryExportUrl = ({ minLat, maxLat, minLng, maxLng }, size = 1024) => {
-  if (![minLat, maxLat, minLng, maxLng].every(Number.isFinite)) return null;
+const buildEsriWorldImageryExportUrls = ({ minLat, maxLat, minLng, maxLng }, size = 1024) => {
+  if (![minLat, maxLat, minLng, maxLng].every(Number.isFinite)) return [];
   const px = clamp(Math.round(size), 256, 2048);
-  const params = new URLSearchParams({
+
+  const proxyParams = new URLSearchParams({
     minLat: String(minLat),
     maxLat: String(maxLat),
     minLng: String(minLng),
     maxLng: String(maxLng),
     size: String(px),
   });
-  return `${IMAGERY_API_BASE_URL}/esri-export?${params.toString()}`;
+  const proxyUrl = `${IMAGERY_API_BASE_URL}/esri-export?${proxyParams.toString()}`;
+
+  const sw = latLngToWebMercator(minLat, minLng);
+  const ne = latLngToWebMercator(maxLat, maxLng);
+  const directParams = new URLSearchParams({
+    bbox: `${sw.x},${sw.y},${ne.x},${ne.y}`,
+    bboxSR: '3857',
+    imageSR: '3857',
+    size: `${px},${px}`,
+    format: 'jpg',
+    f: 'image',
+  });
+  const directUrl = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?${directParams.toString()}`;
+
+  return [proxyUrl, directUrl];
 };
 
 const getViewAngles = (preset) => {
@@ -337,6 +352,8 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
   const [showExportPanel, setShowExportPanel] = useState(false);
   const [showImagery, setShowImagery] = useState(true);
   const [imageryProvider, setImageryProvider] = useState('esri');
+  const [imageryLoadState, setImageryLoadState] = useState('idle');
+  const [imageryLoadMessage, setImageryLoadMessage] = useState('');
   const [lightAzimuth, setLightAzimuth] = useState(45);
   const [lightElevation, setLightElevation] = useState(45);
   const [lightIntensity, setLightIntensity] = useState(0.8);
@@ -497,7 +514,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
 
   const imageryConfig = useMemo(() => {
     if (!showImagery || imageryProvider !== 'esri' || !projectionMeta) return null;
-    const imageryUrl = buildEsriWorldImageryExportUrl(
+    const imageryUrls = buildEsriWorldImageryExportUrls(
       {
         minLat: projectionMeta.minLat,
         maxLat: projectionMeta.maxLat,
@@ -505,13 +522,13 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
         maxLng: projectionMeta.maxLng,
       },
       1024
-    );
-    if (!imageryUrl) return null;
+    ).filter(Boolean);
+    if (imageryUrls.length === 0) return null;
     return {
       key: 'esri',
       label: 'Esri World Imagery',
       attribution: 'Imagery © Esri',
-      url: imageryUrl,
+      urls: imageryUrls,
       widthMeters: Math.max(1, projectionMeta.lonSpanM) * 1.35,
       heightMeters: Math.max(1, projectionMeta.latSpanM) * 1.35,
     };
@@ -686,37 +703,62 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
     let needsRender = true;
     let imageryTexture = null;
     if (drapeImageryEnabled) {
+      if (!isDisposed) {
+        setImageryLoadState('loading');
+        setImageryLoadMessage('Loading imagery…');
+      }
+
       const imageryLoader = new THREE.TextureLoader();
       imageryLoader.setCrossOrigin('anonymous');
-      imageryLoader.load(
-        imageryConfig.url,
-        (texture) => {
-          if (isDisposed) {
-            texture.dispose();
-            return;
-          }
-          imageryTexture = texture;
-          imageryTexture.colorSpace = THREE.SRGBColorSpace;
-          imageryTexture.wrapS = THREE.ClampToEdgeWrapping;
-          imageryTexture.wrapT = THREE.ClampToEdgeWrapping;
-          const anisotropy = renderer?.capabilities?.getMaxAnisotropy?.() || 1;
-          imageryTexture.anisotropy = Math.max(1, Math.min(8, anisotropy));
-          // Switch to texture-only shading once imagery is ready.
-          mat.vertexColors = false;
-          mat.map = imageryTexture;
-          mat.needsUpdate = true;
-          needsRender = true;
-        },
-        undefined,
-        (error) => {
-          // Keep elevation colors as fallback if imagery cannot be fetched.
+
+      const tryLoadImagery = (index) => {
+        const sourceUrl = Array.isArray(imageryConfig?.urls) ? imageryConfig.urls[index] : null;
+        if (!sourceUrl) {
           mat.vertexColors = true;
           mat.map = null;
           mat.needsUpdate = true;
           needsRender = true;
-          console.warn('3D imagery drape failed to load. Using elevation color fallback.', error);
+          if (!isDisposed) {
+            setImageryLoadState('failed');
+            setImageryLoadMessage('Imagery unavailable (proxy/direct failed)');
+          }
+          return;
         }
-      );
+
+        imageryLoader.load(
+          sourceUrl,
+          (texture) => {
+            if (isDisposed) {
+              texture.dispose();
+              return;
+            }
+            imageryTexture = texture;
+            imageryTexture.colorSpace = THREE.SRGBColorSpace;
+            imageryTexture.wrapS = THREE.ClampToEdgeWrapping;
+            imageryTexture.wrapT = THREE.ClampToEdgeWrapping;
+            const anisotropy = renderer?.capabilities?.getMaxAnisotropy?.() || 1;
+            imageryTexture.anisotropy = Math.max(1, Math.min(8, anisotropy));
+            mat.vertexColors = false;
+            mat.map = imageryTexture;
+            mat.needsUpdate = true;
+            needsRender = true;
+            if (!isDisposed) {
+              setImageryLoadState('loaded');
+              setImageryLoadMessage(index === 0 ? 'Loaded via proxy' : 'Loaded via direct source');
+            }
+          },
+          undefined,
+          (error) => {
+            console.warn(`3D imagery source failed (${index + 1}).`, error);
+            tryLoadImagery(index + 1);
+          }
+        );
+      };
+
+      tryLoadImagery(0);
+    } else if (!isDisposed) {
+      setImageryLoadState('idle');
+      setImageryLoadMessage('');
     }
 
     const overlayObjects = [];
@@ -1177,8 +1219,15 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
           position: 'absolute', bottom: 12, left: 12,
           background: 'rgba(15,23,42,0.82)', borderRadius: 6, padding: '0.28rem 0.55rem',
           color: '#94a3b8', fontSize: '0.7rem', border: '1px solid #1e293b',
+          display: 'grid', gap: '0.2rem',
         }}>
-          {imageryConfig.attribution}
+          <div>{imageryConfig.attribution}</div>
+          <div style={{
+            color: imageryLoadState === 'loaded' ? '#34d399' : imageryLoadState === 'failed' ? '#fda4af' : '#93c5fd',
+            fontSize: '0.66rem',
+          }}>
+            Imagery: {imageryLoadMessage || imageryLoadState}
+          </div>
         </div>
       )}
 
