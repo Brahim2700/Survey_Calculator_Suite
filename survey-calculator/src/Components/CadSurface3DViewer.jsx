@@ -40,6 +40,7 @@ const buildEsriWorldImageryExportUrls = ({ minLat, maxLat, minLng, maxLng }, siz
     size: String(px),
   });
   const proxyUrl = `${IMAGERY_API_BASE_URL}/esri-export?${proxyParams.toString()}`;
+  console.log('[3D Imagery] Proxy URL:', proxyUrl);
 
   const sw = latLngToWebMercator(minLat, minLng);
   const ne = latLngToWebMercator(maxLat, maxLng);
@@ -52,6 +53,7 @@ const buildEsriWorldImageryExportUrls = ({ minLat, maxLat, minLng, maxLng }, siz
     f: 'image',
   });
   const directUrl = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?${directParams.toString()}`;
+  console.log('[3D Imagery] Direct Esri URL:', directUrl);
 
   return [proxyUrl, directUrl];
 };
@@ -523,7 +525,11 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
       },
       1024
     ).filter(Boolean);
-    if (imageryUrls.length === 0) return null;
+    if (imageryUrls.length === 0) {
+      console.warn('[3D Imagery] No valid URLs generated');
+      return null;
+    }
+    console.log('[3D Imagery] Config built with', imageryUrls.length, 'source(s)');
     return {
       key: 'esri',
       label: 'Esri World Imagery',
@@ -714,6 +720,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
       const tryLoadImagery = (index) => {
         const sourceUrl = Array.isArray(imageryConfig?.urls) ? imageryConfig.urls[index] : null;
         if (!sourceUrl) {
+          console.warn('[3D Imagery] All sources exhausted, using color fallback');
           mat.vertexColors = true;
           mat.map = null;
           mat.needsUpdate = true;
@@ -725,6 +732,9 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
           return;
         }
 
+        const sourceName = index === 0 ? 'proxy' : 'direct Esri';
+        console.log(`[3D Imagery] Attempting to load from ${sourceName}:`, sourceUrl);
+
         imageryLoader.load(
           sourceUrl,
           (texture) => {
@@ -732,6 +742,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
               texture.dispose();
               return;
             }
+            console.log(`[3D Imagery] Successfully loaded from ${sourceName}`);
             imageryTexture = texture;
             imageryTexture.colorSpace = THREE.SRGBColorSpace;
             imageryTexture.wrapS = THREE.ClampToEdgeWrapping;
@@ -749,7 +760,7 @@ const CadSurface3DViewer = ({ surfaces = [] }) => {
           },
           undefined,
           (error) => {
-            console.warn(`3D imagery source failed (${index + 1}).`, error);
+            console.warn(`[3D Imagery] Failed to load from ${sourceName}:`, error);
             tryLoadImagery(index + 1);
           }
         );
