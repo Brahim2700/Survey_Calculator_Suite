@@ -207,14 +207,18 @@ const getElevationColor = (elevation, minElev, maxElev) => {
 
 
 const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, maxZ) => {
-  const sourceWidth = sourceCanvas.width;
-  const sourceHeight = sourceCanvas.height;
-  const imagePixelRatio = 2; // For high-res export
-  const panelScale = 1.85; // For text/panel scaling (increased for export)
-  const panelCssWidth = Math.max(370, Math.min(440, Math.round(sourceWidth * 0.36)));
-  const panelWidth = Math.round(panelCssWidth * imagePixelRatio);
-  const totalWidth = (sourceWidth + panelCssWidth) * imagePixelRatio;
-  const totalHeight = sourceHeight * imagePixelRatio;
+  // Increase pixel ratio for higher quality
+  const exportPixelRatio = 3; // was 2
+  // Tighter panel width for more map area
+  const panelScale = 1.85;
+  const panelCssWidth = Math.max(340, Math.min(400, Math.round(sourceCanvas.width * 0.32)));
+  const panelWidth = Math.round(panelCssWidth * exportPixelRatio);
+  // Make the export canvas focus more on the surface (crop empty space)
+  const cropMargin = 18; // px, crop a bit from each side
+  const croppedWidth = sourceCanvas.width - cropMargin * 2;
+  const croppedHeight = sourceCanvas.height - cropMargin * 2;
+  const totalWidth = (croppedWidth + panelCssWidth) * exportPixelRatio;
+  const totalHeight = croppedHeight * exportPixelRatio;
 
   const exportCanvas = document.createElement('canvas');
   exportCanvas.width = totalWidth;
@@ -239,8 +243,12 @@ const composeExportCanvas = (sourceCanvas, elevationData, surfaceStats, minZ, ma
     ctx.closePath();
   };
 
-  // Draw 3D surface area
-  ctx.drawImage(sourceCanvas, 0, 0, totalWidth - panelWidth, totalHeight);
+  // Draw 3D surface area (cropped, high-res)
+  ctx.drawImage(
+    sourceCanvas,
+    cropMargin, cropMargin, croppedWidth, croppedHeight, // source crop
+    0, 0, totalWidth - panelWidth, totalHeight // dest
+  );
 
   const panelX = totalWidth - panelWidth;
   const panelY = 0;
