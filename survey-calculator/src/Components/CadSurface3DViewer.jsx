@@ -1281,7 +1281,7 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.45rem' }}>
           <div>
             <div style={{ fontWeight: 800, color: '#f8fafc', letterSpacing: '0.01em' }}>3D Controls</div>
-            <div style={{ color: '#64748b', fontSize: '0.67rem', marginTop: '0.1rem' }}>View, render, and fit options</div>
+            <div style={{ color: '#64748b', fontSize: '0.67rem', marginTop: '0.1rem' }}>View, fit, and render</div>
           </div>
           <button
             type="button"
@@ -1542,7 +1542,7 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.4rem' }}>
             <input type="checkbox" checked={showContours} onChange={(e) => setShowContours(e.target.checked)} />
-            <span style={{ fontWeight: 700, fontSize: '0.78rem' }}>Contour Lines</span>
+            <span style={{ fontWeight: 700, fontSize: '0.78rem' }}>Contours</span>
           </div>
           {showContours && (
             <div>
@@ -1664,7 +1664,7 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
               marginBottom: showStats ? '0.4rem' : 0,
             }}
           >
-            {showStats ? 'Statistics ▼' : 'Statistics ▶'}
+              {showStats ? 'Stats ▼' : 'Stats ▶'}
           </button>
           {showStats && (
             <div style={{ fontSize: '0.82rem', color: '#cbd5e1', maxHeight: 220, overflowY: 'auto' }}>
