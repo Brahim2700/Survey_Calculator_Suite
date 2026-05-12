@@ -1260,45 +1260,48 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
       {/* Right dock: controls + elevation legend (stacked to avoid overlap) */}
       <div style={{
         position: 'absolute', top: 48, right: 12,
-        width: isCompactLayout ? 204 : 222,
+        width: isCompactLayout ? 202 : 220,
         display: 'grid',
-        gap: '0.5rem',
+        gap: '0.4rem',
         maxHeight: 'calc(100% - 60px)',
         overflowY: 'auto',
         overscrollBehavior: 'contain',
         zIndex: 20,
       }}>
-        <button
-          type="button"
-          onClick={() => setCompactLayoutOverride((prev) => (prev === null ? true : !prev))}
-          title={isCompactLayout ? 'Disable compact layout' : 'Enable compact layout'}
-          style={{
-            justifySelf: 'end',
-            background: isCompactLayout ? 'rgba(37,99,235,0.18)' : 'rgba(15,23,42,0.82)',
-            border: isCompactLayout ? '1px solid #3b82f6' : '1px solid #334155',
-            borderRadius: 999,
-            color: isCompactLayout ? '#dbeafe' : '#94a3b8',
-            cursor: 'pointer',
-            padding: '0.2rem 0.5rem',
-            fontSize: '0.68rem',
-            fontWeight: 700,
-            lineHeight: 1,
-          }}
-        >
-          {isCompactLayout ? 'Compact On' : 'Compact Off'}
-        </button>
-
         {/* 3D controls */}
         <div style={{
-          background: 'rgba(15,23,42,0.82)', borderRadius: 8, padding: isCompactLayout ? '0.35rem' : '0.45rem',
-          color: '#e2e8f0', fontSize: isCompactLayout ? '0.72rem' : '0.74rem', border: '1px solid #1e293b',
-          display: 'grid', gap: '0.35rem',
+          background: 'rgba(15,23,42,0.86)', borderRadius: 10, padding: isCompactLayout ? '0.34rem' : '0.42rem',
+          color: '#e2e8f0', fontSize: isCompactLayout ? '0.72rem' : '0.74rem', border: '1px solid rgba(51,65,85,0.95)',
+          boxShadow: '0 14px 30px rgba(2, 6, 23, 0.28)',
+          display: 'grid', gap: '0.32rem',
           maxHeight: isCompactLayout ? 'min(36vh, 260px)' : 'min(46vh, 320px)',
           overflowY: 'auto',
           overscrollBehavior: 'contain',
         }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.4rem' }}>
-          <div style={{ fontWeight: 700, color: '#cbd5e1' }}>3D Controls</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.45rem' }}>
+          <div>
+            <div style={{ fontWeight: 800, color: '#f8fafc', letterSpacing: '0.01em' }}>3D Controls</div>
+            <div style={{ color: '#64748b', fontSize: '0.67rem', marginTop: '0.1rem' }}>View, render, and fit options</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCompactLayoutOverride((prev) => (prev === null ? true : !prev))}
+            title={isCompactLayout ? 'Disable compact layout' : 'Enable compact layout'}
+            style={{
+              background: isCompactLayout ? 'rgba(37,99,235,0.18)' : 'rgba(15,23,42,0.82)',
+              border: isCompactLayout ? '1px solid #3b82f6' : '1px solid #334155',
+              borderRadius: 999,
+              color: isCompactLayout ? '#dbeafe' : '#94a3b8',
+              cursor: 'pointer',
+              padding: '0.18rem 0.48rem',
+              fontSize: '0.67rem',
+              fontWeight: 800,
+              lineHeight: 1,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {isCompactLayout ? 'Compact On' : 'Compact Off'}
+          </button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
           <span style={{ color: '#94a3b8' }}>Style</span>
@@ -1337,8 +1340,6 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
               {value === 'auto' ? 'Auto' : `x${value}`}
             </button>
           ))}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
           <span style={{ color: '#94a3b8' }}>View</span>
@@ -1438,14 +1439,15 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
 
         {/* Elevation legend */}
         <div style={{
-          background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: isCompactLayout ? '0.56rem 0.72rem' : '0.72rem 0.95rem',
-          color: '#f1f5f9', fontSize: isCompactLayout ? '0.84rem' : '0.9rem', border: '1px solid #334155',
+          background: 'rgba(15,23,42,0.9)', borderRadius: 10, padding: isCompactLayout ? '0.52rem 0.68rem' : '0.68rem 0.9rem',
+          color: '#f1f5f9', fontSize: isCompactLayout ? '0.82rem' : '0.88rem', border: '1px solid rgba(51,65,85,0.95)',
+          boxShadow: '0 14px 30px rgba(2, 6, 23, 0.24)',
           backdropFilter: 'blur(4px)',
           maxHeight: isCompactLayout ? 'min(28vh, 220px)' : 'min(38vh, 290px)',
           overflowY: 'auto',
           overscrollBehavior: 'contain',
         }}>
-          <div style={{ fontWeight: 700, marginBottom: '0.46rem', fontSize: '0.98rem' }}>Elevation (m)</div>
+          <div style={{ fontWeight: 800, marginBottom: '0.38rem', fontSize: '0.94rem', color: '#f8fafc' }}>Elevation (m)</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', marginBottom: '0.4rem' }}>
             <div style={{
               width: 18, height: 108, borderRadius: 4,
@@ -1481,36 +1483,36 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
 
 
       {/* Feature Panels - Left side */}
-      <div style={{ position: 'absolute', top: '50%', left: 14, transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: '0.45rem', maxHeight: 'calc(100% - 120px)', overflowY: 'auto', paddingRight: 4, width: 140 }}>
+      <div style={{ position: 'absolute', top: '50%', left: 14, transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: 'calc(100% - 120px)', overflowY: 'auto', paddingRight: 4, width: isCompactLayout ? 138 : 144 }}>
         
         {/* Mesh Opacity Control */}
         <div style={{
-          background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.6rem 0.85rem',
-          color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
-          backdropFilter: 'blur(4px)', minWidth: 140, width: '100%',
+          background: 'rgba(15,23,42,0.9)', borderRadius: 10, padding: isCompactLayout ? '0.52rem 0.7rem' : '0.58rem 0.8rem',
+          color: '#f1f5f9', fontSize: isCompactLayout ? '0.74rem' : '0.76rem', border: '1px solid rgba(51,65,85,0.95)',
+          backdropFilter: 'blur(4px)', boxShadow: '0 14px 30px rgba(2, 6, 23, 0.18)', minWidth: 0, width: '100%',
         }}>
-          <div style={{ fontWeight: 700, marginBottom: '0.4rem', fontSize: '0.78rem' }}>Opacity</div>
+          <div style={{ fontWeight: 800, marginBottom: '0.32rem', fontSize: '0.76rem', color: '#f8fafc' }}>Opacity</div>
           <input
             type="range"
             min="0" max="100" step="5" value={meshOpacity * 100}
             onChange={(e) => setMeshOpacity(Number(e.target.value) / 100)}
             style={{ width: '100%', cursor: 'pointer' }}
           />
-          <div style={{ marginTop: '0.3rem', color: '#94a3b8', fontSize: '0.71rem' }}>
+          <div style={{ marginTop: '0.25rem', color: '#94a3b8', fontSize: '0.7rem' }}>
             {(meshOpacity * 100).toFixed(0)}%
           </div>
         </div>
 
         {/* Lighting Controls */}
         <div style={{
-          background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.6rem 0.85rem',
-          color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
-          backdropFilter: 'blur(4px)', minWidth: 140, width: '100%',
+          background: 'rgba(15,23,42,0.9)', borderRadius: 10, padding: isCompactLayout ? '0.52rem 0.7rem' : '0.58rem 0.8rem',
+          color: '#f1f5f9', fontSize: isCompactLayout ? '0.74rem' : '0.76rem', border: '1px solid rgba(51,65,85,0.95)',
+          backdropFilter: 'blur(4px)', boxShadow: '0 14px 30px rgba(2, 6, 23, 0.18)', minWidth: 0, width: '100%',
         }}>
           <button
             type="button"
             onClick={() => setShowLightingPanel((value) => !value)}
-            style={{ width: '100%', padding: '0.22rem', borderRadius: 6, fontSize: '0.72rem', fontWeight: 700, border: '1px solid #334155', background: showLightingPanel ? '#1d4ed8' : '#0f172a', color: showLightingPanel ? '#dbeafe' : '#e2e8f0', cursor: 'pointer' }}
+            style={{ width: '100%', padding: '0.2rem', borderRadius: 7, fontSize: '0.71rem', fontWeight: 800, border: '1px solid #334155', background: showLightingPanel ? '#1d4ed8' : '#0f172a', color: showLightingPanel ? '#dbeafe' : '#e2e8f0', cursor: 'pointer' }}
           >
             {showLightingPanel ? 'Lighting ▼' : 'Lighting ▶'}
           </button>
@@ -1534,9 +1536,9 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
 
         {/* Contour Settings */}
         <div style={{
-          background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.6rem 0.85rem',
-          color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
-          backdropFilter: 'blur(4px)', minWidth: 140, width: '100%',
+          background: 'rgba(15,23,42,0.9)', borderRadius: 10, padding: isCompactLayout ? '0.52rem 0.7rem' : '0.58rem 0.8rem',
+          color: '#f1f5f9', fontSize: isCompactLayout ? '0.74rem' : '0.76rem', border: '1px solid rgba(51,65,85,0.95)',
+          backdropFilter: 'blur(4px)', boxShadow: '0 14px 30px rgba(2, 6, 23, 0.18)', minWidth: 0, width: '100%',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.4rem' }}>
             <input type="checkbox" checked={showContours} onChange={(e) => setShowContours(e.target.checked)} />
@@ -1553,14 +1555,14 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
         {/* Surface Visibility */}
         {normalizedSurfaces.length > 1 && (
           <div style={{
-            background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.6rem 0.85rem',
-            color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
-            backdropFilter: 'blur(4px)', minWidth: 140, width: '100%', maxHeight: 150, overflowY: 'auto',
+            background: 'rgba(15,23,42,0.9)', borderRadius: 10, padding: isCompactLayout ? '0.52rem 0.7rem' : '0.58rem 0.8rem',
+            color: '#f1f5f9', fontSize: isCompactLayout ? '0.74rem' : '0.76rem', border: '1px solid rgba(51,65,85,0.95)',
+            backdropFilter: 'blur(4px)', boxShadow: '0 14px 30px rgba(2, 6, 23, 0.18)', minWidth: 0, width: '100%', maxHeight: 150, overflowY: 'auto',
           }}>
             <button
               type="button"
               onClick={() => setShowSurfacePanel((value) => !value)}
-              style={{ width: '100%', padding: '0.22rem', borderRadius: 6, fontSize: '0.72rem', fontWeight: 700, border: '1px solid #334155', background: showSurfacePanel ? '#1d4ed8' : '#0f172a', color: showSurfacePanel ? '#dbeafe' : '#e2e8f0', cursor: 'pointer' }}
+              style={{ width: '100%', padding: '0.2rem', borderRadius: 7, fontSize: '0.71rem', fontWeight: 800, border: '1px solid #334155', background: showSurfacePanel ? '#1d4ed8' : '#0f172a', color: showSurfacePanel ? '#dbeafe' : '#e2e8f0', cursor: 'pointer' }}
             >
               {showSurfacePanel ? 'Surfaces ▼' : 'Surfaces ▶'}
             </button>
@@ -1585,9 +1587,9 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
 
         {/* Measurement Tool */}
         <div style={{
-          background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.6rem 0.85rem',
-          color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
-          backdropFilter: 'blur(4px)', minWidth: 140, width: '100%',
+          background: 'rgba(15,23,42,0.9)', borderRadius: 10, padding: isCompactLayout ? '0.52rem 0.7rem' : '0.58rem 0.8rem',
+          color: '#f1f5f9', fontSize: isCompactLayout ? '0.74rem' : '0.76rem', border: '1px solid rgba(51,65,85,0.95)',
+          backdropFilter: 'blur(4px)', boxShadow: '0 14px 30px rgba(2, 6, 23, 0.18)', minWidth: 0, width: '100%',
         }}>
           <button
             type="button"
@@ -1646,15 +1648,15 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
 
         {/* Statistics Panel */}
         <div style={{
-          background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.6rem 0.85rem',
-          color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
-          backdropFilter: 'blur(4px)', minWidth: 140, width: '100%',
+          background: 'rgba(15,23,42,0.9)', borderRadius: 10, padding: isCompactLayout ? '0.52rem 0.7rem' : '0.58rem 0.8rem',
+          color: '#f1f5f9', fontSize: isCompactLayout ? '0.74rem' : '0.76rem', border: '1px solid rgba(51,65,85,0.95)',
+          backdropFilter: 'blur(4px)', boxShadow: '0 14px 30px rgba(2, 6, 23, 0.18)', minWidth: 0, width: '100%',
         }}>
           <button
             type="button"
             onClick={() => setShowStats(!showStats)}
             style={{
-              width: '100%', padding: '0.3rem', borderRadius: 6, fontSize: '0.75rem', fontWeight: 700,
+              width: '100%', padding: '0.24rem', borderRadius: 7, fontSize: '0.72rem', fontWeight: 800,
               border: showStats ? '1px solid #60a5fa' : '1px solid #334155',
               background: showStats ? '#1d4ed8' : '#0f172a',
               color: showStats ? '#dbeafe' : '#e2e8f0',
@@ -1682,14 +1684,14 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
 
         {/* Export Panel */}
         <div style={{
-          background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.6rem 0.85rem',
-          color: '#f1f5f9', fontSize: '0.76rem', border: '1px solid #334155',
-          backdropFilter: 'blur(4px)', minWidth: 160,
+          background: 'rgba(15,23,42,0.9)', borderRadius: 10, padding: isCompactLayout ? '0.52rem 0.7rem' : '0.58rem 0.8rem',
+          color: '#f1f5f9', fontSize: isCompactLayout ? '0.74rem' : '0.76rem', border: '1px solid rgba(51,65,85,0.95)',
+          backdropFilter: 'blur(4px)', boxShadow: '0 14px 30px rgba(2, 6, 23, 0.18)', minWidth: 0,
         }}>
           <button
             type="button"
             onClick={() => setShowExportPanel((value) => !value)}
-            style={{ width: '100%', padding: '0.22rem', borderRadius: 6, fontSize: '0.72rem', fontWeight: 700, border: '1px solid #334155', background: showExportPanel ? '#1d4ed8' : '#0f172a', color: showExportPanel ? '#dbeafe' : '#e2e8f0', cursor: 'pointer' }}
+            style={{ width: '100%', padding: '0.2rem', borderRadius: 7, fontSize: '0.71rem', fontWeight: 800, border: '1px solid #334155', background: showExportPanel ? '#1d4ed8' : '#0f172a', color: showExportPanel ? '#dbeafe' : '#e2e8f0', cursor: 'pointer' }}
           >
             {showExportPanel ? 'Export ▼' : 'Export ▶'}
           </button>
