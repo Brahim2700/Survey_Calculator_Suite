@@ -1270,171 +1270,194 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
       }}>
         {/* 3D controls */}
         <div style={{
-          background: 'rgba(15,23,42,0.86)', borderRadius: 10, padding: isCompactLayout ? '0.34rem' : '0.42rem',
-          color: '#e2e8f0', fontSize: isCompactLayout ? '0.72rem' : '0.74rem', border: '1px solid rgba(51,65,85,0.95)',
+          background: 'rgba(15,23,42,0.86)',
+          borderRadius: 10,
+          padding: isCompactLayout ? '0.34rem' : '0.42rem',
+          color: '#e2e8f0',
+          fontSize: isCompactLayout ? '0.72rem' : '0.74rem',
+          border: '1px solid rgba(51,65,85,0.95)',
           boxShadow: '0 14px 30px rgba(2, 6, 23, 0.28)',
-          display: 'grid', gap: '0.32rem',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.32rem',
           maxHeight: isCompactLayout ? 'min(36vh, 260px)' : 'min(46vh, 320px)',
           overflowY: 'auto',
           overscrollBehavior: 'contain',
+          minWidth: 0,
         }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.45rem' }}>
-          <div>
-            <div style={{ fontWeight: 800, color: '#f8fafc', letterSpacing: '0.01em' }}>3D Controls</div>
-            <div style={{ color: '#64748b', fontSize: '0.67rem', marginTop: '0.1rem' }}>View, fit, and render</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.45rem', flexWrap: 'wrap', minWidth: 0 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 800, color: '#f8fafc', letterSpacing: '0.01em', whiteSpace: 'nowrap' }}>3D Controls</div>
+              <div style={{ color: '#64748b', fontSize: '0.67rem', marginTop: '0.1rem', whiteSpace: 'nowrap' }}>View, fit, and render</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCompactLayoutOverride((prev) => (prev === null ? true : !prev))}
+              title={isCompactLayout ? 'Disable compact layout' : 'Enable compact layout'}
+              style={{
+                background: isCompactLayout ? 'rgba(37,99,235,0.18)' : 'rgba(15,23,42,0.82)',
+                border: isCompactLayout ? '1px solid #3b82f6' : '1px solid #334155',
+                borderRadius: 999,
+                color: isCompactLayout ? '#dbeafe' : '#94a3b8',
+                cursor: 'pointer',
+                padding: '0.18rem 0.48rem',
+                fontSize: '0.67rem',
+                fontWeight: 800,
+                lineHeight: 1,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {isCompactLayout ? 'Compact On' : 'Compact Off'}
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => setCompactLayoutOverride((prev) => (prev === null ? true : !prev))}
-            title={isCompactLayout ? 'Disable compact layout' : 'Enable compact layout'}
-            style={{
-              background: isCompactLayout ? 'rgba(37,99,235,0.18)' : 'rgba(15,23,42,0.82)',
-              border: isCompactLayout ? '1px solid #3b82f6' : '1px solid #334155',
-              borderRadius: 999,
-              color: isCompactLayout ? '#dbeafe' : '#94a3b8',
-              cursor: 'pointer',
-              padding: '0.18rem 0.48rem',
-              fontSize: '0.67rem',
-              fontWeight: 800,
-              lineHeight: 1,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {isCompactLayout ? 'Compact On' : 'Compact Off'}
-          </button>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
-          <span style={{ color: '#94a3b8' }}>Style</span>
-          {[{ key: 'smooth', label: 'Smooth' }, { key: 'mesh', label: 'Mesh' }, { key: 'wire', label: 'Wire' }].map((style) => (
-            <button
-              key={`style-${style.key}`}
-              type="button"
-              onClick={() => setRenderStyle(style.key)}
-              style={{
-                padding: '0.16rem 0.45rem', borderRadius: 999, fontSize: '0.68rem', fontWeight: 700,
-                border: renderStyle === style.key ? '1px solid #f59e0b' : '1px solid #334155',
-                background: renderStyle === style.key ? '#78350f' : '#0f172a',
-                color: renderStyle === style.key ? '#fde68a' : '#94a3b8',
-                cursor: 'pointer',
-              }}
-            >
-              {style.label}
-            </button>
-          ))}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
-          <span style={{ color: '#94a3b8' }}>Z scale</span>
-          {['auto', '1', '2', '5', '10'].map((value) => (
-            <button
-              key={`z-${value}`}
-              type="button"
-              onClick={() => setZScalePreset(value)}
-              style={{
-                padding: '0.16rem 0.4rem', borderRadius: 999, fontSize: '0.68rem', fontWeight: 700,
-                border: zScalePreset === value ? '1px solid #60a5fa' : '1px solid #334155',
-                background: zScalePreset === value ? '#1d4ed8' : '#0f172a',
-                color: zScalePreset === value ? '#dbeafe' : '#94a3b8',
-                cursor: 'pointer',
-              }}
-            >
-              {value === 'auto' ? 'Auto' : `x${value}`}
-            </button>
-          ))}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
-          <span style={{ color: '#94a3b8' }}>View</span>
-          {[{ key: 'iso', label: 'Iso' }, { key: 'top', label: 'Top' }, { key: 'side', label: 'Side' }].map((view) => (
-            <button
-              key={`view-${view.key}`}
-              type="button"
-              onClick={() => setViewPreset(view.key)}
-              style={{
-                padding: '0.16rem 0.45rem', borderRadius: 999, fontSize: '0.68rem', fontWeight: 700,
-                border: viewPreset === view.key ? '1px solid #34d399' : '1px solid #334155',
-                background: viewPreset === view.key ? '#047857' : '#0f172a',
-                color: viewPreset === view.key ? '#d1fae5' : '#94a3b8',
-                cursor: 'pointer',
-              }}
-            >
-              {view.label}
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={() => setCameraResetToken((v) => v + 1)}
-            style={{
-              marginLeft: '0.2rem', padding: '0.16rem 0.5rem', borderRadius: 999,
-              fontSize: '0.68rem', fontWeight: 700, border: '1px solid #334155',
-              background: '#1e293b', color: '#e2e8f0', cursor: 'pointer',
-            }}
-          >
-            Reset
-          </button>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-          <span style={{ color: '#94a3b8' }}>Fit</span>
-          <select
-            value={selectedFitLayerKey}
-            onChange={(e) => setSelectedFitLayerKey(e.target.value)}
-            style={{
-              flex: 1,
-              minWidth: 0,
-              background: '#0f172a',
-              color: '#cbd5e1',
-              border: '1px solid #334155',
-              borderRadius: 6,
-              padding: '0.2rem 0.3rem',
-              fontSize: '0.68rem',
-            }}
-          >
-            <option value="__all__">All surfaces</option>
-            {fitLayerOptions.map((layer) => (
-              <option key={layer.layerKey} value={layer.layerKey}>
-                {layer.layerLabel} ({layer.triangleCount})
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={() => {
-              setFitLayerKey(selectedFitLayerKey);
-              setCameraResetToken((v) => v + 1);
-            }}
-            style={{
-              padding: '0.16rem 0.5rem',
-              borderRadius: 999,
-              fontSize: '0.68rem',
-              fontWeight: 700,
-              border: '1px solid #334155',
-              background: '#1e293b',
-              color: '#e2e8f0',
-              cursor: 'pointer',
-            }}
-          >
-            Apply
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedFitLayerKey('__all__');
-              setFitLayerKey('__all__');
-              setCameraResetToken((v) => v + 1);
-            }}
-            style={{
-              padding: '0.16rem 0.5rem',
-              borderRadius: 999,
-              fontSize: '0.68rem',
-              fontWeight: 700,
-              border: '1px solid #334155',
-              background: '#0b3b2e',
-              color: '#d1fae5',
-              cursor: 'pointer',
-            }}
-            title="Fit camera to all currently visible surfaces"
-          >
-            Fit Visible
-          </button>
-        </div>
+          {/* Controls are now column layout for no horizontal scroll */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.22rem', minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap', minWidth: 0 }}>
+              <span style={{ color: '#94a3b8', whiteSpace: 'nowrap' }}>Style</span>
+              <div style={{ display: 'flex', gap: '0.18rem', flexWrap: 'wrap', minWidth: 0 }}>
+                {[{ key: 'smooth', label: 'Smooth' }, { key: 'mesh', label: 'Mesh' }, { key: 'wire', label: 'Wire' }].map((style) => (
+                  <button
+                    key={`style-${style.key}`}
+                    type="button"
+                    onClick={() => setRenderStyle(style.key)}
+                    style={{
+                      padding: '0.16rem 0.45rem', borderRadius: 999, fontSize: '0.68rem', fontWeight: 700,
+                      border: renderStyle === style.key ? '1px solid #f59e0b' : '1px solid #334155',
+                      background: renderStyle === style.key ? '#78350f' : '#0f172a',
+                      color: renderStyle === style.key ? '#fde68a' : '#94a3b8',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {style.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap', minWidth: 0 }}>
+              <span style={{ color: '#94a3b8', whiteSpace: 'nowrap' }}>Z scale</span>
+              <div style={{ display: 'flex', gap: '0.18rem', flexWrap: 'wrap', minWidth: 0 }}>
+                {['auto', '1', '2', '5', '10'].map((value) => (
+                  <button
+                    key={`z-${value}`}
+                    type="button"
+                    onClick={() => setZScalePreset(value)}
+                    style={{
+                      padding: '0.16rem 0.4rem', borderRadius: 999, fontSize: '0.68rem', fontWeight: 700,
+                      border: zScalePreset === value ? '1px solid #60a5fa' : '1px solid #334155',
+                      background: zScalePreset === value ? '#1d4ed8' : '#0f172a',
+                      color: zScalePreset === value ? '#dbeafe' : '#94a3b8',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {value === 'auto' ? 'Auto' : `x${value}`}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap', minWidth: 0 }}>
+              <span style={{ color: '#94a3b8', whiteSpace: 'nowrap' }}>View</span>
+              <div style={{ display: 'flex', gap: '0.18rem', flexWrap: 'wrap', minWidth: 0 }}>
+                {[{ key: 'iso', label: 'Iso' }, { key: 'top', label: 'Top' }, { key: 'side', label: 'Side' }].map((view) => (
+                  <button
+                    key={`view-${view.key}`}
+                    type="button"
+                    onClick={() => setViewPreset(view.key)}
+                    style={{
+                      padding: '0.16rem 0.45rem', borderRadius: 999, fontSize: '0.68rem', fontWeight: 700,
+                      border: viewPreset === view.key ? '1px solid #34d399' : '1px solid #334155',
+                      background: viewPreset === view.key ? '#047857' : '#0f172a',
+                      color: viewPreset === view.key ? '#d1fae5' : '#94a3b8',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {view.label}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setCameraResetToken((v) => v + 1)}
+                  style={{
+                    marginLeft: '0.2rem', padding: '0.16rem 0.5rem', borderRadius: 999,
+                    fontSize: '0.68rem', fontWeight: 700, border: '1px solid #334155',
+                    background: '#1e293b', color: '#e2e8f0', cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap', minWidth: 0 }}>
+              <span style={{ color: '#94a3b8', whiteSpace: 'nowrap' }}>Fit</span>
+              <select
+                value={selectedFitLayerKey}
+                onChange={(e) => setSelectedFitLayerKey(e.target.value)}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  background: '#0f172a',
+                  color: '#cbd5e1',
+                  border: '1px solid #334155',
+                  borderRadius: 6,
+                  padding: '0.2rem 0.3rem',
+                  fontSize: '0.68rem',
+                  maxWidth: 120,
+                }}
+              >
+                <option value="__all__">All surfaces</option>
+                {fitLayerOptions.map((layer) => (
+                  <option key={layer.layerKey} value={layer.layerKey}>
+                    {layer.layerLabel} ({layer.triangleCount})
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => {
+                  setFitLayerKey(selectedFitLayerKey);
+                  setCameraResetToken((v) => v + 1);
+                }}
+                style={{
+                  padding: '0.16rem 0.5rem',
+                  borderRadius: 999,
+                  fontSize: '0.68rem',
+                  fontWeight: 700,
+                  border: '1px solid #334155',
+                  background: '#1e293b',
+                  color: '#e2e8f0',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Apply
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedFitLayerKey('__all__');
+                  setFitLayerKey('__all__');
+                  setCameraResetToken((v) => v + 1);
+                }}
+                style={{
+                  padding: '0.16rem 0.5rem',
+                  borderRadius: 999,
+                  fontSize: '0.68rem',
+                  fontWeight: 700,
+                  border: '1px solid #334155',
+                  background: '#0b3b2e',
+                  color: '#d1fae5',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+                title="Fit camera to all currently visible surfaces"
+              >
+                Fit Visible
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Elevation legend */}
