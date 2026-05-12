@@ -592,6 +592,10 @@ const generateContours = (triangles, minZ, maxZ, interval) => {
 const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
   const containerRef = useRef(null);
   const wrapperRef = useRef(null);
+  const [viewportSize, setViewportSize] = useState({
+    width: typeof window !== 'undefined' ? window.innerWidth : 0,
+    height: typeof window !== 'undefined' ? window.innerHeight : 0,
+  });
   const [zScalePreset, setZScalePreset] = useState('auto');
   const [viewPreset, setViewPreset] = useState('iso');
   const [renderStyle, setRenderStyle] = useState('smooth');
@@ -615,6 +619,27 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
   const [lightIntensity, setLightIntensity] = useState(0.8);
 
   const [visibleSurfaces, setVisibleSurfaces] = useState({});
+  const [compactLayoutOverride, setCompactLayoutOverride] = useState(null);
+  const isAutoCompactLayout = viewportSize.height > 0 && viewportSize.height < 820;
+  const isCompactLayout = compactLayoutOverride ?? isAutoCompactLayout;
+
+  useEffect(() => {
+    const onResize = () => {
+      setViewportSize({ width: window.innerWidth, height: window.innerHeight });
+    };
+
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  useEffect(() => {
+    if (!isCompactLayout) return;
+    setShowLightingPanel(false);
+    setShowSurfacePanel(false);
+    setShowStats(false);
+    setShowExportPanel(false);
+  }, [isCompactLayout]);
 
   const toggleFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -1202,49 +1227,78 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
         }}
       />
 
+      <button
+        type="button"
+        onClick={toggleFullscreen}
+        title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Enter fullscreen'}
+        style={{
+          position: 'absolute',
+          top: 12,
+          right: 12,
+          zIndex: 30,
+          background: 'rgba(15,23,42,0.92)',
+          border: '1px solid #334155',
+          borderRadius: 6,
+          color: '#e2e8f0',
+          cursor: 'pointer',
+          padding: '0.24rem 0.5rem',
+          fontSize: '0.72rem',
+          fontWeight: 700,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.3rem',
+          lineHeight: 1,
+        }}
+      >
+        {isFullscreen
+          ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3v3a2 2 0 01-2 2H3"/><path d="M21 8h-3a2 2 0 01-2-2V3"/><path d="M3 16h3a2 2 0 012 2v3"/><path d="M16 21v-3a2 2 0 012-2h3"/></svg>
+          : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 00-2 2v3"/><path d="M21 8V5a2 2 0 00-2-2h-3"/><path d="M3 16v3a2 2 0 002 2h3"/><path d="M16 21h3a2 2 0 002-2v-3"/></svg>
+        }
+        {isFullscreen ? 'Exit' : 'Full'}
+      </button>
+
       {/* Right dock: controls + elevation legend (stacked to avoid overlap) */}
       <div style={{
-        position: 'absolute', top: 12, right: 12,
-        width: 222,
+        position: 'absolute', top: 48, right: 12,
+        width: isCompactLayout ? 204 : 222,
         display: 'grid',
         gap: '0.5rem',
-        maxHeight: 'calc(100% - 24px)',
+        maxHeight: 'calc(100% - 60px)',
         overflowY: 'auto',
+        overscrollBehavior: 'contain',
         zIndex: 20,
       }}>
+        <button
+          type="button"
+          onClick={() => setCompactLayoutOverride((prev) => (prev === null ? true : !prev))}
+          title={isCompactLayout ? 'Disable compact layout' : 'Enable compact layout'}
+          style={{
+            justifySelf: 'end',
+            background: isCompactLayout ? 'rgba(37,99,235,0.18)' : 'rgba(15,23,42,0.82)',
+            border: isCompactLayout ? '1px solid #3b82f6' : '1px solid #334155',
+            borderRadius: 999,
+            color: isCompactLayout ? '#dbeafe' : '#94a3b8',
+            cursor: 'pointer',
+            padding: '0.2rem 0.5rem',
+            fontSize: '0.68rem',
+            fontWeight: 700,
+            lineHeight: 1,
+          }}
+        >
+          {isCompactLayout ? 'Compact On' : 'Compact Off'}
+        </button>
+
         {/* 3D controls */}
         <div style={{
-          background: 'rgba(15,23,42,0.82)', borderRadius: 8, padding: '0.45rem',
-          color: '#e2e8f0', fontSize: '0.74rem', border: '1px solid #1e293b',
+          background: 'rgba(15,23,42,0.82)', borderRadius: 8, padding: isCompactLayout ? '0.35rem' : '0.45rem',
+          color: '#e2e8f0', fontSize: isCompactLayout ? '0.72rem' : '0.74rem', border: '1px solid #1e293b',
           display: 'grid', gap: '0.35rem',
+          maxHeight: isCompactLayout ? 'min(36vh, 260px)' : 'min(46vh, 320px)',
+          overflowY: 'auto',
+          overscrollBehavior: 'contain',
         }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.4rem' }}>
           <div style={{ fontWeight: 700, color: '#cbd5e1' }}>3D Controls</div>
-          <button
-            type="button"
-            onClick={toggleFullscreen}
-            title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Enter fullscreen'}
-            style={{
-              background: 'rgba(15,23,42,0.82)',
-              border: '1px solid #334155',
-              borderRadius: 6,
-              color: '#94a3b8',
-              cursor: 'pointer',
-              padding: '0.18rem 0.45rem',
-              fontSize: '0.72rem',
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.28rem',
-              lineHeight: 1,
-            }}
-          >
-            {isFullscreen
-              ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3v3a2 2 0 01-2 2H3"/><path d="M21 8h-3a2 2 0 01-2-2V3"/><path d="M3 16h3a2 2 0 012 2v3"/><path d="M16 21v-3a2 2 0 012-2h3"/></svg>
-              : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 00-2 2v3"/><path d="M21 8V5a2 2 0 00-2-2h-3"/><path d="M3 16v3a2 2 0 002 2h3"/><path d="M16 21h3a2 2 0 002-2v-3"/></svg>
-            }
-            {isFullscreen ? 'Exit' : 'Full'}
-          </button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
           <span style={{ color: '#94a3b8' }}>Style</span>
@@ -1384,9 +1438,12 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
 
         {/* Elevation legend */}
         <div style={{
-          background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: '0.72rem 0.95rem',
-          color: '#f1f5f9', fontSize: '0.9rem', border: '1px solid #334155',
+          background: 'rgba(15,23,42,0.88)', borderRadius: 8, padding: isCompactLayout ? '0.56rem 0.72rem' : '0.72rem 0.95rem',
+          color: '#f1f5f9', fontSize: isCompactLayout ? '0.84rem' : '0.9rem', border: '1px solid #334155',
           backdropFilter: 'blur(4px)',
+          maxHeight: isCompactLayout ? 'min(28vh, 220px)' : 'min(38vh, 290px)',
+          overflowY: 'auto',
+          overscrollBehavior: 'contain',
         }}>
           <div style={{ fontWeight: 700, marginBottom: '0.46rem', fontSize: '0.98rem' }}>Elevation (m)</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', marginBottom: '0.4rem' }}>
