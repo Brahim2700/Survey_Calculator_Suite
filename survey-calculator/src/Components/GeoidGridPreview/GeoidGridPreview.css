@@ -1,0 +1,7 @@
+.geoid-grid-preview {
+  height: 500px;
+  width: 100%;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  overflow: hidden;
+}

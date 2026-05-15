@@ -26,6 +26,7 @@ import { EMPTY_CAD_GEOMETRY } from "./utils/cadShared";
 import useUndoable from "./utils/useUndoable";
 import { purgeAppClientData } from "./utils/appDataPurge";
 import "./App.css";
+import GeoidGridPreview from './components/GeoidGridPreview/GeoidGridPreview';
 
 const PDF_MARGIN_MM = 8;
 const EXPORT_PANEL_WIDTH_PX = 350;
