@@ -1,7 +1,135 @@
-.geoid-grid-preview {
-  height: 500px;
-  width: 100%;
-  border: 1px solid #ccc;
+.geoid-grid-preview-container {
+  display: flex;
+  flex-direction: column;
+  height: 600px;
+  border: 1px solid #ddd;
   border-radius: 8px;
   overflow: hidden;
+  background: #f9f9f9;
+}
+
+.geoid-controls {
+  padding: 16px;
+  background: #fff;
+  border-bottom: 1px solid #eee;
+  overflow-y: auto;
+  max-height: 200px;
+}
+
+.geoid-controls h3 {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  color: #333;
+}
+
+.geoid-grid-selector {
+  margin-bottom: 12px;
+}
+
+.geoid-grid-selector label {
+  display: block;
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.geoid-grid-selector select {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 13px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.geoid-info {
+  background: #f0f7ff;
+  padding: 10px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: #333;
+}
+
+.geoid-info p {
+  margin: 4px 0;
+}
+
+.geoid-hover-info {
+  background: #fffacd;
+  padding: 8px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #333;
+}
+
+.geoid-query-result {
+  background: #e8f5e9;
+  padding: 10px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: #333;
+}
+
+.geoid-query-result h4 {
+  margin: 0 0 6px 0;
+  font-size: 13px;
+  color: #2e7d32;
+}
+
+.geoid-query-result p {
+  margin: 4px 0;
+}
+
+.geoid-upload {
+  margin-bottom: 12px;
+}
+
+.geoid-upload label {
+  display: block;
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.geoid-upload input {
+  width: 100%;
+  font-size: 12px;
+  padding: 6px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.geoid-hint {
+  font-size: 12px;
+  color: #666;
+  margin: 8px 0 0 0;
+  font-style: italic;
+}
+
+.geoid-map-wrapper {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.geoid-popup {
+  font-size: 12px;
+  min-width: 200px;
+}
+
+.geoid-popup h3 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  color: #333;
+}
+
+.geoid-popup p {
+  margin: 4px 0;
+  color: #555;
 }

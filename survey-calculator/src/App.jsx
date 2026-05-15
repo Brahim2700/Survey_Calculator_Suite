@@ -113,10 +113,12 @@ function App() {
     dxfDiff: false,
     entityBreakdown: false,
     entityPicker: false,
+    geoidPreview: false,
   });
   const [hiddenDxfLayers, setHiddenDxfLayers] = useState([]);
   const [mapViewMode, setMapViewMode] = useState('2d'); // '2d' | '3d'
   const [markerStyleConfig, setMarkerStyleConfig] = useState({ elevationRules: [], pointSizeScale: 1.0, customIcons: {}, showLegend: true });
+  const [geoidGridData, setGeoidGridData] = useState(null);
 
   const togglePanel = useCallback((name) => {
     setPanels((prev) => ({ ...prev, [name]: !prev[name] }));
@@ -696,6 +698,19 @@ function App() {
                     onClick={() => togglePanel('search')}
                   >
                     🔍
+                  </button>
+                </MapToolTip>
+
+                {/* ── Geoid Grid Preview ── */}
+                <MapToolTip
+                  title="Geoid Grid Preview"
+                  description="Visualize geoid grid coverage and accuracy. View the spatial extent of available geoid data, inspect height variations, and upload custom grids for your project area."
+                >
+                  <button
+                    className={`btn btn-tool-toggle${panels.geoidPreview ? " active" : ""}`}
+                    onClick={() => togglePanel('geoidPreview')}
+                  >
+                    🌍
                   </button>
                 </MapToolTip>
 
@@ -1284,6 +1299,16 @@ function App() {
                 )}
                 {panels.entityPicker && (
                   <CadEntityPicker />
+                )}
+                {panels.geoidPreview && (
+                  <ErrorBoundary label="Geoid Grid Preview">
+                    <GeoidGridPreview
+                      geoidData={geoidGridData}
+                      onPointClick={(lat, lng) => {
+                        console.log(`Geoid query at: ${lat.toFixed(5)}°, ${lng.toFixed(5)}°`);
+                      }}
+                    />
+                  </ErrorBoundary>
                 )}
               </div>
             )}
