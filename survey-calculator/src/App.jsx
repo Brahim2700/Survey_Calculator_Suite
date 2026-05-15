@@ -26,7 +26,7 @@ import { EMPTY_CAD_GEOMETRY } from "./utils/cadShared";
 import useUndoable from "./utils/useUndoable";
 import { purgeAppClientData } from "./utils/appDataPurge";
 import "./App.css";
-import GeoidGridPreview from './components/GeoidGridPreview/GeoidGridPreview';
+import GeoidGridPreview from './Components/GeoidGridPreview/GeoidGridPreview';
 
 const PDF_MARGIN_MM = 8;
 const EXPORT_PANEL_WIDTH_PX = 350;
@@ -118,7 +118,7 @@ function App() {
   const [hiddenDxfLayers, setHiddenDxfLayers] = useState([]);
   const [mapViewMode, setMapViewMode] = useState('2d'); // '2d' | '3d'
   const [markerStyleConfig, setMarkerStyleConfig] = useState({ elevationRules: [], pointSizeScale: 1.0, customIcons: {}, showLegend: true });
-  const [geoidGridData, setGeoidGridData] = useState(null);
+  const [geoidGridData] = useState(null);
 
   const togglePanel = useCallback((name) => {
     setPanels((prev) => ({ ...prev, [name]: !prev[name] }));

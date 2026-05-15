@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { MapContainer, TileLayer, GeoJSON, LayersControl, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import './GeoidGridPreview.css';
 
-const GeoidGridPreview = ({ geoidData, onPointClick }) => {
+const GeoidGridPreview = ({ onPointClick }) => {
   const [selectedGrid, setSelectedGrid] = useState('EGM96');
   const [hoveredPoint, setHoveredPoint] = useState(null);
   const [queryPoint, setQueryPoint] = useState(null);
