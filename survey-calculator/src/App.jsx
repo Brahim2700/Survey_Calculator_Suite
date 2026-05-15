@@ -708,7 +708,10 @@ function App() {
                 >
                   <button
                     className={`btn btn-tool-toggle${panels.geoidPreview ? " active" : ""}`}
-                    onClick={() => togglePanel('geoidPreview')}
+                    onClick={() => {
+                      console.log('Geoid Preview button clicked');
+                      togglePanel('geoidPreview');
+                    }}
                   >
                     🌍
                   </button>
