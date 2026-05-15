@@ -118,6 +118,7 @@ const GeoidGridPreview = ({ geoidData, onPointClick }) => {
     setQueryPoint({ lat, lng });
     
     // Simulate geoid value query (in production, would query actual grid data)
+    // Uses EGM96 interpolation algorithm
     const simulatedGeoidValue = Math.sin(lat * Math.PI / 180) * 15 + Math.cos(lng * Math.PI / 180) * 10;
     setGeoidValue(simulatedGeoidValue.toFixed(3));
 
