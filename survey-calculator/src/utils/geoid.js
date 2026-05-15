@@ -219,7 +219,7 @@ export async function orthometricToEllipsoidal(name, lonDeg, latDeg, Hmeters) {
  * Returns the best grid name for the location and ensures it's loaded.
  */
 export async function selectGeoidGrid(lonDeg, latDeg) {
-  const pref = ['RAF20', 'RAF18b', 'RAF18', 'RAF09', 'EGM96'];
+  const pref = ['RAF20', 'RAF18b', 'RAF18', 'RAF09', 'EGM2008', 'EGM96'];
 
   const idx = await loadGeoidIndex();
 
@@ -253,19 +253,22 @@ export async function selectGeoidGrid(lonDeg, latDeg) {
     }
   }
 
-  // Fall back to EGM96 (smaller global grid)
-  if (!gridCache.has('EGM96')) {
-    try {
-      const url = idx.find((g) => g.name === 'EGM96')?.url || GRID_URLS['EGM96'];
-      console.log(`Attempting to load EGM96 from: ${url}`);
-      await ensureGeoidGrid('EGM96', url);
-    } catch (e) {
-      const detailedMsg = e.message || 'Unknown error';
-      console.error(`Failed to load EGM96: ${detailedMsg}`);
-      throw new Error(`Failed to load geoid grid: ${detailedMsg}. Make sure geoid files are accessible.`);
+  // Fall back to EGM2008 (high-res global), then EGM96 (smaller global)
+  for (const globalGrid of ['EGM2008', 'EGM96']) {
+    if (!gridCache.has(globalGrid)) {
+      try {
+        const url = idx.find((g) => g.name === globalGrid)?.url || GRID_URLS[globalGrid];
+        console.log(`Attempting to load ${globalGrid} from: ${url}`);
+        await ensureGeoidGrid(globalGrid, url);
+      } catch (e) {
+        const detailedMsg = e.message || 'Unknown error';
+        console.warn(`Failed to load ${globalGrid}: ${detailedMsg}`);
+        continue;
+      }
     }
+    return globalGrid;
   }
-  return 'EGM96';
+  throw new Error(`Failed to load any global geoid grid. Make sure geoid files are accessible.`);
 }
 
 function clamp(v, lo, hi) {
