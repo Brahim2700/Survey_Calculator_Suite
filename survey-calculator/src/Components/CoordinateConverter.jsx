@@ -1128,7 +1128,7 @@ const CoordinateConverter = () => {
   const [historySourceFilter, setHistorySourceFilter] = useState("all");
   const [bulkProgress, setBulkProgress] = useState(null);
   const [bulkUploadFile, setBulkUploadFile] = useState(null);
-  const [fileImportMode, setFileImportMode] = useState("append"); // append | replace
+  const [fileImportMode, setFileImportMode] = useState("replace"); // append | replace
   const [cadStrictExistingPointsOnly, setCadStrictExistingPointsOnly] = useState(true);
   const [bulkUploadError, setBulkUploadError] = useState("");
   const [cadPreviewLoading, setCadPreviewLoading] = useState(false);
@@ -5433,8 +5433,8 @@ const CoordinateConverter = () => {
               onChange={(e) => setFileImportMode(e.target.value === "replace" ? "replace" : "append")}
               style={{ padding: "0.35rem 0.55rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", fontWeight: 600 }}
             >
-              <option value="append">Append to existing map</option>
               <option value="replace">Replace existing map data</option>
+              <option value="append">Append to existing map</option>
             </select>
             {bulkUploadFile && ["dxf", "dwg"].includes((bulkUploadFile.name.split('.')?.pop() || '').toLowerCase()) && (
               <>
