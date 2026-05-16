@@ -1241,7 +1241,7 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
         title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Enter fullscreen'}
         style={{
           position: 'absolute',
-          top: 12,
+          top: 6,
           right: 12,
           zIndex: 30,
           background: 'rgba(15,23,42,0.92)',
@@ -1267,7 +1267,7 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
 
       {/* Right dock: controls + elevation legend (stacked to avoid overlap) */}
       <div style={{
-        position: 'absolute', top: 48, right: 12,
+        position: 'absolute', top: 56, right: 12,
         width: isCompactLayout ? 202 : 220,
         display: 'grid',
         gap: '0.4rem',
