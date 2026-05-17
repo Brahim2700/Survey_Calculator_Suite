@@ -96,6 +96,17 @@ describe('detectCRS', () => {
     expect(codes.some((c) => c === 'EPSG:31370')).toBe(true);
   });
 
+  it('detects Belgian Lambert 2008 from typical projected range', () => {
+    const coords = [
+      { x: 648700, y: 671000 },
+      { x: 649200, y: 671300 },
+      { x: 648100, y: 670700 },
+    ];
+    const results = detectCRS(coords);
+    const codes = results.map((r) => r.code);
+    expect(codes.some((c) => c === 'EPSG:3812')).toBe(true);
+  });
+
   it('uses metadata EPSG hint when provided', () => {
     const coords = [{ x: 151.2, y: -33.8 }];
     const results = detectCRS(coords, { epsg: 4326 });

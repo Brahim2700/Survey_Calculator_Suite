@@ -424,6 +424,17 @@ FR_LAMBERT_EXTENTS.push(
   { code: 'EPSG:25830', name: 'ETRS89 / UTM zone 30N', xmin: 166000, xmax: 834000, ymin: 4600000, ymax: 5700000, confidence: 0.76 },
   { code: 'EPSG:25831', name: 'ETRS89 / UTM zone 31N', xmin: 166000, xmax: 834000, ymin: 4600000, ymax: 5700000, confidence: 0.76 },
   { code: 'EPSG:25832', name: 'ETRS89 / UTM zone 32N', xmin: 166000, xmax: 834000, ymin: 4600000, ymax: 5700000, confidence: 0.76 },
+  { code: 'EPSG:25829', name: 'ETRS89 / UTM zone 29N (Iberia)', xmin: 166000, xmax: 834000, ymin: 3900000, ymax: 4900000, confidence: 0.82 },
+  { code: 'EPSG:25830', name: 'ETRS89 / UTM zone 30N (Iberia)', xmin: 166000, xmax: 834000, ymin: 3900000, ymax: 4900000, confidence: 0.82 },
+  { code: 'EPSG:25831', name: 'ETRS89 / UTM zone 31N (Iberia)', xmin: 166000, xmax: 834000, ymin: 3900000, ymax: 4900000, confidence: 0.82 },
+  { code: 'EPSG:23029', name: 'ED50 / UTM zone 29N (Spain legacy)', xmin: 166000, xmax: 834000, ymin: 3900000, ymax: 4900000, confidence: 0.8 },
+  { code: 'EPSG:23030', name: 'ED50 / UTM zone 30N (Spain legacy)', xmin: 166000, xmax: 834000, ymin: 3900000, ymax: 4900000, confidence: 0.8 },
+  { code: 'EPSG:23031', name: 'ED50 / UTM zone 31N (Spain legacy)', xmin: 166000, xmax: 834000, ymin: 3900000, ymax: 4900000, confidence: 0.8 },
+  { code: 'EPSG:2056', name: 'CH1903+ / LV95 (Switzerland)', xmin: 2400000, xmax: 2900000, ymin: 1050000, ymax: 1350000, confidence: 0.9 },
+  { code: 'EPSG:3003', name: 'Monte Mario / Italy zone 1', xmin: 1300000, xmax: 1900000, ymin: 4100000, ymax: 5300000, confidence: 0.86 },
+  { code: 'EPSG:3004', name: 'Monte Mario / Italy zone 2', xmin: 2100000, xmax: 2800000, ymin: 4100000, ymax: 5300000, confidence: 0.86 },
+  { code: 'EPSG:31467', name: 'DHDN / 3-degree Gauss-Kruger zone 3 (Germany)', xmin: 3300000, xmax: 3900000, ymin: 5200000, ymax: 6200000, confidence: 0.88 },
+  { code: 'EPSG:31468', name: 'DHDN / 3-degree Gauss-Kruger zone 4 (Germany)', xmin: 4200000, xmax: 4800000, ymin: 5200000, ymax: 6200000, confidence: 0.88 },
   { code: 'EPSG:31370', name: 'BD72 / Belgian Lambert 72 (Belgium)', xmin: 0, xmax: 350000, ymin: 0, ymax: 350000, confidence: 0.9 },
   { code: 'EPSG:3812', name: 'ETRS89 / Belgian Lambert 2008 (Belgium)', xmin: 500000, xmax: 850000, ymin: 500000, ymax: 850000, confidence: 0.9 },
   { code: 'EPSG:3035', name: 'ETRS89 / LAEA Europe', xmin: -4000000, xmax: 9000000, ymin: -4000000, ymax: 9000000, confidence: 0.7 },
@@ -549,8 +560,16 @@ const getUtmZoneFromCode = (code) => {
 // Geographic coverage bands for major foreign grids (reverse-projection plausibility)
 const FOREIGN_GRID_COVERAGE = {
   'EPSG:27700': { latMin: 49.0, latMax: 61.0, lonMin: -8.0, lonMax: 2.0 },
+  'EPSG:2056':  { latMin: 45.7, latMax: 48.2, lonMin: 5.8, lonMax: 10.7 },
   'EPSG:21781': { latMin: 45.8, latMax: 47.9, lonMin: 5.9, lonMax: 10.5 },
+  'EPSG:23029': { latMin: 27.5, latMax: 44.5, lonMin: -20.5, lonMax: -5.5 },
+  'EPSG:23030': { latMin: 27.5, latMax: 44.5, lonMin: -7.5, lonMax: -0.2 },
+  'EPSG:23031': { latMin: 27.5, latMax: 44.5, lonMin: -1.2, lonMax: 4.5 },
   'EPSG:28992': { latMin: 50.7, latMax: 53.7, lonMin: 3.2, lonMax: 7.3 },
+  'EPSG:3003':  { latMin: 42.0, latMax: 47.6, lonMin: 5.8, lonMax: 12.4 },
+  'EPSG:3004':  { latMin: 36.5, latMax: 47.6, lonMin: 11.2, lonMax: 18.9 },
+  'EPSG:31467': { latMin: 47.0, latMax: 55.5, lonMin: 7.0, lonMax: 10.9 },
+  'EPSG:31468': { latMin: 47.0, latMax: 55.5, lonMin: 10.3, lonMax: 13.8 },
   'EPSG:2157':  { latMin: 51.3, latMax: 55.5, lonMin: -10.6, lonMax: -5.3 },
   'EPSG:31370': { latMin: 49.3, latMax: 51.8, lonMin: 2.2, lonMax: 6.7 },
   'EPSG:3812':  { latMin: 49.3, latMax: 51.8, lonMin: 2.2, lonMax: 6.7 },
@@ -1185,6 +1204,68 @@ const detectProjected = (bounds) => {
       name: 'ETRS89 / Belgian Lambert 2008',
       confidence: 0.84,
       reason: `Projected ranges (E: ${Math.round(avgX / 1000)}km, N: ${Math.round(avgY / 1000)}km) match Belgian Lambert 2008`
+    });
+  }
+
+  // Swiss national grids
+  if (avgX >= 2400000 && avgX <= 2900000 && avgY >= 1050000 && avgY <= 1350000) {
+    suggestions.push({
+      code: 'EPSG:2056',
+      name: 'CH1903+ / LV95',
+      confidence: 0.87,
+      reason: `Projected ranges (E: ${Math.round(avgX / 1000)}km, N: ${Math.round(avgY / 1000)}km) match Swiss LV95`
+    });
+  }
+
+  // Spain official and legacy national projected ranges
+  if (avgX >= 166000 && avgX <= 834000 && avgY >= 3900000 && avgY <= 4900000) {
+    suggestions.push({
+      code: 'EPSG:25830',
+      name: 'ETRS89 / UTM zone 30N',
+      confidence: 0.8,
+      reason: 'Projected ranges match Spain peninsular UTM profile'
+    });
+    suggestions.push({
+      code: 'EPSG:23030',
+      name: 'ED50 / UTM zone 30N',
+      confidence: 0.78,
+      reason: 'Projected ranges match Spain legacy ED50 UTM profile'
+    });
+  }
+
+  // Italy official national projected ranges
+  if (avgX >= 1300000 && avgX <= 1900000 && avgY >= 4100000 && avgY <= 5300000) {
+    suggestions.push({
+      code: 'EPSG:3003',
+      name: 'Monte Mario / Italy zone 1',
+      confidence: 0.84,
+      reason: 'Projected ranges match Italy zone 1 national grid'
+    });
+  }
+  if (avgX >= 2100000 && avgX <= 2800000 && avgY >= 4100000 && avgY <= 5300000) {
+    suggestions.push({
+      code: 'EPSG:3004',
+      name: 'Monte Mario / Italy zone 2',
+      confidence: 0.84,
+      reason: 'Projected ranges match Italy zone 2 national grid'
+    });
+  }
+
+  // Germany official historical national grids (Gauss-Kruger)
+  if (avgX >= 3300000 && avgX <= 3900000 && avgY >= 5200000 && avgY <= 6200000) {
+    suggestions.push({
+      code: 'EPSG:31467',
+      name: 'DHDN / 3-degree Gauss-Kruger zone 3',
+      confidence: 0.85,
+      reason: 'Projected ranges match Germany Gauss-Kruger zone 3'
+    });
+  }
+  if (avgX >= 4200000 && avgX <= 4800000 && avgY >= 5200000 && avgY <= 6200000) {
+    suggestions.push({
+      code: 'EPSG:31468',
+      name: 'DHDN / 3-degree Gauss-Kruger zone 4',
+      confidence: 0.85,
+      reason: 'Projected ranges match Germany Gauss-Kruger zone 4'
     });
   }
 
