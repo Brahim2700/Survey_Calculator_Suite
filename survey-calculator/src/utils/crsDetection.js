@@ -744,6 +744,18 @@ const clampScore = (value, min, max) => Math.max(min, Math.min(max, value));
 const EUROPE_BBOX = { lonMin: -12, lonMax: 45, latMin: 34, latMax: 72 };
 const FRANCE_BBOX = { lonMin: -6.5, lonMax: 11.5, latMin: 41, latMax: 52.5 };
 const BELGIUM_BBOX = { lonMin: 2.2, lonMax: 6.7, latMin: 49.3, latMax: 51.8 };
+const SWITZERLAND_BBOX = { lonMin: 5.8, lonMax: 10.7, latMin: 45.7, latMax: 48.2 };
+const SPAIN_BBOX = { lonMin: -18.5, lonMax: 4.5, latMin: 27.5, latMax: 44.5 };
+const ITALY_BBOX = { lonMin: 6.0, lonMax: 19.2, latMin: 36.4, latMax: 47.6 };
+const GERMANY_BBOX = { lonMin: 5.0, lonMax: 16.0, latMin: 47.0, latMax: 55.5 };
+
+const OFFICIAL_CRS_BY_REGION = {
+  belgium: ['EPSG:31370', 'EPSG:3812'],
+  switzerland: ['EPSG:2056', 'EPSG:21781'],
+  spain: ['EPSG:25829', 'EPSG:25830', 'EPSG:25831', 'EPSG:23029', 'EPSG:23030', 'EPSG:23031'],
+  italy: ['EPSG:3003', 'EPSG:3004'],
+  germany: ['EPSG:31467', 'EPSG:31468'],
+};
 
 const isWithinBbox = (lon, lat, bbox) => (
   Number.isFinite(lon)
@@ -757,6 +769,10 @@ const isWithinBbox = (lon, lat, bbox) => (
 const inferAnchorRegion = (lon, lat) => {
   if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
   if (isWithinBbox(lon, lat, BELGIUM_BBOX)) return 'belgium';
+  if (isWithinBbox(lon, lat, SWITZERLAND_BBOX)) return 'switzerland';
+  if (isWithinBbox(lon, lat, ITALY_BBOX)) return 'italy';
+  if (isWithinBbox(lon, lat, GERMANY_BBOX)) return 'germany';
+  if (isWithinBbox(lon, lat, SPAIN_BBOX)) return 'spain';
   if (isWithinBbox(lon, lat, FRANCE_BBOX)) return 'france';
   if (isWithinBbox(lon, lat, EUROPE_BBOX)) return 'europe';
   return 'global';
@@ -868,12 +884,28 @@ const applyRegionalPlausibility = (suggestions, bounds, metadata = {}) => {
     let adjusted = confidence;
     let penaltyNote = '';
 
-    if (anchor.region === 'belgium') {
-      if (!isWithinBbox(lon, lat, BELGIUM_BBOX)) {
+    const countryBbox = anchor.region === 'belgium'
+      ? BELGIUM_BBOX
+      : anchor.region === 'switzerland'
+        ? SWITZERLAND_BBOX
+        : anchor.region === 'spain'
+          ? SPAIN_BBOX
+          : anchor.region === 'italy'
+            ? ITALY_BBOX
+            : anchor.region === 'germany'
+              ? GERMANY_BBOX
+              : null;
+
+    if (countryBbox) {
+      const preferredCodes = OFFICIAL_CRS_BY_REGION[anchor.region] || [];
+      const isPreferred = preferredCodes.includes(String(entry.code || ''));
+      if (!isWithinBbox(lon, lat, countryBbox)) {
         adjusted -= 0.26;
-        penaltyNote = 'outside inferred Belgium area';
+        penaltyNote = `outside inferred ${anchor.region} area`;
+      } else if (isPreferred) {
+        adjusted += 0.07;
       } else {
-        adjusted += 0.04;
+        adjusted -= 0.03;
       }
     } else if (anchor.region === 'france') {
       if (!isWithinBbox(lon, lat, FRANCE_BBOX)) {
