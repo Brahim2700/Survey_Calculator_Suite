@@ -424,6 +424,8 @@ FR_LAMBERT_EXTENTS.push(
   { code: 'EPSG:25830', name: 'ETRS89 / UTM zone 30N', xmin: 166000, xmax: 834000, ymin: 4600000, ymax: 5700000, confidence: 0.76 },
   { code: 'EPSG:25831', name: 'ETRS89 / UTM zone 31N', xmin: 166000, xmax: 834000, ymin: 4600000, ymax: 5700000, confidence: 0.76 },
   { code: 'EPSG:25832', name: 'ETRS89 / UTM zone 32N', xmin: 166000, xmax: 834000, ymin: 4600000, ymax: 5700000, confidence: 0.76 },
+  { code: 'EPSG:31370', name: 'BD72 / Belgian Lambert 72 (Belgium)', xmin: 0, xmax: 350000, ymin: 0, ymax: 350000, confidence: 0.9 },
+  { code: 'EPSG:3812', name: 'ETRS89 / Belgian Lambert 2008 (Belgium)', xmin: 500000, xmax: 850000, ymin: 500000, ymax: 850000, confidence: 0.9 },
   { code: 'EPSG:3035', name: 'ETRS89 / LAEA Europe', xmin: -4000000, xmax: 9000000, ymin: -4000000, ymax: 9000000, confidence: 0.7 },
   { code: 'EPSG:21781', name: 'CH1903 / LV03 (Switzerland)', xmin: 480000, xmax: 840000, ymin: 60000, ymax: 310000, confidence: 0.87 },
   { code: 'EPSG:28992', name: 'Amersfoort / RD New (Netherlands)', xmin: -250000, xmax: 850000, ymin: 250000, ymax: 625000, confidence: 0.84 },
@@ -550,6 +552,8 @@ const FOREIGN_GRID_COVERAGE = {
   'EPSG:21781': { latMin: 45.8, latMax: 47.9, lonMin: 5.9, lonMax: 10.5 },
   'EPSG:28992': { latMin: 50.7, latMax: 53.7, lonMin: 3.2, lonMax: 7.3 },
   'EPSG:2157':  { latMin: 51.3, latMax: 55.5, lonMin: -10.6, lonMax: -5.3 },
+  'EPSG:31370': { latMin: 49.3, latMax: 51.8, lonMin: 2.2, lonMax: 6.7 },
+  'EPSG:3812':  { latMin: 49.3, latMax: 51.8, lonMin: 2.2, lonMax: 6.7 },
 };
 
 const adjustedExtentConfidence = (entry, bounds, swapped = false) => {
@@ -683,16 +687,27 @@ const getCrsProjectionHints = (crsCode) => {
   const x0 = parseProj4Token(crs.proj4def, 'x_0');
   const y0 = parseProj4Token(crs.proj4def, 'y_0');
   const lat0 = parseProj4Token(crs.proj4def, 'lat_0');
+  const lat1 = parseProj4Token(crs.proj4def, 'lat_1');
+  const lat2 = parseProj4Token(crs.proj4def, 'lat_2');
   let lon0 = parseProj4Token(crs.proj4def, 'lon_0');
   const zone = zoneMatch ? Number(zoneMatch[1]) : null;
   if (!Number.isFinite(lon0) && Number.isFinite(zone)) {
     lon0 = ((zone - 1) * 6) - 180 + 3;
   }
 
+  const latScoreRef = (Number.isFinite(lat0) && Math.abs(lat0) < 80)
+    ? lat0
+    : (Number.isFinite(lat1) && Number.isFinite(lat2)
+      ? ((lat1 + lat2) / 2)
+      : lat0);
+
   return {
     x0,
     y0,
     lat0,
+    lat1,
+    lat2,
+    latScoreRef,
     lon0,
     zone,
     south: /(?:^|\s)\+south(?:\s|$)/.test(crs.proj4def),
@@ -709,6 +724,7 @@ const clampScore = (value, min, max) => Math.max(min, Math.min(max, value));
 
 const EUROPE_BBOX = { lonMin: -12, lonMax: 45, latMin: 34, latMax: 72 };
 const FRANCE_BBOX = { lonMin: -6.5, lonMax: 11.5, latMin: 41, latMax: 52.5 };
+const BELGIUM_BBOX = { lonMin: 2.2, lonMax: 6.7, latMin: 49.3, latMax: 51.8 };
 
 const isWithinBbox = (lon, lat, bbox) => (
   Number.isFinite(lon)
@@ -721,6 +737,7 @@ const isWithinBbox = (lon, lat, bbox) => (
 
 const inferAnchorRegion = (lon, lat) => {
   if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+  if (isWithinBbox(lon, lat, BELGIUM_BBOX)) return 'belgium';
   if (isWithinBbox(lon, lat, FRANCE_BBOX)) return 'france';
   if (isWithinBbox(lon, lat, EUROPE_BBOX)) return 'europe';
   return 'global';
@@ -832,7 +849,14 @@ const applyRegionalPlausibility = (suggestions, bounds, metadata = {}) => {
     let adjusted = confidence;
     let penaltyNote = '';
 
-    if (anchor.region === 'france') {
+    if (anchor.region === 'belgium') {
+      if (!isWithinBbox(lon, lat, BELGIUM_BBOX)) {
+        adjusted -= 0.26;
+        penaltyNote = 'outside inferred Belgium area';
+      } else {
+        adjusted += 0.04;
+      }
+    } else if (anchor.region === 'france') {
       if (!isWithinBbox(lon, lat, FRANCE_BBOX)) {
         adjusted -= 0.24;
         penaltyNote = 'outside inferred France area';
@@ -886,8 +910,8 @@ const scoreAxisOrientationForCrs = (crsCode, first, second) => {
       score += Math.max(0, (18 - lonDiff) / 18);
     }
 
-    if (Number.isFinite(hints?.lat0)) {
-      const latDiff = Math.abs(lat - hints.lat0);
+    if (Number.isFinite(hints?.latScoreRef)) {
+      const latDiff = Math.abs(lat - hints.latScoreRef);
       score += Math.max(0, (18 - latDiff) / 18);
     }
 
@@ -1141,6 +1165,26 @@ const detectProjected = (bounds) => {
       name: 'RGF93 / Lambert-93 (France)',
       confidence: 0.85,
       reason: `Easting ~${Math.round(avgX/1000)}km, Northing ~${Math.round(avgY/1000)}km matches Lambert-93`
+    });
+  }
+
+  // Belgian Lambert 72 (common on Belgian survey CAD plans)
+  if (avgX >= 0 && avgX <= 350000 && avgY >= 0 && avgY <= 350000) {
+    suggestions.push({
+      code: 'EPSG:31370',
+      name: 'BD72 / Belgian Lambert 72',
+      confidence: 0.84,
+      reason: `Projected ranges (E: ${Math.round(avgX / 1000)}km, N: ${Math.round(avgY / 1000)}km) match Belgian Lambert 72`
+    });
+  }
+
+  // Belgian Lambert 2008
+  if (avgX >= 500000 && avgX <= 850000 && avgY >= 500000 && avgY <= 850000) {
+    suggestions.push({
+      code: 'EPSG:3812',
+      name: 'ETRS89 / Belgian Lambert 2008',
+      confidence: 0.84,
+      reason: `Projected ranges (E: ${Math.round(avgX / 1000)}km, N: ${Math.round(avgY / 1000)}km) match Belgian Lambert 2008`
     });
   }
 

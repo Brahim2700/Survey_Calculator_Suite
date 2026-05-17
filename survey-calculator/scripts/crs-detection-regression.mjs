@@ -141,6 +141,20 @@ const main = async () => {
       validator: (codes) => codes.includes('EPSG:28992'),
     },
     {
+      sourceCode: 'EPSG:31370',
+      expectedCode: 'EPSG:31370',
+      lon: 4.35,
+      lat: 50.85,
+      validator: (codes) => codes.includes('EPSG:31370'),
+    },
+    {
+      sourceCode: 'EPSG:3812',
+      expectedCode: 'EPSG:3812',
+      lon: 4.35,
+      lat: 50.85,
+      validator: (codes) => codes.includes('EPSG:3812'),
+    },
+    {
       sourceCode: 'EPSG:28355',
       expectedCode: 'UTM-family (EPSG:327xx or EPSG:28355)',
       lon: 147.0,
