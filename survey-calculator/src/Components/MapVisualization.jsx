@@ -291,7 +291,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
   const [pointSizeScale, setPointSizeScale] = useState(0.7);
   const [pointBaseColor, setPointBaseColor] = useState('#3b82f6');
   const [legendCollapsed, setLegendCollapsed] = useState(true);
-  const [showAdvancedTools, setShowAdvancedTools] = useState(() => safeGetString(MAP_ADVANCED_TOOLS_STORAGE_KEY) === '1');
+  const [showAdvancedTools, setShowAdvancedTools] = useState(false);
   const [labelsTouched, setLabelsTouched] = useState(false);
   const [hiddenCadLayers, setHiddenCadLayers] = useState({});
   const [robustFitDebug, setRobustFitDebug] = useState({ active: false, message: '' });
@@ -2111,20 +2111,6 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
                   }}
                 >
                   Hatches
-                </button>
-                <button
-                  onClick={() => setShowTinEdges((v) => !v)}
-                  style={{
-                    border: '1px solid rgba(148,163,184,0.55)',
-                    background: showTinEdges ? 'rgba(22,163,74,0.78)' : 'rgba(15,23,42,0.65)',
-                    color: '#e2e8f0',
-                    borderRadius: '999px',
-                    fontSize: '9px',
-                    padding: '2px 7px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  TIN Edges
                 </button>
                 <button
                   onClick={() => {
