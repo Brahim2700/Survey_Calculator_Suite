@@ -101,13 +101,13 @@ function App() {
   // New features state
   const [filteredPoints, setFilteredPoints] = useState(null);
   const [panels, setPanels] = useState({
-    search: true,
+    search: false,
     diagnostics: false,
-    measurements: true,
-    elevationProfile: true,
-    batchOps: true,
+    measurements: false,
+    elevationProfile: false,
+    batchOps: false,
     markerStyle: false,
-    conflict: true,
+    conflict: false,
     dxfLayer: false,
     hatch: false,
     dxfDiff: false,
