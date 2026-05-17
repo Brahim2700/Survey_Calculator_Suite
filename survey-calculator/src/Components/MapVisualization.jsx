@@ -291,7 +291,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
   const [pointSizeScale, setPointSizeScale] = useState(0.7);
   const [pointBaseColor, setPointBaseColor] = useState('#3b82f6');
   const [legendCollapsed, setLegendCollapsed] = useState(true);
-  const [showAdvancedTools, setShowAdvancedTools] = useState(false);
+  const [showAdvancedTools, setShowAdvancedTools] = useState(false); // Always disable tools by default, ignoring local storage
   const [labelsTouched, setLabelsTouched] = useState(false);
   const [hiddenCadLayers, setHiddenCadLayers] = useState({});
   const [robustFitDebug, setRobustFitDebug] = useState({ active: false, message: '' });
