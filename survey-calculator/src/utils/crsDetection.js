@@ -856,18 +856,90 @@ const inferGeographicAnchor = (suggestions, bounds) => {
   };
 };
 
+const inferSuggestionCountry = (entry) => {
+  const code = String(entry?.code || '').toUpperCase();
+  const text = `${String(entry?.name || '')} ${String(entry?.reason || '')}`.toLowerCase();
+
+  if (isFrenchProjectedCandidate(code) || /^EPSG:(98\d\d|27(560|561|562|563|564|572))$/.test(code)) return 'france';
+  if (/\bfrance\b|\brgf93\b|\blambert\b|\bcc\d{2}\b/.test(text)) return 'france';
+
+  if (code === 'EPSG:3003' || code === 'EPSG:3004') return 'italy';
+  if (/\bitaly\b|\bmonte mario\b/.test(text)) return 'italy';
+
+  if (code === 'EPSG:2056' || code === 'EPSG:21781') return 'switzerland';
+  if (/\bswitzerland\b|\bch1903\b|\blv95\b|\blv03\b/.test(text)) return 'switzerland';
+
+  if (code === 'EPSG:31370' || code === 'EPSG:3812') return 'belgium';
+  if (/\bbelgium\b|\bbelgian\b/.test(text)) return 'belgium';
+
+  if (code === 'EPSG:31467' || code === 'EPSG:31468') return 'germany';
+  if (/\bgermany\b|\bgauss\b/.test(text)) return 'germany';
+
+  if (/^EPSG:(23029|23030|23031|25829|25830|25831)$/.test(code) || /\bspain\b|\biberia\b/.test(text)) return 'spain';
+
+  return null;
+};
+
+const inferDominantCountryFromSuggestions = (suggestions) => {
+  if (!Array.isArray(suggestions) || suggestions.length === 0) return null;
+  const weights = new Map();
+  suggestions
+    .filter((entry) => Number.isFinite(entry?.confidence) && entry.confidence >= 0.6)
+    .slice(0, 8)
+    .forEach((entry) => {
+      const country = inferSuggestionCountry(entry);
+      if (!country) return;
+      const w = Math.max(0.15, Number(entry.confidence) || 0);
+      weights.set(country, (weights.get(country) || 0) + w);
+    });
+
+  if (!weights.size) return null;
+  const sorted = [...weights.entries()].sort((a, b) => b[1] - a[1]);
+  const [topCountry, topWeight] = sorted[0];
+  const secondWeight = sorted[1]?.[1] || 0;
+  if (topWeight < 1.05) return null;
+  if (topWeight < (secondWeight * 1.2) && (topWeight - secondWeight) < 0.12) return null;
+  return topCountry;
+};
+
 const applyRegionalPlausibility = (suggestions, bounds, metadata = {}) => {
   if (!Array.isArray(suggestions) || suggestions.length === 0) return suggestions;
 
   // Do not override explicit metadata-driven CRS declarations.
   if (hasReferenceMetadata(metadata)) return suggestions;
 
+  const dominantCountry = inferDominantCountryFromSuggestions(suggestions);
   const anchor = inferGeographicAnchor(suggestions, bounds);
   if (!anchor?.stable || !Number.isFinite(anchor.lon) || !Number.isFinite(anchor.lat)) {
-    return suggestions;
+    if (!dominantCountry) return suggestions;
+    return suggestions.map((entry) => {
+      const confidence = Number(entry?.confidence);
+      if (!Number.isFinite(confidence)) return entry;
+      const country = inferSuggestionCountry(entry);
+      if (!country) return entry;
+      if (country === dominantCountry) {
+        return {
+          ...entry,
+          confidence: clampScore(confidence + 0.1, 0.2, 0.99),
+          reason: `${entry.reason}; favored by country consensus`,
+        };
+      }
+      return {
+        ...entry,
+        confidence: clampScore(confidence - 0.2, 0.2, 0.99),
+        reason: `${entry.reason}; penalized by country mismatch`,
+      };
+    });
   }
 
-  return suggestions.map((entry) => {
+  const effectiveRegion = (() => {
+    if (!dominantCountry) return anchor.region;
+    if (anchor.region === dominantCountry) return anchor.region;
+    if (anchor.region === 'global' || anchor.region === 'europe') return dominantCountry;
+    return dominantCountry;
+  })();
+
+  const adjustedSuggestions = suggestions.map((entry) => {
     const confidence = Number(entry?.confidence);
     if (!Number.isFinite(confidence)) return entry;
 
@@ -884,37 +956,44 @@ const applyRegionalPlausibility = (suggestions, bounds, metadata = {}) => {
     let adjusted = confidence;
     let penaltyNote = '';
 
-    const countryBbox = anchor.region === 'belgium'
+    const countryBbox = effectiveRegion === 'belgium'
       ? BELGIUM_BBOX
-      : anchor.region === 'switzerland'
+      : effectiveRegion === 'switzerland'
         ? SWITZERLAND_BBOX
-        : anchor.region === 'spain'
+        : effectiveRegion === 'spain'
           ? SPAIN_BBOX
-          : anchor.region === 'italy'
+          : effectiveRegion === 'italy'
             ? ITALY_BBOX
-            : anchor.region === 'germany'
+            : effectiveRegion === 'germany'
               ? GERMANY_BBOX
+              : effectiveRegion === 'france'
+                ? FRANCE_BBOX
               : null;
 
     if (countryBbox) {
-      const preferredCodes = OFFICIAL_CRS_BY_REGION[anchor.region] || [];
+      const preferredCodes = OFFICIAL_CRS_BY_REGION[effectiveRegion] || [];
+      const entryCountry = inferSuggestionCountry(entry);
       const isPreferred = preferredCodes.includes(String(entry.code || ''));
       if (!isWithinBbox(lon, lat, countryBbox)) {
         adjusted -= 0.26;
-        penaltyNote = `outside inferred ${anchor.region} area`;
+        penaltyNote = `outside inferred ${effectiveRegion} area`;
       } else if (isPreferred) {
         adjusted += 0.07;
       } else {
         adjusted -= 0.03;
       }
-    } else if (anchor.region === 'france') {
+      if (entryCountry && entryCountry !== effectiveRegion && effectiveRegion !== 'europe' && effectiveRegion !== 'global') {
+        adjusted -= 0.24;
+        penaltyNote = `country mismatch with inferred ${effectiveRegion}`;
+      }
+    } else if (effectiveRegion === 'france') {
       if (!isWithinBbox(lon, lat, FRANCE_BBOX)) {
         adjusted -= 0.24;
         penaltyNote = 'outside inferred France area';
       } else {
         adjusted += 0.03;
       }
-    } else if (anchor.region === 'europe') {
+    } else if (effectiveRegion === 'europe') {
       if (!isWithinBbox(lon, lat, EUROPE_BBOX)) {
         adjusted -= 0.18;
         penaltyNote = 'outside inferred Europe area';
@@ -931,6 +1010,60 @@ const applyRegionalPlausibility = (suggestions, bounds, metadata = {}) => {
       confidence: clampScore(adjusted, 0.2, 0.99),
       reason: penaltyNote ? `${entry.reason}; ${penaltyNote}` : entry.reason,
     };
+  });
+
+  const ranked = [...adjustedSuggestions].sort((a, b) => (Number(b?.confidence) || 0) - (Number(a?.confidence) || 0)).slice(0, 6);
+  const byCountry = new Map();
+  ranked.forEach((entry) => {
+    const country = inferSuggestionCountry(entry);
+    if (!country) return;
+    const bucket = byCountry.get(country) || { count: 0, weight: 0 };
+    bucket.count += 1;
+    bucket.weight += Math.max(0, Number(entry?.confidence) || 0);
+    byCountry.set(country, bucket);
+  });
+
+  const topEntry = ranked[0] || null;
+  const topCountry = inferSuggestionCountry(topEntry);
+  const topConfidence = Number(topEntry?.confidence) || 0;
+
+  let consensusCountry = null;
+  let consensusWeight = 0;
+  for (const [country, bucket] of byCountry.entries()) {
+    if (bucket.count < 2) continue;
+    if (bucket.weight > consensusWeight) {
+      consensusWeight = bucket.weight;
+      consensusCountry = country;
+    }
+  }
+
+  if (!consensusCountry || !topCountry || consensusCountry === topCountry) {
+    return adjustedSuggestions;
+  }
+
+  const topCountryWeight = byCountry.get(topCountry)?.weight || 0;
+  if (consensusWeight < (topCountryWeight + 0.08) || topConfidence < 0.72) {
+    return adjustedSuggestions;
+  }
+
+  return adjustedSuggestions.map((entry) => {
+    const country = inferSuggestionCountry(entry);
+    if (!country) return entry;
+    if (country === consensusCountry) {
+      return {
+        ...entry,
+        confidence: clampScore((Number(entry.confidence) || 0) + 0.1, 0.2, 0.99),
+        reason: `${entry.reason}; favored by regional country consensus`,
+      };
+    }
+    if (country === topCountry) {
+      return {
+        ...entry,
+        confidence: clampScore((Number(entry.confidence) || 0) - 0.22, 0.2, 0.99),
+        reason: `${entry.reason}; penalized by cross-country consensus`,
+      };
+    }
+    return entry;
   });
 };
 
