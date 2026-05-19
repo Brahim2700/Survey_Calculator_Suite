@@ -1693,6 +1693,16 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
         const curvePath = [];
         segments.forEach((segment, segmentIndex) => {
           if (segment?.kind === 'arc') {
+            const preProjectedPath = (Array.isArray(segment?.pathPoints) ? segment.pathPoints : [])
+              .filter((p) => Array.isArray(p) && Number.isFinite(Number(p[0])) && Number.isFinite(Number(p[1])))
+              .map((p) => [Number(p[0]), Number(p[1])]);
+            if (preProjectedPath.length >= 2) {
+              preProjectedPath.forEach((sample, sampleIndex) => {
+                if (segmentIndex > 0 && sampleIndex === 0 && curvePath.length > 0) return;
+                curvePath.push(sample);
+              });
+              return;
+            }
             const center = toLatLngTuple(segment?.center);
             const start = toLatLngTuple(segment?.start);
             const end = toLatLngTuple(segment?.end);
@@ -1734,17 +1744,23 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
       });
 
       cadArcs.filter((arc) => isCadLayerVisible(arc) && isGeometryInBounds(arc, viewportBounds)).forEach((arc) => {
+        const preProjectedPath = (Array.isArray(arc?.pathPoints) ? arc.pathPoints : [])
+          .filter((p) => Array.isArray(p) && Number.isFinite(Number(p[0])) && Number.isFinite(Number(p[1])))
+          .map((p) => [Number(p[0]), Number(p[1])]);
         const center = toLatLngTuple(arc?.center);
         const radius = Number(arc?.radius);
-        if (!center || !Number.isFinite(radius) || radius <= 0) return;
-        const path = tessellateArcSegment({
-          center: { x: center[0], y: center[1], z: center[2] },
-          radius,
-          startAngle: Number(arc?.startAngle ?? 0),
-          endAngle: Number(arc?.endAngle ?? 0),
-          clockwise: Boolean(arc?.clockwise),
-          sweepAngle: Number(arc?.sweepAngle),
-        }, curveTolerance).map((p) => [Number(p?.x), Number(p?.y)]);
+        const path = preProjectedPath.length >= 2
+          ? preProjectedPath
+          : (!center || !Number.isFinite(radius) || radius <= 0)
+            ? []
+            : tessellateArcSegment({
+              center: { x: center[0], y: center[1], z: center[2] },
+              radius,
+              startAngle: Number(arc?.startAngle ?? 0),
+              endAngle: Number(arc?.endAngle ?? 0),
+              clockwise: Boolean(arc?.clockwise),
+              sweepAngle: Number(arc?.sweepAngle),
+            }, curveTolerance).map((p) => [Number(p?.x), Number(p?.y)]);
         if (path.length < 2) return;
         const layer = L.polyline(path, {
           renderer: canvasRendererRef.current || undefined,
@@ -1757,11 +1773,17 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
       });
 
       cadCircles.filter((circle) => isCadLayerVisible(circle) && isGeometryInBounds(circle, viewportBounds)).forEach((circle) => {
+        const preProjectedPath = (Array.isArray(circle?.pathPoints) ? circle.pathPoints : [])
+          .filter((p) => Array.isArray(p) && Number.isFinite(Number(p[0])) && Number.isFinite(Number(p[1])))
+          .map((p) => [Number(p[0]), Number(p[1])]);
         const center = toLatLngTuple(circle?.center);
         const radius = Number(circle?.radius);
-        if (!center || !Number.isFinite(radius) || radius <= 0) return;
-        const path = tessellateCircle({ center: { x: center[0], y: center[1], z: center[2] }, radius }, curveTolerance)
-          .map((p) => [Number(p?.x), Number(p?.y)]);
+        const path = preProjectedPath.length >= 3
+          ? preProjectedPath
+          : (!center || !Number.isFinite(radius) || radius <= 0)
+            ? []
+            : tessellateCircle({ center: { x: center[0], y: center[1], z: center[2] }, radius }, curveTolerance)
+              .map((p) => [Number(p?.x), Number(p?.y)]);
         if (path.length < 3) return;
         const layer = L.polyline(path, {
           renderer: canvasRendererRef.current || undefined,

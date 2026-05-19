@@ -19,6 +19,7 @@ import { safeGetJSON, safeGetString, safeSetJSON, safeSetString, safeRemove } fr
 import { purgeAppClientData } from "../utils/appDataPurge";
 import { escapeHtml } from "../utils/escapeHtml";
 import { CAD_DIAGNOSTIC_CODES, collectCadXYBounds, decideCadRouting, isValidLatLng } from "../utils/cadCrsRouting";
+import { tessellateArcSegment, tessellateCircle } from "../lib/cad/curveMath.js";
 
 // Lazy-load geoid utilities only when requested so the main bundle stays small
 let geoidModulePromise = null;
@@ -2643,6 +2644,55 @@ const CoordinateConverter = () => {
       };
     };
 
+    const projectCurveSamples = (samples) => {
+      if (!Array.isArray(samples) || samples.length < 2) return [];
+      return samples
+        .map((sample) => {
+          const x = Number(sample?.x ?? sample?.[0]);
+          const y = Number(sample?.y ?? sample?.[1]);
+          const z = Number(sample?.z ?? sample?.[2] ?? 0);
+          const projected = toLatLng(x, y, z);
+          if (!projected) return null;
+          return [Number(projected[0]), Number(projected[1]), Number(projected[2] ?? 0)];
+        })
+        .filter(Boolean);
+    };
+
+    const buildProjectedArcPathFromSource = ({ center, radius, startAngle, endAngle, clockwise = false, sweepAngle = undefined }) => {
+      if (!Array.isArray(center) || center.length < 2) return [];
+      const sourceRadius = Number(radius);
+      if (!Number.isFinite(sourceRadius) || sourceRadius <= 0) return [];
+      const sourceArc = {
+        center: {
+          x: Number(center[0]),
+          y: Number(center[1]),
+          z: Number(center[2] ?? 0),
+        },
+        radius: sourceRadius,
+        startAngle: Number(startAngle ?? 0),
+        endAngle: Number(endAngle ?? 0),
+        clockwise: Boolean(clockwise),
+        sweepAngle: Number(sweepAngle),
+      };
+      const sourceSamples = tessellateArcSegment(sourceArc, Math.max(1e-4, sourceRadius / 320), 24, 720);
+      return projectCurveSamples(sourceSamples);
+    };
+
+    const buildProjectedCirclePathFromSource = ({ center, radius }) => {
+      if (!Array.isArray(center) || center.length < 2) return [];
+      const sourceRadius = Number(radius);
+      if (!Number.isFinite(sourceRadius) || sourceRadius <= 0) return [];
+      const sourceSamples = tessellateCircle({
+        center: {
+          x: Number(center[0]),
+          y: Number(center[1]),
+          z: Number(center[2] ?? 0),
+        },
+        radius: sourceRadius,
+      }, Math.max(1e-4, sourceRadius / 320));
+      return projectCurveSamples(sourceSamples);
+    };
+
     const lines = safeGeometry.lines
       .map((line) => {
         const s = Array.isArray(line?.start) ? line.start : [];
@@ -2685,6 +2735,14 @@ const CoordinateConverter = () => {
             if (segment?.kind === 'arc') {
               const center = Array.isArray(segment?.center) ? toLatLng(Number(segment.center[0]), Number(segment.center[1]), Number(segment.center[2] ?? 0)) : null;
               if (!center) return null;
+              const pathPoints = buildProjectedArcPathFromSource({
+                center: segment?.center,
+                radius: segment?.radius,
+                startAngle: segment?.startAngle,
+                endAngle: segment?.endAngle,
+                clockwise: segment?.clockwise,
+                sweepAngle: segment?.sweepAngle,
+              });
               const sourceSweepAbs = computeSourceSweepAbs({
                 startAngle: segment?.startAngle,
                 endAngle: segment?.endAngle,
@@ -2706,6 +2764,7 @@ const CoordinateConverter = () => {
                 endAngle: projectedMeta.endAngle,
                 clockwise: projectedMeta.clockwise,
                 sweepAngle: Number.isFinite(projectedMeta.sweepAngle) ? projectedMeta.sweepAngle : undefined,
+                pathPoints,
               };
             }
             return { ...segment, start, end };
@@ -2774,6 +2833,14 @@ const CoordinateConverter = () => {
           endAngle: projectedMeta.endAngle,
           clockwise: projectedMeta.clockwise,
           sweepAngle: Number.isFinite(projectedMeta.sweepAngle) ? projectedMeta.sweepAngle : undefined,
+          pathPoints: buildProjectedArcPathFromSource({
+            center: arc?.center,
+            radius: arc?.radius,
+            startAngle: arc?.startAngle,
+            endAngle: arc?.endAngle,
+            clockwise: arc?.clockwise,
+            sweepAngle: arc?.sweepAngle,
+          }),
         };
       })
       .filter(Boolean);
@@ -2805,7 +2872,12 @@ const CoordinateConverter = () => {
           projectionCounters.droppedEntities += 1;
           return null;
         }
-        return { ...circle, center: projectedCenter, radius: projectedRadius };
+        return {
+          ...circle,
+          center: projectedCenter,
+          radius: projectedRadius,
+          pathPoints: buildProjectedCirclePathFromSource({ center: circle?.center, radius: circle?.radius }),
+        };
       })
       .filter(Boolean);
 
