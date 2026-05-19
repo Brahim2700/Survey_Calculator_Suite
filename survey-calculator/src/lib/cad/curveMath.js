@@ -13,6 +13,11 @@ const normalizeAngleRad = (angle) => {
   return out;
 };
 
+const asRadians = (angle) => {
+  const n = Number(angle) || 0;
+  return Math.abs(n) > (Math.PI * 2 + 1e-6) ? ((n * Math.PI) / 180) : n;
+};
+
 const shortestPositiveSweep = (start, end) => {
   let sweep = end - start;
   const twoPi = Math.PI * 2;
@@ -77,8 +82,8 @@ export function tessellateArcSegment(arc, tolerance = 0.5, minSegments = 8, maxS
   if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(radius) || radius <= EPS) return [];
 
   const clockwise = Boolean(arc?.clockwise);
-  const rawStart = toFinite(arc?.startAngle, 0);
-  const rawEnd = toFinite(arc?.endAngle, rawStart);
+  const rawStart = asRadians(toFinite(arc?.startAngle, 0));
+  const rawEnd = asRadians(toFinite(arc?.endAngle, rawStart));
   const start = normalizeAngleRad(rawStart);
   const end = normalizeAngleRad(rawEnd);
 
@@ -138,11 +143,11 @@ export function tessellateEllipse(ellipse, tolerance = 0.5, maxSegments = 720) {
   const minorRadius = majorRadius * ratio;
   const rotation = Math.atan2(ay, ax);
 
-  const start = normalizeAngleRad(toFinite(ellipse?.startAngle, 0));
+  const start = normalizeAngleRad(asRadians(toFinite(ellipse?.startAngle, 0)));
   const endRaw = ellipse?.endAngle;
   const end = endRaw === undefined || endRaw === null
     ? start
-    : normalizeAngleRad(toFinite(endRaw, start));
+    : normalizeAngleRad(asRadians(toFinite(endRaw, start)));
   const sweep = shortestPositiveSweep(start, end) || (Math.PI * 2);
 
   const maxRadius = Math.max(majorRadius, minorRadius);

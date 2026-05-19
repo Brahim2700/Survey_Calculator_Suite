@@ -2449,6 +2449,31 @@ const CoordinateConverter = () => {
       }
     };
 
+    const toAngleRad = (value) => {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return 0;
+      return Math.abs(n) > (Math.PI * 2 + 1e-6) ? ((n * Math.PI) / 180) : n;
+    };
+
+    const buildProjectedArcMeta = (centerPoint, startPoint, endPoint, clockwise = false) => {
+      if (!Array.isArray(centerPoint) || !Array.isArray(startPoint) || !Array.isArray(endPoint)) return null;
+      const cx = Number(centerPoint[0]);
+      const cy = Number(centerPoint[1]);
+      const sx = Number(startPoint[0]);
+      const sy = Number(startPoint[1]);
+      const ex = Number(endPoint[0]);
+      const ey = Number(endPoint[1]);
+      if (![cx, cy, sx, sy, ex, ey].every(Number.isFinite)) return null;
+      const radius = Math.hypot(sx - cx, sy - cy);
+      if (!Number.isFinite(radius) || radius <= 1e-12) return null;
+      return {
+        radius,
+        startAngle: Math.atan2(sy - cy, sx - cx),
+        endAngle: Math.atan2(ey - cy, ex - cx),
+        clockwise: Boolean(clockwise),
+      };
+    };
+
     const lines = safeGeometry.lines
       .map((line) => {
         const s = Array.isArray(line?.start) ? line.start : [];
@@ -2491,7 +2516,18 @@ const CoordinateConverter = () => {
             if (segment?.kind === 'arc') {
               const center = Array.isArray(segment?.center) ? toLatLng(Number(segment.center[0]), Number(segment.center[1]), Number(segment.center[2] ?? 0)) : null;
               if (!center) return null;
-              return { ...segment, start, end, center };
+              const projectedMeta = buildProjectedArcMeta(center, start, end, segment?.clockwise);
+              if (!projectedMeta) return null;
+              return {
+                ...segment,
+                start,
+                end,
+                center,
+                radius: projectedMeta.radius,
+                startAngle: projectedMeta.startAngle,
+                endAngle: projectedMeta.endAngle,
+                clockwise: projectedMeta.clockwise,
+              };
             }
             return { ...segment, start, end };
           })
@@ -2517,7 +2553,40 @@ const CoordinateConverter = () => {
           projectionCounters.droppedEntities += 1;
           return null;
         }
-        return { ...arc, center: projectedCenter };
+        const sourceRadius = Number(arc?.radius);
+        if (!Number.isFinite(sourceRadius) || sourceRadius <= 0) {
+          projectionCounters.droppedArcs += 1;
+          projectionCounters.droppedEntities += 1;
+          return null;
+        }
+        const startRad = toAngleRad(arc?.startAngle ?? 0);
+        const endRad = toAngleRad(arc?.endAngle ?? 0);
+        const sourceStart = toLatLng(
+          Number(center[0]) + sourceRadius * Math.cos(startRad),
+          Number(center[1]) + sourceRadius * Math.sin(startRad),
+          Number(center[2] ?? 0)
+        );
+        const sourceEnd = toLatLng(
+          Number(center[0]) + sourceRadius * Math.cos(endRad),
+          Number(center[1]) + sourceRadius * Math.sin(endRad),
+          Number(center[2] ?? 0)
+        );
+        const projectedMeta = buildProjectedArcMeta(projectedCenter, sourceStart, sourceEnd, arc?.clockwise);
+        if (!projectedMeta) {
+          projectionCounters.droppedArcs += 1;
+          projectionCounters.droppedEntities += 1;
+          return null;
+        }
+        return {
+          ...arc,
+          center: projectedCenter,
+          start: sourceStart,
+          end: sourceEnd,
+          radius: projectedMeta.radius,
+          startAngle: projectedMeta.startAngle,
+          endAngle: projectedMeta.endAngle,
+          clockwise: projectedMeta.clockwise,
+        };
       })
       .filter(Boolean);
 
@@ -2530,7 +2599,25 @@ const CoordinateConverter = () => {
           projectionCounters.droppedEntities += 1;
           return null;
         }
-        return { ...circle, center: projectedCenter };
+        const sourceRadius = Number(circle?.radius);
+        if (!Number.isFinite(sourceRadius) || sourceRadius <= 0) {
+          projectionCounters.droppedCircles += 1;
+          projectionCounters.droppedEntities += 1;
+          return null;
+        }
+        const projectedEdge = toLatLng(Number(center[0]) + sourceRadius, Number(center[1]), Number(center[2] ?? 0));
+        if (!projectedEdge) {
+          projectionCounters.droppedCircles += 1;
+          projectionCounters.droppedEntities += 1;
+          return null;
+        }
+        const projectedRadius = Math.hypot(Number(projectedEdge[0]) - Number(projectedCenter[0]), Number(projectedEdge[1]) - Number(projectedCenter[1]));
+        if (!Number.isFinite(projectedRadius) || projectedRadius <= 1e-12) {
+          projectionCounters.droppedCircles += 1;
+          projectionCounters.droppedEntities += 1;
+          return null;
+        }
+        return { ...circle, center: projectedCenter, radius: projectedRadius };
       })
       .filter(Boolean);
 
