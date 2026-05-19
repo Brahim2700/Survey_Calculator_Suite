@@ -197,4 +197,38 @@ describe('CAD curve extraction', () => {
     expect(segment.kind).toBe('line');
     expect(geometry.curveDiagnostics.some((diag) => diag.code === 'CURVE_BULGE_IGNORED')).toBe(true);
   });
+
+  it('preserves ARC direction under mirrored block inserts', () => {
+    const dxfData = makeDxfData([
+      {
+        type: 'INSERT',
+        name: 'MIRRORED_ARC',
+        layer: 'ROAD',
+        position: { x: 0, y: 0 },
+        xScale: -1,
+        yScale: 1,
+      },
+    ]);
+
+    dxfData.blocks = {
+      MIRRORED_ARC: {
+        name: 'MIRRORED_ARC',
+        entities: [
+          {
+            type: 'ARC',
+            layer: 'ROAD',
+            center: { x: 0, y: 0 },
+            radius: 10,
+            startAngle: 0,
+            endAngle: Math.PI / 2,
+          },
+        ],
+      },
+    };
+
+    const geometry = collectCadGeometryFromDxf(dxfData);
+    expect(geometry.arcs.length).toBe(1);
+    expect(geometry.arcs[0].clockwise).toBe(true);
+    expect(geometry.arcs[0].sweepAngle).toBeCloseTo(-(Math.PI / 2), 9);
+  });
 });

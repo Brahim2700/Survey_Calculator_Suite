@@ -1078,6 +1078,36 @@ const getCadTransformAverageScale = (transform) => {
   return Number.isFinite(avg) && avg > 0 ? avg : 1;
 };
 
+const toArcRadians = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.abs(n) > ((Math.PI * 2) + 1e-6) ? ((n * Math.PI) / 180) : n;
+};
+
+const normalizeAngleRad = (value) => {
+  const twoPi = Math.PI * 2;
+  let out = Number(value) || 0;
+  while (out < 0) out += twoPi;
+  while (out >= twoPi) out -= twoPi;
+  return out;
+};
+
+const shortestPositiveSweep = (start, end) => {
+  let sweep = end - start;
+  const twoPi = Math.PI * 2;
+  while (sweep < 0) sweep += twoPi;
+  while (sweep >= twoPi) sweep -= twoPi;
+  return sweep;
+};
+
+const deriveSignedSweep = (startAngle, endAngle, clockwise = false) => {
+  const start = normalizeAngleRad(startAngle);
+  const end = normalizeAngleRad(endAngle);
+  const ccwSweep = shortestPositiveSweep(start, end);
+  if (!clockwise) return ccwSweep;
+  return ccwSweep > 1e-9 ? -((Math.PI * 2) - ccwSweep) : 0;
+};
+
 const getCadTransformDeterminant = (transform) => {
   const a = Number(transform?.a ?? 1);
   const b = Number(transform?.b ?? 0);
@@ -1170,19 +1200,57 @@ const transformCadEntity = (entity, transform, metadata = {}) => {
       };
     }
     case 'ARC': {
-      const angleOffset = getCadTransformRotationDeg(transform);
       const radialScale = getCadTransformAverageScale(transform);
+      const determinant = getCadTransformDeterminant(transform);
+      const mirrored = determinant < 0;
+      const uniformScale = isCadTransformUniformScale(transform);
       const center = applyCadTransform(entity?.center || entity?.position || entity?.insertionPoint, transform);
       const radius = Number(entity?.radius);
-      const startAngle = Number(entity?.startAngle ?? 0);
-      const endAngle = Number(entity?.endAngle ?? 0);
+      const startAngle = toArcRadians(entity?.startAngle ?? 0);
+      const endAngle = toArcRadians(entity?.endAngle ?? 0);
+      const sourceClockwise = Boolean(entity?.clockwise);
+      const sourceSweepRaw = Number(entity?.sweepAngle);
+      const sourceSweep = Number.isFinite(sourceSweepRaw)
+        ? toArcRadians(sourceSweepRaw)
+        : deriveSignedSweep(startAngle, endAngle, sourceClockwise);
       if (!Number.isFinite(Number(center?.x)) || !Number.isFinite(Number(center?.y)) || !Number.isFinite(radius)) return null;
+
+      const sourceCenter = entity?.center || entity?.position || entity?.insertionPoint || { x: 0, y: 0, z: 0 };
+      const sourceStartPoint = {
+        x: Number(sourceCenter?.x || 0) + (radius * Math.cos(startAngle)),
+        y: Number(sourceCenter?.y || 0) + (radius * Math.sin(startAngle)),
+        z: Number(sourceCenter?.z || 0),
+      };
+      const sourceEndPoint = {
+        x: Number(sourceCenter?.x || 0) + (radius * Math.cos(endAngle)),
+        y: Number(sourceCenter?.y || 0) + (radius * Math.sin(endAngle)),
+        z: Number(sourceCenter?.z || 0),
+      };
+      const transformedStartPoint = applyCadTransform(sourceStartPoint, transform);
+      const transformedEndPoint = applyCadTransform(sourceEndPoint, transform);
+      const startVectorX = Number(transformedStartPoint?.x) - Number(center?.x);
+      const startVectorY = Number(transformedStartPoint?.y) - Number(center?.y);
+      const endVectorX = Number(transformedEndPoint?.x) - Number(center?.x);
+      const endVectorY = Number(transformedEndPoint?.y) - Number(center?.y);
+      const transformedStartRadius = Math.hypot(startVectorX, startVectorY);
+      const transformedEndRadius = Math.hypot(endVectorX, endVectorY);
+      const transformedRadius = Number.isFinite(transformedStartRadius) && Number.isFinite(transformedEndRadius)
+        ? (transformedStartRadius + transformedEndRadius) / 2
+        : Math.abs(radius * radialScale);
+      const transformedClockwise = mirrored ? !sourceClockwise : sourceClockwise;
+      const transformedSweep = mirrored ? -sourceSweep : sourceSweep;
+
       return {
         ...transformed,
         center,
-        radius: Math.abs(radius * radialScale),
-        startAngle: Number.isFinite(startAngle) ? startAngle + angleOffset : entity?.startAngle,
-        endAngle: Number.isFinite(endAngle) ? endAngle + angleOffset : entity?.endAngle,
+        radius: Math.abs(transformedRadius),
+        startAngle: normalizeAngleRad(Math.atan2(startVectorY, startVectorX)),
+        endAngle: normalizeAngleRad(Math.atan2(endVectorY, endVectorX)),
+        sweepAngle: transformedSweep,
+        clockwise: transformedClockwise,
+        startPoint: transformedStartPoint,
+        endPoint: transformedEndPoint,
+        __arcTransformDisabled: uniformScale ? null : 'non-uniform-transform',
       };
     }
     case 'ELLIPSE': {
@@ -2601,6 +2669,18 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
   };
 
   const addArc = (entity) => {
+    if (entity?.__arcTransformDisabled === 'non-uniform-transform') {
+      addLine(entity?.startPoint, entity?.endPoint, entity?.layer || 'ARC', 'ARC', entity?.color);
+      pushCurveDiagnostic({
+        code: CURVE_DIAGNOSTIC_CODES.ARC_RENDERED_AS_LINES,
+        entity,
+        exact: false,
+        approximated: true,
+        recommendation: 'ARC lies inside a non-uniform block transform; preview falls back to chord rendering to avoid incorrect circular reconstruction.',
+      });
+      return;
+    }
+
     const center = entity?.center || entity?.position;
     const radius = Number(entity?.radius);
     const cx = Number(center?.x);
@@ -2632,7 +2712,8 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
       radius,
       startAngle: Number(entity?.startAngle ?? 0),
       endAngle: Number(entity?.endAngle ?? 0),
-      clockwise: false,
+      sweepAngle: Number(entity?.sweepAngle),
+      clockwise: Boolean(entity?.clockwise),
     });
   };
 
