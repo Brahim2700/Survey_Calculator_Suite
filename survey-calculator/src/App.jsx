@@ -17,6 +17,7 @@ import DxfDiffPanel from "./Components/DxfDiffPanel";
 import EntityTypeBreakdown from "./Components/EntityTypeBreakdown";
 import CadEntityPicker from "./Components/CadEntityPicker";
 import CadSurface3DViewer from "./Components/CadSurface3DViewer";
+import LocalCadView from "./Components/LocalCadView";
 import ErrorBoundary from "./Components/ErrorBoundary";
 import proj4 from "proj4";
 import { calculateAllDistances, calculateGeodesicDistance, getUTMZone } from "./utils/calculations";
@@ -210,6 +211,8 @@ function App() {
           notifications: Array.isArray(geometry.notifications) ? geometry.notifications : [],
           repairs: geometry.repairs || null,
           localPreview: Boolean(geometry.localPreview),
+          coordinateSpace: geometry.coordinateSpace || 'geographic',
+          projectionDiagnostics: geometry.projectionDiagnostics || null,
         };
 
         if (append) {
@@ -233,6 +236,8 @@ function App() {
             notifications: [...(Array.isArray(prev?.notifications) ? prev.notifications : []), ...normalizedGeometry.notifications],
             repairs: normalizedGeometry.repairs || prev?.repairs || null,
             localPreview: Boolean(prev?.localPreview || normalizedGeometry.localPreview),
+            coordinateSpace: normalizedGeometry.coordinateSpace || prev?.coordinateSpace || 'geographic',
+            projectionDiagnostics: normalizedGeometry.projectionDiagnostics || prev?.projectionDiagnostics || null,
           }));
         } else {
           setCadGeometry(normalizedGeometry);
@@ -1059,7 +1064,14 @@ function App() {
             )}
 
             {/* Map / 3D viewer */}
-            {mapViewMode === '3d' && visibleCadGeometry.surfaces.length > 0 ? (
+            {(visibleCadGeometry?.coordinateSpace === 'local' || visibleCadGeometry?.localPreview)
+              ? (
+              <div style={{ width: "100%", height: mapFocusMode ? "72vh" : "520px", flexShrink: 0 }}>
+                <ErrorBoundary label="Local CAD View">
+                  <LocalCadView cadGeometry={visibleCadGeometry} />
+                </ErrorBoundary>
+              </div>
+            ) : mapViewMode === '3d' && visibleCadGeometry.surfaces.length > 0 ? (
               <ErrorBoundary label="3D Surface Viewer">
                 <CadSurface3DViewer surfaces={visibleCadGeometry.surfaces} measurePoints={measurePoints} />
               </ErrorBoundary>

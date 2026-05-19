@@ -18,6 +18,7 @@ import { on, emit } from "../utils/eventBus";
 import { safeGetJSON, safeGetString, safeSetJSON, safeSetString, safeRemove } from "../utils/storage";
 import { purgeAppClientData } from "../utils/appDataPurge";
 import { escapeHtml } from "../utils/escapeHtml";
+import { CAD_DIAGNOSTIC_CODES, collectCadXYBounds, decideCadRouting, isValidLatLng } from "../utils/cadCrsRouting";
 
 // Lazy-load geoid utilities only when requested so the main bundle stays small
 let geoidModulePromise = null;
@@ -475,6 +476,58 @@ const buildCadValidationIssueRows = (inspection) => {
       title: "Projection outlier filter active",
       message: `${projectionDiagnostics.droppedVertices} vertex/vertices dropped during projection guard filtering.`,
       detail: `Dropped segments: ${projectionDiagnostics.droppedSegments || 0} | Dropped entities: ${projectionDiagnostics.droppedEntities || 0}`,
+    });
+  }
+
+  const diagCodes = Array.isArray(projectionDiagnostics?.diagnosticCodes) ? projectionDiagnostics.diagnosticCodes : [];
+  if (diagCodes.includes(CAD_DIAGNOSTIC_CODES.CRS_UNKNOWN_LOCAL_CAD)) {
+    addIssue({
+      severity: 'warning',
+      category: 'projection',
+      code: CAD_DIAGNOSTIC_CODES.CRS_UNKNOWN_LOCAL_CAD,
+      title: 'Unknown/local CAD CRS',
+      message: 'This CAD import was treated as local engineering coordinates.',
+      detail: 'Map overlay was blocked until a trusted CRS/georeferencing transform is confirmed.',
+    });
+  }
+  if (diagCodes.includes(CAD_DIAGNOSTIC_CODES.CRS_DOUBLE_REPROJECTION)) {
+    addIssue({
+      severity: 'warning',
+      category: 'projection',
+      code: CAD_DIAGNOSTIC_CODES.CRS_DOUBLE_REPROJECTION,
+      title: 'Double reprojection prevented',
+      message: 'Input geometry looked already projected to map CRS.',
+      detail: 'A second reprojection pass was skipped.',
+    });
+  }
+  if (diagCodes.includes(CAD_DIAGNOSTIC_CODES.CRS_INVALID_LATLON_ASSUMPTION)) {
+    addIssue({
+      severity: 'warning',
+      category: 'projection',
+      code: CAD_DIAGNOSTIC_CODES.CRS_INVALID_LATLON_ASSUMPTION,
+      title: 'Invalid lat/lon assumption blocked',
+      message: 'Some projected/local coordinates were rejected as invalid geographic values.',
+      detail: 'This prevents projected XY from being treated as latitude/longitude.',
+    });
+  }
+  if (diagCodes.includes(CAD_DIAGNOSTIC_CODES.EXTENT_OUTLIER_DETECTED)) {
+    addIssue({
+      severity: 'warning',
+      category: 'extent',
+      code: CAD_DIAGNOSTIC_CODES.EXTENT_OUTLIER_DETECTED,
+      title: 'Extent outlier detected',
+      message: 'Potentially corrupted/outlier coordinates were detected in geometry extents.',
+      detail: 'Outliers were filtered from projection/map fit computations.',
+    });
+  }
+  if (diagCodes.includes(CAD_DIAGNOSTIC_CODES.GEOMETRY_RENDERED_LOCAL_VIEW)) {
+    addIssue({
+      severity: 'info',
+      category: 'projection',
+      code: CAD_DIAGNOSTIC_CODES.GEOMETRY_RENDERED_LOCAL_VIEW,
+      title: 'Rendered in local CAD view',
+      message: 'Geometry is currently shown in local CAD view instead of the world basemap.',
+      detail: 'Confirm CRS/georeferencing to enable geographic overlay.',
     });
   }
 
@@ -1456,17 +1509,31 @@ const CoordinateConverter = () => {
       : null;
     const detectedFromPayload = payload?.inspection?.detectedFromCrs || payload?.diagnostics?.detectedFromCrs || null;
     const preferDetected = Boolean(options?.preferDetected);
+    const assessment = detectLocalReferenceFromRows(rows);
+    const knownCodes = new Set(CRS_LIST.map((crs) => crs.code));
 
-    if (preferDetected) {
-      return detectedFromRows || detectedFromPayload || fromCrs || 'EPSG:4326';
+    if (preferDetected && (detectedFromRows || detectedFromPayload)) {
+      return detectedFromRows || detectedFromPayload;
     }
 
     if (fromCrsManualRef.current && fromCrs && CRS_LIST.some((crs) => crs.code === fromCrs)) {
       return fromCrs;
     }
 
-    return detectedFromRows || detectedFromPayload || fromCrs || 'EPSG:4326';
-  }, [fromCrs]);
+    const candidate = detectedFromRows || detectedFromPayload || fromCrs || null;
+    const sourceKnown = Boolean(candidate && knownCodes.has(candidate));
+    const route = decideCadRouting({
+      sourceCrs: candidate,
+      sourceKnown,
+      assessment,
+      manualOverride: Boolean(fromCrsManualRef.current),
+    });
+
+    if (route.mode === 'local') return 'LOCAL:ENGINEERING';
+    if (sourceKnown) return candidate;
+
+    return fromCrsManualRef.current && fromCrs && knownCodes.has(fromCrs) ? fromCrs : 'LOCAL:ENGINEERING';
+  }, [detectLocalReferenceFromRows, fromCrs]);
 
   const localReferenceNotice = "Detected local/unreferenced plan coordinates. The drawing is not tied to a known CRS (engineering/local grid). Assign control points or set CRS manually before georeferenced conversion.";
   const ambiguousReferenceNotice = "CRS detection is ambiguous for this plan. Please confirm the source CRS before running precise conversion.";
@@ -2218,8 +2285,18 @@ const CoordinateConverter = () => {
         repairs: null,
         renderHints: safeGeometry.renderHints,
         performanceProfile: safeGeometry.performanceProfile,
+        localPreview: false,
+        coordinateSpace: 'geographic',
         projectionDiagnostics: {
           axisMode: 'normal',
+          sourceCrs: sourceCrs || null,
+          targetCrs: 'EPSG:4326',
+          routingMode: 'map',
+          routingReason: 'empty-geometry',
+          sourceBounds: null,
+          projectedBounds: null,
+          mapBounds: null,
+          diagnosticCodes: [],
           droppedVertices: 0,
           droppedSegments: 0,
           droppedEntities: 0,
@@ -2324,25 +2401,80 @@ const CoordinateConverter = () => {
       };
     };
 
-    const createLocalPreviewTransform = (rowsForPreview = [], geometryForPreview = null) => {
-      const stats = scanCadPointStats(rowsForPreview, geometryForPreview, 0);
-      if (!stats) return null;
-      const span = Math.max(stats.spanX, stats.spanY, 1);
-      const scale = 0.22 / span;
-      return {
-        centerX: stats.centerX,
-        centerY: stats.centerY,
-        anchorLat: 20,
-        anchorLng: 0,
-        scale,
-      };
-    };
-
-    const source = sourceCrs || 'EPSG:4326';
+    const source = sourceCrs || 'LOCAL:ENGINEERING';
     const sourceDef = CRS_LIST.find((c) => c.code === source);
     const sourceIsGeo = sourceDef?.type === 'geographic' || source === 'EPSG:4326';
-    const useLocalPreview = source === 'LOCAL:ENGINEERING' || !sourceDef;
-    const localPreviewTransform = useLocalPreview ? createLocalPreviewTransform(rowsForContext, safeGeometry) : null;
+    const knownSource = Boolean(sourceDef);
+    const assessment = detectLocalReferenceFromRows(rowsForContext);
+    const routing = decideCadRouting({
+      sourceCrs: source,
+      sourceKnown: knownSource,
+      assessment,
+      manualOverride: Boolean(fromCrsManualRef.current),
+    });
+    const sourceBoundsStats = collectCadXYBounds(safeGeometry);
+
+    if (geometry?.coordinateSpace === 'geographic' && geometry?.projectionDiagnostics?.targetCrs === 'EPSG:4326') {
+      return {
+        ...geometry,
+        localPreview: false,
+        coordinateSpace: 'geographic',
+        projectionDiagnostics: {
+          ...(geometry?.projectionDiagnostics || {}),
+          sourceCrs: source,
+          targetCrs: 'EPSG:4326',
+          routingMode: 'map',
+          routingReason: 'already-projected',
+          diagnosticCodes: [
+            ...(Array.isArray(geometry?.projectionDiagnostics?.diagnosticCodes) ? geometry.projectionDiagnostics.diagnosticCodes : []),
+            CAD_DIAGNOSTIC_CODES.CRS_DOUBLE_REPROJECTION,
+          ],
+        },
+      };
+    }
+
+    if (routing.mode === 'local') {
+      const localDiagnostics = {
+        axisMode: 'none',
+        sourceCrs: source,
+        targetCrs: null,
+        routingMode: 'local',
+        routingReason: routing.reason,
+        sourceBounds: sourceBoundsStats,
+        projectedBounds: null,
+        mapBounds: null,
+        droppedVertices: 0,
+        droppedSegments: 0,
+        droppedEntities: 0,
+        droppedLines: 0,
+        droppedPolylines: 0,
+        droppedArcs: 0,
+        droppedCircles: 0,
+        droppedEllipses: 0,
+        droppedSplines: 0,
+        droppedTexts: 0,
+        droppedHatches: 0,
+        droppedSurfaces: 0,
+        droppedReasonCounts: {},
+        diagnosticCodes: [...routing.diagnosticCodes],
+        confidenceLow: routing.confidenceLow,
+      };
+
+      console.info('[CAD CRS ROUTING]', {
+        sourceCrs: source,
+        sourceKnown: knownSource,
+        assessment,
+        route: routing,
+        sourceBounds: sourceBoundsStats,
+      });
+
+      return {
+        ...safeGeometry,
+        localPreview: true,
+        coordinateSpace: 'local',
+        projectionDiagnostics: localDiagnostics,
+      };
+    }
 
     const sourceStats = scanCadPointStats(rowsForContext, safeGeometry, 600);
     const sourceBounds = (() => {
@@ -2354,9 +2486,10 @@ const CoordinateConverter = () => {
         spanY: sourceStats.spanY,
       };
     })();
+    const useLocalPreview = false;
 
     const axisMode = (() => {
-      if (useLocalPreview || sourceIsGeo) return 'normal';
+      if (sourceIsGeo) return 'normal';
       const voteSamples = sourceStats?.samples || [];
       if (voteSamples.length < 8) return 'auto';
       let swapVotes = 0;
@@ -2417,17 +2550,6 @@ const CoordinateConverter = () => {
         }
       }
 
-      if (useLocalPreview) {
-        if (!localPreviewTransform) {
-          countDrop('local-preview-unavailable');
-          return null;
-        }
-        return [
-          localPreviewTransform.anchorLat + ((y - localPreviewTransform.centerY) * localPreviewTransform.scale),
-          localPreviewTransform.anchorLng + ((x - localPreviewTransform.centerX) * localPreviewTransform.scale),
-          Number.isFinite(z) ? z : 0,
-        ];
-      }
       if (sourceIsGeo) {
         return [y, x, Number.isFinite(z) ? z : 0];
       }
@@ -2438,7 +2560,7 @@ const CoordinateConverter = () => {
           countDrop('projection-non-finite');
           return null;
         }
-        if (Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+        if (!isValidLatLng(lat, lon)) {
           countDrop('projection-out-of-range');
           return null;
         }
@@ -2791,6 +2913,42 @@ const CoordinateConverter = () => {
       })
       .filter(Boolean);
 
+    const projectedBoundsStats = collectCadXYBounds({
+      lines,
+      polylines,
+      arcs,
+      circles,
+      ellipses,
+      splines,
+      texts,
+      hatches,
+      surfaces,
+    });
+
+    const diagnosticCodes = [];
+    if (Number(sourceBoundsStats?.absurdCount || 0) > 0 || Number(projectedBoundsStats?.absurdCount || 0) > 0) {
+      diagnosticCodes.push(CAD_DIAGNOSTIC_CODES.EXTENT_OUTLIER_DETECTED);
+    }
+    if (Object.keys(projectionCounters.droppedReasonCounts || {}).some((k) => k === 'projection-out-of-range')) {
+      diagnosticCodes.push(CAD_DIAGNOSTIC_CODES.CRS_INVALID_LATLON_ASSUMPTION);
+    }
+
+    console.info('[CAD CRS PIPELINE]', {
+      sourceCrs: source,
+      sourceIsGeo,
+      routingMode: 'map',
+      routingReason: routing.reason,
+      detectedAssessment: assessment,
+      sourceBounds: sourceBoundsStats,
+      projectedBounds: projectedBoundsStats,
+      dropped: {
+        vertices: projectionCounters.droppedVertices,
+        entities: projectionCounters.droppedEntities,
+        reasons: projectionCounters.droppedReasonCounts,
+      },
+      diagnosticCodes,
+    });
+
     return {
       lines,
       polylines,
@@ -2809,9 +2967,18 @@ const CoordinateConverter = () => {
       repairs: safeGeometry.repairs,
       renderHints: safeGeometry.renderHints,
       performanceProfile: safeGeometry.performanceProfile,
-      localPreview: useLocalPreview,
+      localPreview: false,
+      coordinateSpace: 'geographic',
       projectionDiagnostics: {
         axisMode,
+        sourceCrs: source,
+        targetCrs: 'EPSG:4326',
+        routingMode: 'map',
+        routingReason: routing.reason,
+        sourceBounds: sourceBoundsStats,
+        projectedBounds: projectedBoundsStats,
+        mapBounds: projectedBoundsStats,
+        diagnosticCodes,
         droppedVertices: projectionCounters.droppedVertices,
         droppedSegments: projectionCounters.droppedSegments,
         droppedEntities: projectionCounters.droppedEntities,
@@ -2827,7 +2994,7 @@ const CoordinateConverter = () => {
         droppedReasonCounts: projectionCounters.droppedReasonCounts,
       },
     };
-  }, []);
+  }, [detectLocalReferenceFromRows]);
 
   const projectCadRowsToWgs84 = useCallback((rows, sourceCrs, geometry = null) => {
     const normalizeCadText = (value) => String(value || '').trim();
@@ -2958,31 +3125,26 @@ const CoordinateConverter = () => {
       });
     };
 
-    const createLocalPreviewTransform = (rowsForPreview = [], geometryForPreview = null) => {
-      const points = collectRawCadPoints(rowsForPreview, geometryForPreview);
-      if (!points.length) return null;
-      const xs = points.map((point) => point.x);
-      const ys = points.map((point) => point.y);
-      const minX = Math.min(...xs);
-      const maxX = Math.max(...xs);
-      const minY = Math.min(...ys);
-      const maxY = Math.max(...ys);
-      const span = Math.max(maxX - minX, maxY - minY, 1);
-      const scale = 0.22 / span;
-      return {
-        centerX: (minX + maxX) / 2,
-        centerY: (minY + maxY) / 2,
-        anchorLat: 20,
-        anchorLng: 0,
-        scale,
-      };
-    };
-
-    const source = sourceCrs || 'EPSG:4326';
+    const source = sourceCrs || 'LOCAL:ENGINEERING';
     const sourceDef = CRS_LIST.find((c) => c.code === source);
     const sourceIsGeo = sourceDef?.type === 'geographic' || source === 'EPSG:4326';
-    const useLocalPreview = source === 'LOCAL:ENGINEERING' || !sourceDef;
-    const localPreviewTransform = useLocalPreview ? createLocalPreviewTransform(rows, geometry) : null;
+    const assessment = detectLocalReferenceFromRows(rows);
+    const routing = decideCadRouting({
+      sourceCrs: source,
+      sourceKnown: Boolean(sourceDef),
+      assessment,
+      manualOverride: Boolean(fromCrsManualRef.current),
+    });
+
+    if (routing.mode === 'local') {
+      console.info('[CAD ROW ROUTING]', {
+        sourceCrs: source,
+        route: routing,
+        rowCount: Array.isArray(rows) ? rows.length : 0,
+      });
+      return [];
+    }
+
     const pointAnnotations = buildCadPointAnnotations(Array.isArray(rows) ? rows : [], geometry);
 
     return (Array.isArray(rows) ? rows : [])
@@ -3020,26 +3182,6 @@ const CoordinateConverter = () => {
         const fallbackPointId = String(row?.id || '').trim() || `cad_${index + 1}`;
         const pointId = fallbackPointId;
         const pointLabel = importedCadName || pointId;
-
-        if (useLocalPreview) {
-          if (!localPreviewTransform) return null;
-          return {
-            id: pointId,
-            lat: localPreviewTransform.anchorLat + ((yVal - localPreviewTransform.centerY) * localPreviewTransform.scale),
-            lng: localPreviewTransform.anchorLng + ((xVal - localPreviewTransform.centerX) * localPreviewTransform.scale),
-            label: pointLabel,
-            importedCadName,
-            importedCadElevationText,
-            description: pointDescription,
-            blockAttributes: row?.blockAttributes || null,
-            cadSymbol: row?.cadSymbol || null,
-            height: Number.isFinite(Number(row?.z)) ? Number(row.z) : 0,
-            sourceType: 'cad-point',
-            markerSeverity: 'medium',
-            markerColor: '#b45309',
-            validationMessage: 'Local engineering preview only. Assign a real source CRS for georeferenced placement.',
-          };
-        }
 
         if (sourceIsGeo) {
           return {
@@ -3079,8 +3221,8 @@ const CoordinateConverter = () => {
           return null;
         }
       })
-      .filter(Boolean);
-  }, []);
+        .filter(Boolean);
+      }, [detectLocalReferenceFromRows]);
 
   // Auto-emit points after bulk conversion for map/sidebar consumers
   useEffect(() => {

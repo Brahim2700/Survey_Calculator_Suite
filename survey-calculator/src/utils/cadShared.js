@@ -3386,4 +3386,6 @@ export const EMPTY_CAD_GEOMETRY = {
   notifications: [],
   repairs: null,
   localPreview: false,
+  coordinateSpace: 'geographic',
+  projectionDiagnostics: null,
 };

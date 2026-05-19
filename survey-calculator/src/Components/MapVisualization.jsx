@@ -8,6 +8,7 @@ import { buildRenderableHatch } from '../lib/render/hatchRenderer.js';
 import { tessellateArcSegment, tessellateCircle, tessellateEllipse, tessellateSpline } from '../lib/cad/curveMath.js';
 import { EMPTY_CAD_GEOMETRY } from '../utils/cadShared';
 import { escapeHtml } from '../utils/escapeHtml';
+import { CAD_DIAGNOSTIC_CODES, isValidLatLng, shouldAbortWorldFit } from '../utils/cadCrsRouting';
 
 const BASEMAP_STORAGE_KEY = 'survey_calc_basemap';
 const MAP_ADVANCED_TOOLS_STORAGE_KEY = 'survey_calc_map_advanced_tools';
@@ -234,12 +235,15 @@ const getCurveToleranceDegrees = (zoom) => {
 
 const toLatLngTuple = (pointLike) => {
   if (Array.isArray(pointLike) && Number.isFinite(Number(pointLike[0])) && Number.isFinite(Number(pointLike[1]))) {
-    return [Number(pointLike[0]), Number(pointLike[1]), Number(pointLike[2] ?? 0)];
+    const lat = Number(pointLike[0]);
+    const lng = Number(pointLike[1]);
+    if (!isValidLatLng(lat, lng)) return null;
+    return [lat, lng, Number(pointLike[2] ?? 0)];
   }
   const x = Number(pointLike?.x);
   const y = Number(pointLike?.y);
   const z = Number(pointLike?.z ?? 0);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !isValidLatLng(x, y)) return null;
   return [x, y, Number.isFinite(z) ? z : 0];
 };
 
@@ -1186,7 +1190,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
         console.warn(`[MapViz] Point ${idx} is not an object:`, point);
         return false;
       }
-      if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) {
+      if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng) || !isValidLatLng(point.lat, point.lng)) {
         console.warn(`[MapViz] Point ${idx} has invalid coordinates:`, {
           lat: point.lat,
           lng: point.lng,
@@ -2088,8 +2092,35 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
 
       dataExtentBoundsRef.current = selectedBounds;
       if (fittedPointsSignatureRef.current !== fitSignature) {
-        map.current.fitBounds(selectedBounds.pad(0.1));
-        fittedPointsSignatureRef.current = fitSignature;
+        const latSpan = Math.abs(Number(selectedBounds?.getNorth?.()) - Number(selectedBounds?.getSouth?.()));
+        const lngSpan = Math.abs(Number(selectedBounds?.getEast?.()) - Number(selectedBounds?.getWest?.()));
+        const abortFit = shouldAbortWorldFit({ latSpan, lngSpan, pointCount: validPoints.length });
+        if (abortFit) {
+          console.warn('[MapViz] Fit aborted due to invalid/suspicious bounds', {
+            diagnosticCode: CAD_DIAGNOSTIC_CODES.MAP_FIT_ABORTED_INVALID_BOUNDS,
+            extentCode: CAD_DIAGNOSTIC_CODES.EXTENT_OUTLIER_DETECTED,
+            latSpan,
+            lngSpan,
+            pointCount: validPoints.length,
+            projectionDiagnostics: cadGeometry?.projectionDiagnostics || null,
+          });
+          const timer = setTimeout(() => {
+            setRobustFitDebug({ active: true, message: 'Map fit aborted: invalid or world-scale bounds detected.' });
+          }, 0);
+          pendingTimeouts.push(timer);
+        } else {
+          console.info('[MapViz] fitBounds', {
+            mapBounds: {
+              minLat: Number(selectedBounds.getSouth()),
+              maxLat: Number(selectedBounds.getNorth()),
+              minLng: Number(selectedBounds.getWest()),
+              maxLng: Number(selectedBounds.getEast()),
+            },
+            projectionDiagnostics: cadGeometry?.projectionDiagnostics || null,
+          });
+          map.current.fitBounds(selectedBounds.pad(0.1));
+          fittedPointsSignatureRef.current = fitSignature;
+        }
       }
     } else if (validPoints.length === 0 && (!measurePoints || measurePoints.length === 0)) {
       // Do not force-reset view on each zoom/move event when no data is loaded.
