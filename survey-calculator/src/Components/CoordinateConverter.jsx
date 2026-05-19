@@ -2455,7 +2455,31 @@ const CoordinateConverter = () => {
       return Math.abs(n) > (Math.PI * 2 + 1e-6) ? ((n * Math.PI) / 180) : n;
     };
 
-    const buildProjectedArcMeta = (centerPoint, startPoint, endPoint, clockwise = false) => {
+    const normalizePositiveSweep = (start, end) => {
+      const twoPi = Math.PI * 2;
+      let sweep = Number(end) - Number(start);
+      while (sweep < 0) sweep += twoPi;
+      while (sweep >= twoPi) sweep -= twoPi;
+      return sweep;
+    };
+
+    const computeSourceSweepAbs = ({ startAngle, endAngle, clockwise = false, bulge }) => {
+      const bulgeVal = Number(bulge);
+      if (Number.isFinite(bulgeVal) && Math.abs(bulgeVal) > 1e-12) {
+        const sweepFromBulge = Math.abs(4 * Math.atan(bulgeVal));
+        return Math.max(0, Math.min((Math.PI * 2) - 1e-9, sweepFromBulge));
+      }
+      const start = toAngleRad(startAngle ?? 0);
+      const end = toAngleRad(endAngle ?? start);
+      let sweep = normalizePositiveSweep(start, end);
+      if (clockwise) {
+        sweep = sweep > 1e-9 ? (Math.PI * 2) - sweep : 0;
+      }
+      if (!Number.isFinite(sweep)) return null;
+      return Math.max(0, Math.min((Math.PI * 2) - 1e-9, sweep));
+    };
+
+    const buildProjectedArcMeta = (centerPoint, startPoint, endPoint, options = {}) => {
       if (!Array.isArray(centerPoint) || !Array.isArray(startPoint) || !Array.isArray(endPoint)) return null;
       const cx = Number(centerPoint[0]);
       const cy = Number(centerPoint[1]);
@@ -2466,11 +2490,34 @@ const CoordinateConverter = () => {
       if (![cx, cy, sx, sy, ex, ey].every(Number.isFinite)) return null;
       const radius = Math.hypot(sx - cx, sy - cy);
       if (!Number.isFinite(radius) || radius <= 1e-12) return null;
+      const startAngle = Math.atan2(sy - cy, sx - cx);
+      const requestedSweep = Number(options?.sweepAbs);
+      if (Number.isFinite(requestedSweep) && requestedSweep > 1e-9) {
+        const clampSweep = Math.max(1e-9, Math.min((Math.PI * 2) - 1e-9, requestedSweep));
+        const endCcw = startAngle + clampSweep;
+        const endCw = startAngle - clampSweep;
+        const ccwX = cx + radius * Math.cos(endCcw);
+        const ccwY = cy + radius * Math.sin(endCcw);
+        const cwX = cx + radius * Math.cos(endCw);
+        const cwY = cy + radius * Math.sin(endCw);
+        const ccwErr = Math.hypot(ccwX - ex, ccwY - ey);
+        const cwErr = Math.hypot(cwX - ex, cwY - ey);
+        const chooseClockwise = cwErr + 1e-12 < ccwErr;
+        const endAngle = chooseClockwise ? endCw : endCcw;
+        return {
+          radius,
+          startAngle,
+          endAngle,
+          clockwise: chooseClockwise,
+          sweepAngle: chooseClockwise ? -clampSweep : clampSweep,
+        };
+      }
       return {
         radius,
-        startAngle: Math.atan2(sy - cy, sx - cx),
+        startAngle,
         endAngle: Math.atan2(ey - cy, ex - cx),
-        clockwise: Boolean(clockwise),
+        clockwise: Boolean(options?.clockwise),
+        sweepAngle: null,
       };
     };
 
@@ -2516,7 +2563,16 @@ const CoordinateConverter = () => {
             if (segment?.kind === 'arc') {
               const center = Array.isArray(segment?.center) ? toLatLng(Number(segment.center[0]), Number(segment.center[1]), Number(segment.center[2] ?? 0)) : null;
               if (!center) return null;
-              const projectedMeta = buildProjectedArcMeta(center, start, end, segment?.clockwise);
+              const sourceSweepAbs = computeSourceSweepAbs({
+                startAngle: segment?.startAngle,
+                endAngle: segment?.endAngle,
+                clockwise: segment?.clockwise,
+                bulge: segment?.bulge,
+              });
+              const projectedMeta = buildProjectedArcMeta(center, start, end, {
+                clockwise: segment?.clockwise,
+                sweepAbs: sourceSweepAbs,
+              });
               if (!projectedMeta) return null;
               return {
                 ...segment,
@@ -2527,6 +2583,7 @@ const CoordinateConverter = () => {
                 startAngle: projectedMeta.startAngle,
                 endAngle: projectedMeta.endAngle,
                 clockwise: projectedMeta.clockwise,
+                sweepAngle: Number.isFinite(projectedMeta.sweepAngle) ? projectedMeta.sweepAngle : undefined,
               };
             }
             return { ...segment, start, end };
@@ -2571,7 +2628,15 @@ const CoordinateConverter = () => {
           Number(center[1]) + sourceRadius * Math.sin(endRad),
           Number(center[2] ?? 0)
         );
-        const projectedMeta = buildProjectedArcMeta(projectedCenter, sourceStart, sourceEnd, arc?.clockwise);
+        const sourceSweepAbs = computeSourceSweepAbs({
+          startAngle: arc?.startAngle,
+          endAngle: arc?.endAngle,
+          clockwise: arc?.clockwise,
+        });
+        const projectedMeta = buildProjectedArcMeta(projectedCenter, sourceStart, sourceEnd, {
+          clockwise: arc?.clockwise,
+          sweepAbs: sourceSweepAbs,
+        });
         if (!projectedMeta) {
           projectionCounters.droppedArcs += 1;
           projectionCounters.droppedEntities += 1;
@@ -2586,6 +2651,7 @@ const CoordinateConverter = () => {
           startAngle: projectedMeta.startAngle,
           endAngle: projectedMeta.endAngle,
           clockwise: projectedMeta.clockwise,
+          sweepAngle: Number.isFinite(projectedMeta.sweepAngle) ? projectedMeta.sweepAngle : undefined,
         };
       })
       .filter(Boolean);

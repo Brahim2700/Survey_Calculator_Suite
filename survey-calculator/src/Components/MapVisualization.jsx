@@ -1700,6 +1700,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
               startAngle: Number(segment?.startAngle),
               endAngle: Number(segment?.endAngle),
               clockwise: Boolean(segment?.clockwise),
+              sweepAngle: Number(segment?.sweepAngle),
             }, curveTolerance);
             samples.forEach((sample, sampleIndex) => {
               if (segmentIndex > 0 && sampleIndex === 0 && curvePath.length > 0) return;
@@ -1738,6 +1739,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
           startAngle: Number(arc?.startAngle ?? 0),
           endAngle: Number(arc?.endAngle ?? 0),
           clockwise: Boolean(arc?.clockwise),
+          sweepAngle: Number(arc?.sweepAngle),
         }, curveTolerance).map((p) => [Number(p?.x), Number(p?.y)]);
         if (path.length < 2) return;
         const layer = L.polyline(path, {

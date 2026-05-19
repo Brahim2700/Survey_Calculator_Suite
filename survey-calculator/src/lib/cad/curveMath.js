@@ -86,9 +86,16 @@ export function tessellateArcSegment(arc, tolerance = 0.5, minSegments = 8, maxS
   const rawEnd = asRadians(toFinite(arc?.endAngle, rawStart));
   const start = normalizeAngleRad(rawStart);
   const end = normalizeAngleRad(rawEnd);
+  const explicitSweep = Number(arc?.sweepAngle);
 
-  let sweep = shortestPositiveSweep(start, end);
-  if (clockwise) {
+  let signedSweep = null;
+  if (Number.isFinite(explicitSweep) && Math.abs(explicitSweep) > EPS) {
+    const absSweep = Math.max(EPS, Math.min((Math.PI * 2) - EPS, Math.abs(asRadians(explicitSweep))));
+    signedSweep = explicitSweep < 0 ? -absSweep : absSweep;
+  }
+
+  let sweep = signedSweep === null ? shortestPositiveSweep(start, end) : Math.abs(signedSweep);
+  if (signedSweep === null && clockwise) {
     sweep = sweep > EPS ? (Math.PI * 2) - sweep : 0;
   }
   if (sweep <= EPS) {
@@ -104,7 +111,9 @@ export function tessellateArcSegment(arc, tolerance = 0.5, minSegments = 8, maxS
   const out = [];
   for (let i = 0; i <= segmentCount; i += 1) {
     const t = i / segmentCount;
-    const angle = clockwise ? (start - (sweep * t)) : (start + (sweep * t));
+    const angle = signedSweep !== null
+      ? (start + (signedSweep * t))
+      : (clockwise ? (start - (sweep * t)) : (start + (sweep * t)));
     out.push({
       x: cx + (radius * Math.cos(angle)),
       y: cy + (radius * Math.sin(angle)),
