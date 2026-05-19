@@ -774,8 +774,14 @@ function normalizeCadGeometry(geometry) {
   return {
     lines: Array.isArray(geometry?.lines) ? geometry.lines : [],
     polylines: Array.isArray(geometry?.polylines) ? geometry.polylines : [],
+    arcs: Array.isArray(geometry?.arcs) ? geometry.arcs : [],
+    circles: Array.isArray(geometry?.circles) ? geometry.circles : [],
+    ellipses: Array.isArray(geometry?.ellipses) ? geometry.ellipses : [],
+    splines: Array.isArray(geometry?.splines) ? geometry.splines : [],
     texts: Array.isArray(geometry?.texts) ? geometry.texts : [],
     hatches: Array.isArray(geometry?.hatches) ? geometry.hatches : [],
+    curveDiagnostics: Array.isArray(geometry?.curveDiagnostics) ? geometry.curveDiagnostics : [],
+    curveSummary: geometry?.curveSummary || null,
     surfaces: Array.isArray(geometry?.surfaces) ? geometry.surfaces : [],
   };
 }
@@ -810,18 +816,52 @@ function buildSceneIssues({ warnings = [], inspection = null, preScan = null, ge
     });
   }
 
+  const curveDiagnostics = Array.isArray(geometry?.curveDiagnostics)
+    ? geometry.curveDiagnostics
+    : (Array.isArray(inspection?.curveDiagnostics) ? inspection.curveDiagnostics : []);
+  for (const diag of curveDiagnostics) {
+    issues.push({
+      id: `curve-${issueSeq++}`,
+      code: String(diag?.code || 'curve-diagnostic'),
+      severity: String(diag?.severity || 'warning').toLowerCase() === 'error' ? 'error' : 'warning',
+      title: 'CAD curve diagnostic',
+      detail: String(diag?.recommendation || 'Curve entity required approximation or could not be preserved exactly.'),
+      entityRef: diag?.handle || null,
+    });
+  }
+
   const preScanSignals = Array.isArray(preScan?.signals) ? preScan.signals : [];
   for (const signal of preScanSignals) {
     const signalWeight = Number(signal?.weight || 0);
     const signalSeverity = signalWeight >= 12 ? 'warning' : 'info';
+    const signalCode = String(signal?.code || 'cad-prescan-signal');
     issues.push({
       id: `prescan-${issueSeq++}`,
-      code: String(signal?.code || 'cad-prescan-signal'),
+      code: signalCode,
       severity: signalSeverity,
       title: 'CAD pre-scan signal',
       detail: String(signal?.detail || signal?.code || 'CAD pre-scan signal detected.'),
       entityRef: null,
     });
+
+    if (signalCode === 'proxy-entity-detected') {
+      issues.push({
+        id: `curve-proxy-${issueSeq++}`,
+        code: 'CURVE_PROXY_UNSUPPORTED',
+        severity: 'warning',
+        title: 'Proxy curve entity detected',
+        detail: 'Proxy/custom CAD entities detected. Exact curve reconstruction may be unavailable with current import path.',
+        entityRef: null,
+      });
+      issues.push({
+        id: `curve-alignment-${issueSeq++}`,
+        code: 'CURVE_ALIGNMENT_PROXY_DETECTED',
+        severity: 'warning',
+        title: 'Civil alignment proxy risk',
+        detail: 'Alignment-like proxy objects may require Civil 3D-native export to preserve exact geometry.',
+        entityRef: null,
+      });
+    }
   }
 
   if (inspection?.degradedFallback) {
@@ -904,6 +944,10 @@ function buildCanonicalCadScene({ sourceFormat, originalName, rows, geometry, in
       points: Array.isArray(rows) ? rows : [],
       lines: normalizedGeometry.lines,
       polylines: normalizedGeometry.polylines,
+      arcs: normalizedGeometry.arcs,
+      circles: normalizedGeometry.circles,
+      ellipses: normalizedGeometry.ellipses,
+      splines: normalizedGeometry.splines,
       texts: normalizedGeometry.texts,
       hatches: normalizedGeometry.hatches,
       surfaces: normalizedGeometry.surfaces,
@@ -917,6 +961,8 @@ function buildCanonicalCadScene({ sourceFormat, originalName, rows, geometry, in
     diagnostics: {
       qualityScore,
       validationSummary: inspection?.validation || null,
+      curveSummary: inspection?.curveSummary || null,
+      curveDiagnostics: Array.isArray(inspection?.curveDiagnostics) ? inspection.curveDiagnostics : [],
       hatchSummary: inspection?.hatchSummary || null,
       issues,
       severityBuckets,
@@ -1122,6 +1168,8 @@ export async function parseCadUpload({
     detectedFromCrs: diagnostics?.detectedFromCrs || rows.find((row) => row?.detectedFromCrs)?.detectedFromCrs || null,
     validation: geometry?.validation || diagnostics?.validation || null,
     layerSummary: geometry?.layerSummary || diagnostics?.layerSummary || null,
+    curveSummary: geometry?.curveSummary || null,
+    curveDiagnostics: Array.isArray(geometry?.curveDiagnostics) ? geometry.curveDiagnostics : [],
     hatchSummary: geometry?.hatchSummary || null,
     hatchDiagnosticsSummary: geometry?.hatchSummary?.diagnostics || {
       total: Array.isArray(geometry?.hatchDiagnostics) ? geometry.hatchDiagnostics.length : 0,

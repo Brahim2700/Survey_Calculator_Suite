@@ -255,7 +255,7 @@ function normalizeCadParseResponse(payload, preScan = null) {
   const normalized = {
     ...payload,
     rows: Array.isArray(payload?.rows) ? payload.rows : [],
-    geometry: payload?.geometry || { lines: [], polylines: [], texts: [], hatches: [], surfaces: [] },
+    geometry: payload?.geometry || { lines: [], polylines: [], arcs: [], circles: [], ellipses: [], splines: [], texts: [], hatches: [], surfaces: [], curveDiagnostics: [], curveSummary: null },
     sourceFormat: String(payload?.sourceFormat || 'unknown'),
     warnings: Array.isArray(payload?.warnings) ? payload.warnings : [],
     inspection: payload?.inspection || null,
@@ -310,24 +310,6 @@ const generalRateLimit = rateLimit({
 
 const OTD_ALLOWED_DATASETS = new Set(['srtm30m', 'aster30m', 'eudem25m']);
 const OTD_MAX_LOCATIONS = 100;
-const WEB_MERCATOR_MAX_LAT = 85.05112878;
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
-
-function latLngToWebMercator(lat, lng) {
-  const safeLat = clamp(Number(lat) || 0, -WEB_MERCATOR_MAX_LAT, WEB_MERCATOR_MAX_LAT);
-  const safeLng = clamp(Number(lng) || 0, -180, 180);
-  const x = (safeLng * 20037508.34) / 180;
-  const y = Math.log(Math.tan(((90 + safeLat) * Math.PI) / 360)) / (Math.PI / 180);
-  return {
-    x,
-    y: (y * 20037508.34) / 180,
-  };
-}
-
-
 app.post('/api/elevation/opentopodata', generalRateLimit, express.json({ limit: '256kb' }), async (req, res) => {
   try {
     const dataset = String(req.body?.dataset || '').trim().toLowerCase();

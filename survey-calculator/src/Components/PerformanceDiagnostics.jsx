@@ -5,6 +5,13 @@ const PerformanceDiagnostics = ({ points = [], cadGeometry = {}, mapMetrics = {}
     pointCount: 0,
     lineCount: 0,
     polylineCount: 0,
+    arcCount: 0,
+    circleCount: 0,
+    ellipseCount: 0,
+    splineCount: 0,
+    bulgeSegmentCount: 0,
+    proxyCurveCount: 0,
+    approximatedCurveCount: 0,
     totalVertices: 0,
     estimatedMemory: '0 MB',
     renderTime: '0 ms',
@@ -24,6 +31,13 @@ const PerformanceDiagnostics = ({ points = [], cadGeometry = {}, mapMetrics = {}
     const pointCount = Array.isArray(points) ? points.length : 0;
     const lineCount = Array.isArray(cadGeometry?.lines) ? cadGeometry.lines.length : 0;
     const polylineCount = Array.isArray(cadGeometry?.polylines) ? cadGeometry.polylines.length : 0;
+    const arcCount = Array.isArray(cadGeometry?.arcs) ? cadGeometry.arcs.length : 0;
+    const circleCount = Array.isArray(cadGeometry?.circles) ? cadGeometry.circles.length : 0;
+    const ellipseCount = Array.isArray(cadGeometry?.ellipses) ? cadGeometry.ellipses.length : 0;
+    const splineCount = Array.isArray(cadGeometry?.splines) ? cadGeometry.splines.length : 0;
+    const bulgeSegmentCount = Number(cadGeometry?.curveSummary?.polylineBulgeSegments || 0);
+    const proxyCurveCount = Number(cadGeometry?.curveSummary?.proxyCurveEntities || 0);
+    const approximatedCurveCount = Number(cadGeometry?.curveSummary?.approximatedCurves || 0);
 
     let totalVertices = 0;
     (Array.isArray(cadGeometry?.polylines) ? cadGeometry.polylines : []).forEach((poly) => {
@@ -44,6 +58,13 @@ const PerformanceDiagnostics = ({ points = [], cadGeometry = {}, mapMetrics = {}
       pointCount,
       lineCount,
       polylineCount,
+      arcCount,
+      circleCount,
+      ellipseCount,
+      splineCount,
+      bulgeSegmentCount,
+      proxyCurveCount,
+      approximatedCurveCount,
       totalVertices,
       estimatedMemory: totalMemory.toFixed(2),
     }));
@@ -128,6 +149,13 @@ const PerformanceDiagnostics = ({ points = [], cadGeometry = {}, mapMetrics = {}
           <div>Points: <strong style={{ color: '#e0eaff' }}>{stats.pointCount.toLocaleString()}</strong></div>
           <div>Lines: <strong style={{ color: '#e0eaff' }}>{stats.lineCount.toLocaleString()}</strong></div>
           <div>Polylines: <strong style={{ color: '#e0eaff' }}>{stats.polylineCount.toLocaleString()}</strong></div>
+          <div>Arcs: <strong style={{ color: '#e0eaff' }}>{stats.arcCount.toLocaleString()}</strong></div>
+          <div>Circles: <strong style={{ color: '#e0eaff' }}>{stats.circleCount.toLocaleString()}</strong></div>
+          <div>Ellipses: <strong style={{ color: '#e0eaff' }}>{stats.ellipseCount.toLocaleString()}</strong></div>
+          <div>Splines: <strong style={{ color: '#e0eaff' }}>{stats.splineCount.toLocaleString()}</strong></div>
+          <div>Bulge arcs: <strong style={{ color: '#e0eaff' }}>{stats.bulgeSegmentCount.toLocaleString()}</strong></div>
+          <div>Proxy curves: <strong style={{ color: '#e0eaff' }}>{stats.proxyCurveCount.toLocaleString()}</strong></div>
+          <div>Approx curves: <strong style={{ color: '#e0eaff' }}>{stats.approximatedCurveCount.toLocaleString()}</strong></div>
           <div>Vertices: <strong style={{ color: '#e0eaff' }}>{stats.totalVertices.toLocaleString()}</strong></div>
         </div>
 

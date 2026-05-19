@@ -1,11 +1,20 @@
 import DxfParser from 'dxf-parser';
 import { detectCRS, assessReferenceSystem } from './crsDetection.js';
 import { normalizeHatchEntity } from '../lib/cad/hatchModel.js';
+import { bulgeToArc } from '../lib/cad/curveMath.js';
 
 const CAD_TEXT_DECODER = new TextDecoder('utf-8', { fatal: false });
 const DEFAULT_TEXT_HEIGHT = 2.5;
 const FALLBACK_TEXT_FONT = 'Segoe UI';
 const CAD_SURFACE_TRIANGLE_WARN_THRESHOLD = 20000;
+const CURVE_DIAGNOSTIC_CODES = {
+  BULGE_IGNORED: 'CURVE_BULGE_IGNORED',
+  ARC_RENDERED_AS_LINES: 'CURVE_ARC_RENDERED_AS_LINES',
+  SPLINE_APPROXIMATED: 'CURVE_SPLINE_APPROXIMATED',
+  ELLIPSE_APPROXIMATED: 'CURVE_ELLIPSE_APPROXIMATED',
+  PROXY_UNSUPPORTED: 'CURVE_PROXY_UNSUPPORTED',
+  ALIGNMENT_PROXY_DETECTED: 'CURVE_ALIGNMENT_PROXY_DETECTED',
+};
 const CAD_UNIT_LABELS = {
   0: 'Unitless',
   1: 'Inches',
@@ -340,6 +349,39 @@ const collectCadRawPoints = (rows, geometry) => {
 
   (Array.isArray(geometry?.polylines) ? geometry.polylines : []).forEach((poly) => {
     (Array.isArray(poly?.points) ? poly.points : []).forEach((point) => {
+      if (Number.isFinite(Number(point?.[0])) && Number.isFinite(Number(point?.[1]))) {
+        points.push({ x: Number(point[0]), y: Number(point[1]), z: Number(point[2] ?? 0) });
+      }
+    });
+  });
+
+  (Array.isArray(geometry?.arcs) ? geometry.arcs : []).forEach((arc) => {
+    const center = Array.isArray(arc?.center) ? arc.center : [];
+    if (Number.isFinite(Number(center[0])) && Number.isFinite(Number(center[1]))) {
+      points.push({ x: Number(center[0]), y: Number(center[1]), z: Number(center[2] ?? 0) });
+    }
+  });
+
+  (Array.isArray(geometry?.circles) ? geometry.circles : []).forEach((circle) => {
+    const center = Array.isArray(circle?.center) ? circle.center : [];
+    if (Number.isFinite(Number(center[0])) && Number.isFinite(Number(center[1]))) {
+      points.push({ x: Number(center[0]), y: Number(center[1]), z: Number(center[2] ?? 0) });
+    }
+  });
+
+  (Array.isArray(geometry?.ellipses) ? geometry.ellipses : []).forEach((ellipse) => {
+    const center = Array.isArray(ellipse?.center) ? ellipse.center : [];
+    const axis = Array.isArray(ellipse?.majorAxis) ? ellipse.majorAxis : [];
+    if (Number.isFinite(Number(center[0])) && Number.isFinite(Number(center[1]))) {
+      points.push({ x: Number(center[0]), y: Number(center[1]), z: Number(center[2] ?? 0) });
+    }
+    if (Number.isFinite(Number(center[0])) && Number.isFinite(Number(center[1])) && Number.isFinite(Number(axis[0])) && Number.isFinite(Number(axis[1]))) {
+      points.push({ x: Number(center[0]) + Number(axis[0]), y: Number(center[1]) + Number(axis[1]), z: Number(center[2] ?? 0) });
+    }
+  });
+
+  (Array.isArray(geometry?.splines) ? geometry.splines : []).forEach((spline) => {
+    (Array.isArray(spline?.controlPoints) ? spline.controlPoints : []).forEach((point) => {
       if (Number.isFinite(Number(point?.[0])) && Number.isFinite(Number(point?.[1]))) {
         points.push({ x: Number(point[0]), y: Number(point[1]), z: Number(point[2] ?? 0) });
       }
@@ -1023,47 +1065,6 @@ const pushUniqueReference = (target, item, key) => {
   target.push({ key, ...item });
 };
 
-const sampleArcLikeVertices = (entity, transform, forceClosed = false) => {
-  const center = entity?.center || entity?.position || entity?.insertionPoint;
-  const cx = Number(center?.x);
-  const cy = Number(center?.y);
-  const cz = Number(center?.z ?? entity?.elevation ?? entity?.z ?? 0);
-  const radius = Number(entity?.radius);
-  if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(radius) || radius <= 0) return [];
-
-  const startRaw = Number(entity?.startAngle ?? 0);
-  const endRaw = Number(entity?.endAngle ?? (forceClosed ? 360 : 0));
-  const startDeg = Number.isFinite(startRaw) ? startRaw : 0;
-  let sweepDeg = forceClosed ? 360 : (Number.isFinite(endRaw) ? (endRaw - startDeg) : 0);
-  if (!forceClosed && Math.abs(sweepDeg) < 1e-9) sweepDeg = 360;
-  if (sweepDeg < 0) sweepDeg += 360;
-  if (!Number.isFinite(sweepDeg) || sweepDeg <= 0) return [];
-
-  const segmentCount = Math.max(16, Math.min(144, Math.ceil((sweepDeg / 360) * 72)));
-  const vertices = [];
-  for (let i = 0; i <= segmentCount; i += 1) {
-    const t = i / segmentCount;
-    const angleDeg = startDeg + (sweepDeg * t);
-    const rad = (angleDeg * Math.PI) / 180;
-    const local = {
-      x: cx + (radius * Math.cos(rad)),
-      y: cy + (radius * Math.sin(rad)),
-      z: Number.isFinite(cz) ? cz : 0,
-    };
-    vertices.push(applyCadTransform(local, transform));
-  }
-
-  if (forceClosed && vertices.length > 1) {
-    const first = vertices[0];
-    const last = vertices[vertices.length - 1];
-    if (Math.abs(first.x - last.x) > 1e-9 || Math.abs(first.y - last.y) > 1e-9) {
-      vertices.push({ ...first });
-    }
-  }
-
-  return vertices;
-};
-
 const getCadTransformRotationDeg = (transform) => {
   const a = Number(transform?.a ?? 1);
   const b = Number(transform?.b ?? 0);
@@ -1125,26 +1126,60 @@ const transformCadEntity = (entity, transform, metadata = {}) => {
         .map((vertex) => applyCadTransform(vertex, transform));
       return transformed;
     case 'CIRCLE': {
-      const vertices = sampleArcLikeVertices(entity, transform, true);
-      if (vertices.length < 3) return null;
+      const radialScale = getCadTransformAverageScale(transform);
+      const center = applyCadTransform(entity?.center || entity?.position || entity?.insertionPoint, transform);
+      const radius = Number(entity?.radius);
+      if (!Number.isFinite(Number(center?.x)) || !Number.isFinite(Number(center?.y)) || !Number.isFinite(radius)) return null;
       return {
         ...transformed,
-        type: 'LWPOLYLINE',
-        sourceType: 'CIRCLE',
-        closed: true,
-        vertices,
+        center,
+        radius: Math.abs(radius * radialScale),
       };
     }
     case 'ARC': {
-      const vertices = sampleArcLikeVertices(entity, transform, false);
-      if (vertices.length < 2) return null;
+      const angleOffset = getCadTransformRotationDeg(transform);
+      const radialScale = getCadTransformAverageScale(transform);
+      const center = applyCadTransform(entity?.center || entity?.position || entity?.insertionPoint, transform);
+      const radius = Number(entity?.radius);
+      const startAngle = Number(entity?.startAngle ?? 0);
+      const endAngle = Number(entity?.endAngle ?? 0);
+      if (!Number.isFinite(Number(center?.x)) || !Number.isFinite(Number(center?.y)) || !Number.isFinite(radius)) return null;
       return {
         ...transformed,
-        type: 'LWPOLYLINE',
-        sourceType: 'ARC',
-        closed: false,
-        vertices,
+        center,
+        radius: Math.abs(radius * radialScale),
+        startAngle: Number.isFinite(startAngle) ? startAngle + angleOffset : entity?.startAngle,
+        endAngle: Number.isFinite(endAngle) ? endAngle + angleOffset : entity?.endAngle,
       };
+    }
+    case 'ELLIPSE': {
+      const center = applyCadTransform(entity?.center || entity?.position, transform);
+      const majorAxisEnd = applyCadTransform({
+        x: Number(entity?.center?.x || 0) + Number(entity?.majorAxisEndPoint?.x || entity?.majorAxis?.x || 0),
+        y: Number(entity?.center?.y || 0) + Number(entity?.majorAxisEndPoint?.y || entity?.majorAxis?.y || 0),
+        z: Number(entity?.center?.z || 0) + Number(entity?.majorAxisEndPoint?.z || entity?.majorAxis?.z || 0),
+      }, transform);
+      if (!Number.isFinite(Number(center?.x)) || !Number.isFinite(Number(center?.y)) || !Number.isFinite(Number(majorAxisEnd?.x)) || !Number.isFinite(Number(majorAxisEnd?.y))) {
+        return null;
+      }
+      transformed.center = center;
+      transformed.majorAxis = {
+        x: Number(majorAxisEnd.x) - Number(center.x),
+        y: Number(majorAxisEnd.y) - Number(center.y),
+        z: Number(majorAxisEnd.z ?? 0) - Number(center.z ?? 0),
+      };
+      transformed.ratio = Number(entity?.axisRatio ?? entity?.ratio ?? 1);
+      transformed.startAngle = Number.isFinite(Number(entity?.startAngle)) ? Number(entity.startAngle) : undefined;
+      transformed.endAngle = Number.isFinite(Number(entity?.endAngle)) ? Number(entity.endAngle) : undefined;
+      return transformed;
+    }
+    case 'SPLINE': {
+      transformed.controlPoints = (Array.isArray(entity?.controlPoints) ? entity.controlPoints : [])
+        .map((point) => applyCadTransform(point, transform));
+      transformed.fitPoints = (Array.isArray(entity?.fitPoints) ? entity.fitPoints : [])
+        .map((point) => applyCadTransform(point, transform));
+      transformed.degreeOfSplineCurve = Number(entity?.degreeOfSplineCurve ?? entity?.degree ?? 3);
+      return transformed;
     }
     case 'HATCH': {
       const angleOffset = getCadTransformRotationDeg(transform);
@@ -2119,10 +2154,16 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
   const geometry = {
     lines: [],
     polylines: [],
+    arcs: [],
+    circles: [],
+    ellipses: [],
+    splines: [],
     texts: [],
     dimensions: [],
     hatches: [],
     hatchDiagnostics: [],
+    curveDiagnostics: [],
+    curveSummary: null,
     hatchSummary: null,
     renderHints: null,
     surfaces: [],
@@ -2144,6 +2185,55 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
     defaultTextHeight: 0,
     normalizedLayerName: 0,
   };
+
+  const curveStats = {
+    arcCount: 0,
+    circleCount: 0,
+    ellipseCount: 0,
+    splineCount: 0,
+    polylineBulgeSegmentCount: 0,
+    proxyCurveEntityCount: 0,
+    approximatedCurveCount: 0,
+  };
+
+  const pushCurveDiagnostic = ({ code, severity = 'warning', entity = null, exact = false, approximated = false, recommendation = '' }) => {
+    geometry.curveDiagnostics.push({
+      code,
+      severity,
+      handle: entity?.handle || null,
+      entityType: String(entity?.type || entity?.sourceType || 'UNKNOWN').toUpperCase(),
+      exactRenderingSucceeded: Boolean(exact),
+      approximationUsed: Boolean(approximated),
+      recommendation,
+    });
+  };
+
+  const skippedTypes = expandedCad?.diagnostics?.resolution?.skippedEntitiesByType || {};
+  Object.entries(skippedTypes).forEach(([type, count]) => {
+    const normalizedType = String(type || '').toUpperCase();
+    const n = Number(count) || 0;
+    if (n <= 0) return;
+    if (/PROXY|ACDBPROXY/.test(normalizedType)) {
+      curveStats.proxyCurveEntityCount += n;
+      pushCurveDiagnostic({
+        code: CURVE_DIAGNOSTIC_CODES.PROXY_UNSUPPORTED,
+        entity: { type: normalizedType },
+        exact: false,
+        approximated: false,
+        recommendation: 'Proxy/custom CAD entities cannot be reconstructed exactly by this parser.',
+      });
+    }
+    if (/ALIGNMENT|AECC/.test(normalizedType)) {
+      curveStats.proxyCurveEntityCount += n;
+      pushCurveDiagnostic({
+        code: CURVE_DIAGNOSTIC_CODES.ALIGNMENT_PROXY_DETECTED,
+        entity: { type: normalizedType },
+        exact: false,
+        approximated: false,
+        recommendation: 'Civil 3D alignments should be exported to standard DXF entities for faithful geometry.',
+      });
+    }
+  });
 
   const addLine = (start, end, layer, sourceType, entityColor) => {
     if (geometry.lines.length >= MAX_LINES) return;
@@ -2173,20 +2263,82 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
     });
   };
 
-  const addPolyline = (vertices, layer, sourceType, entityColor) => {
+  const addPolyline = (vertices, layer, sourceType, entityColor, entityMeta = null) => {
     if (geometry.polylines.length >= MAX_POLYLINES) return;
     if (!Array.isArray(vertices) || vertices.length < 2) return;
-    const coords = vertices
+    const vertexRecords = vertices
       .map((v) => {
         const x = Number(v?.x);
         const y = Number(v?.y);
         const z = Number(v?.z ?? 0);
         if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-        return [x, y, Number.isFinite(z) ? z : 0];
+        const bulge = Number(v?.bulge);
+        return {
+          x,
+          y,
+          z: Number.isFinite(z) ? z : 0,
+          bulge: Number.isFinite(bulge) ? bulge : 0,
+        };
       })
       .filter(Boolean);
 
-    if (coords.length < 2) return;
+    if (vertexRecords.length < 2) return;
+
+    const sourceEntity = entityMeta || {};
+    const flags = Number(sourceEntity?.flags);
+    const isClosed = Boolean(sourceEntity?.closed || sourceEntity?.shape || sourceEntity?.isClosed || (Number.isFinite(flags) && (Math.trunc(flags) & 1) === 1));
+    const firstVertex = vertexRecords[0];
+    const lastVertex = vertexRecords[vertexRecords.length - 1];
+    const alreadyClosed = Boolean(
+      firstVertex
+      && lastVertex
+      && Math.abs(Number(firstVertex.x) - Number(lastVertex.x)) <= 1e-9
+      && Math.abs(Number(firstVertex.y) - Number(lastVertex.y)) <= 1e-9
+    );
+    const safeVertices = isClosed && vertexRecords.length > 2 && !alreadyClosed
+      ? [...vertexRecords, { ...firstVertex }]
+      : vertexRecords;
+
+    const segments = [];
+    for (let i = 0; i < safeVertices.length - 1; i += 1) {
+      const start = safeVertices[i];
+      const end = safeVertices[i + 1];
+      const bulge = Number(start?.bulge || 0);
+      if (Math.abs(bulge) > 1e-12) {
+        const arc = bulgeToArc(start, end, bulge);
+        if (arc) {
+          curveStats.polylineBulgeSegmentCount += 1;
+          segments.push({
+            kind: 'arc',
+            start: [arc.start.x, arc.start.y, arc.start.z ?? 0],
+            end: [arc.end.x, arc.end.y, arc.end.z ?? 0],
+            center: [arc.center.x, arc.center.y, arc.center.z ?? 0],
+            radius: Number(arc.radius),
+            startAngle: Number(arc.startAngle),
+            endAngle: Number(arc.endAngle),
+            clockwise: Boolean(arc.clockwise),
+            bulge,
+          });
+          continue;
+        }
+
+        pushCurveDiagnostic({
+          code: CURVE_DIAGNOSTIC_CODES.BULGE_IGNORED,
+          entity: sourceEntity,
+          exact: false,
+          approximated: true,
+          recommendation: 'Check LWPOLYLINE bulge values and export as native ARC entities if available.',
+        });
+      }
+
+      segments.push({
+        kind: 'line',
+        start: [start.x, start.y, start.z ?? 0],
+        end: [end.x, end.y, end.z ?? 0],
+      });
+    }
+
+    const coords = vertexRecords.map((v) => [v.x, v.y, v.z]);
 
     // Decimate dense polylines to avoid huge payloads (keep first+last vertex always)
     const MAX_POLY_VERTICES = 500;
@@ -2211,6 +2363,9 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
       layerCategory: descriptor.category,
       sourceType: sourceType || 'POLYLINE',
       colorHex,
+      closed: isClosed,
+      vertices: vertexRecords,
+      segments,
       points: coords,
     });
   };
@@ -2399,6 +2554,162 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
     }
   };
 
+  const addArc = (entity) => {
+    const center = entity?.center || entity?.position;
+    const radius = Number(entity?.radius);
+    const cx = Number(center?.x);
+    const cy = Number(center?.y);
+    if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(radius) || radius <= 0) return;
+    const layer = entity?.layer || 'ARC';
+    const descriptor = getLayerDescriptor(layer, layerTable[layer]);
+    const layerColorHex = cadColorToHex(descriptor.color);
+    const colorHex = cadColorToHex(entity?.color, layerColorHex);
+    curveStats.arcCount += 1;
+    curveStats.approximatedCurveCount += 1;
+    pushCurveDiagnostic({
+      code: CURVE_DIAGNOSTIC_CODES.ARC_RENDERED_AS_LINES,
+      entity,
+      exact: false,
+      approximated: true,
+      recommendation: 'Current map backend tessellates arcs adaptively at render time.',
+    });
+    geometry.arcs.push({
+      layer: descriptor.displayName,
+      layerOriginal: descriptor.originalName,
+      layerNormalized: descriptor.normalizedName,
+      layerStandardized: descriptor.standardizedName,
+      layerCategory: descriptor.category,
+      sourceType: 'ARC',
+      handle: entity?.handle || null,
+      colorHex,
+      center: [cx, cy, Number(center?.z ?? 0)],
+      radius,
+      startAngle: Number(entity?.startAngle ?? 0),
+      endAngle: Number(entity?.endAngle ?? 0),
+      clockwise: false,
+    });
+  };
+
+  const addCircle = (entity) => {
+    const center = entity?.center || entity?.position;
+    const radius = Number(entity?.radius);
+    const cx = Number(center?.x);
+    const cy = Number(center?.y);
+    if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(radius) || radius <= 0) return;
+    const layer = entity?.layer || 'CIRCLE';
+    const descriptor = getLayerDescriptor(layer, layerTable[layer]);
+    const layerColorHex = cadColorToHex(descriptor.color);
+    const colorHex = cadColorToHex(entity?.color, layerColorHex);
+    curveStats.circleCount += 1;
+    curveStats.approximatedCurveCount += 1;
+    pushCurveDiagnostic({
+      code: CURVE_DIAGNOSTIC_CODES.ARC_RENDERED_AS_LINES,
+      entity: { ...entity, type: 'CIRCLE' },
+      exact: false,
+      approximated: true,
+      recommendation: 'Current map backend tessellates circles adaptively at render time.',
+    });
+    geometry.circles.push({
+      layer: descriptor.displayName,
+      layerOriginal: descriptor.originalName,
+      layerNormalized: descriptor.normalizedName,
+      layerStandardized: descriptor.standardizedName,
+      layerCategory: descriptor.category,
+      sourceType: 'CIRCLE',
+      handle: entity?.handle || null,
+      colorHex,
+      center: [cx, cy, Number(center?.z ?? 0)],
+      radius,
+    });
+  };
+
+  const addEllipse = (entity) => {
+    const center = entity?.center;
+    const axis = entity?.majorAxis;
+    const ratio = Number(entity?.ratio ?? entity?.axisRatio);
+    const cx = Number(center?.x);
+    const cy = Number(center?.y);
+    const ax = Number(axis?.x);
+    const ay = Number(axis?.y);
+    if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(ax) || !Number.isFinite(ay) || !Number.isFinite(ratio) || ratio <= 0) {
+      return;
+    }
+    const layer = entity?.layer || 'ELLIPSE';
+    const descriptor = getLayerDescriptor(layer, layerTable[layer]);
+    const layerColorHex = cadColorToHex(descriptor.color);
+    const colorHex = cadColorToHex(entity?.color, layerColorHex);
+    curveStats.ellipseCount += 1;
+    const approximatedPreview = String(expandedCad?.processingMode || 'full') !== 'full';
+    if (approximatedPreview) {
+      curveStats.approximatedCurveCount += 1;
+      pushCurveDiagnostic({
+        code: CURVE_DIAGNOSTIC_CODES.ELLIPSE_APPROXIMATED,
+        entity,
+        exact: false,
+        approximated: true,
+        recommendation: 'Use full mode for semantic ellipse preservation.',
+      });
+    }
+    geometry.ellipses.push({
+      layer: descriptor.displayName,
+      layerOriginal: descriptor.originalName,
+      layerNormalized: descriptor.normalizedName,
+      layerStandardized: descriptor.standardizedName,
+      layerCategory: descriptor.category,
+      sourceType: 'ELLIPSE',
+      handle: entity?.handle || null,
+      colorHex,
+      center: [cx, cy, Number(center?.z ?? 0)],
+      majorAxis: [ax, ay, Number(axis?.z ?? 0)],
+      ratio,
+      startAngle: Number.isFinite(Number(entity?.startAngle)) ? Number(entity.startAngle) : undefined,
+      endAngle: Number.isFinite(Number(entity?.endAngle)) ? Number(entity.endAngle) : undefined,
+      approximatedPreview,
+    });
+  };
+
+  const addSpline = (entity) => {
+    const controls = (Array.isArray(entity?.controlPoints) ? entity.controlPoints : [])
+      .map((p) => {
+        const x = Number(p?.x);
+        const y = Number(p?.y);
+        const z = Number(p?.z ?? 0);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+        return [x, y, Number.isFinite(z) ? z : 0];
+      })
+      .filter(Boolean);
+    if (controls.length < 2) return;
+    const layer = entity?.layer || 'SPLINE';
+    const descriptor = getLayerDescriptor(layer, layerTable[layer]);
+    const layerColorHex = cadColorToHex(descriptor.color);
+    const colorHex = cadColorToHex(entity?.color, layerColorHex);
+    const approximatedPreview = String(expandedCad?.processingMode || 'full') !== 'full';
+    curveStats.splineCount += 1;
+    if (approximatedPreview) {
+      curveStats.approximatedCurveCount += 1;
+      pushCurveDiagnostic({
+        code: CURVE_DIAGNOSTIC_CODES.SPLINE_APPROXIMATED,
+        entity,
+        exact: false,
+        approximated: true,
+        recommendation: 'Use full mode for spline semantics; preview mode uses adaptive approximation.',
+      });
+    }
+    geometry.splines.push({
+      layer: descriptor.displayName,
+      layerOriginal: descriptor.originalName,
+      layerNormalized: descriptor.normalizedName,
+      layerStandardized: descriptor.standardizedName,
+      layerCategory: descriptor.category,
+      sourceType: 'SPLINE',
+      handle: entity?.handle || null,
+      colorHex,
+      controlPoints: controls,
+      degree: Number(entity?.degreeOfSplineCurve ?? entity?.degree ?? 3),
+      approximatedPreview,
+    });
+  };
+
   // Shoelace formula for polygon area from a flat [x,y] vertices array
   const shoelaceArea = (vertices) => {
     let area = 0;
@@ -2552,10 +2863,22 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
           break;
         case 'LWPOLYLINE':
         case 'POLYLINE':
-          addPolyline(closePolylineIfNeeded(ent.vertices || [], ent), layer, ent.sourceType || ent.type, ent.color);
+          addPolyline(closePolylineIfNeeded(ent.vertices || [], ent), layer, ent.sourceType || ent.type, ent.color, ent);
           if (String(ent?.type || '').toUpperCase() === 'POLYLINE') {
             addSurface(ent);
           }
+          break;
+        case 'ARC':
+          addArc(ent);
+          break;
+        case 'CIRCLE':
+          addCircle(ent);
+          break;
+        case 'ELLIPSE':
+          addEllipse(ent);
+          break;
+        case 'SPLINE':
+          addSpline(ent);
           break;
         case 'TEXT':
         case 'MTEXT':
@@ -2578,9 +2901,21 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
           break;
         case '3DLINE':
           // 3DLINE is wireframe entity; render as polyline
-          addPolyline(ent.vertices || [], layer, '3DLINE', ent.color);
+          addPolyline(ent.vertices || [], layer, '3DLINE', ent.color, ent);
           break;
         default:
+          if (/PROXY|ACDBPROXY|AECC|ALIGNMENT/.test(String(ent?.type || '').toUpperCase())) {
+            curveStats.proxyCurveEntityCount += 1;
+            pushCurveDiagnostic({
+              code: /ALIGNMENT|AECC/.test(String(ent?.type || '').toUpperCase())
+                ? CURVE_DIAGNOSTIC_CODES.ALIGNMENT_PROXY_DETECTED
+                : CURVE_DIAGNOSTIC_CODES.PROXY_UNSUPPORTED,
+              entity: ent,
+              exact: false,
+              approximated: false,
+              recommendation: 'Export Civil 3D alignments/proxy entities to standard DXF ARC/LWPOLYLINE before import.',
+            });
+          }
           break;
       }
     });
@@ -2588,9 +2923,25 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
 
   visitEntities(expandedEntities);
 
+  geometry.curveSummary = {
+    arcs: curveStats.arcCount,
+    circles: curveStats.circleCount,
+    ellipses: curveStats.ellipseCount,
+    splines: curveStats.splineCount,
+    polylineBulgeSegments: curveStats.polylineBulgeSegmentCount,
+    proxyCurveEntities: curveStats.proxyCurveEntityCount,
+    approximatedCurves: curveStats.approximatedCurveCount,
+    exactCurveEntities: curveStats.arcCount + curveStats.circleCount + curveStats.ellipseCount + curveStats.splineCount + curveStats.polylineBulgeSegmentCount,
+    hasApproximation: curveStats.approximatedCurveCount > 0,
+  };
   geometry.hatchSummary = computeHatchSummary();
   geometry.renderHints = {
     processingMode: String(expandedCad?.processingMode || 'full'),
+    curves: {
+      hasExactCurves: geometry.curveSummary.exactCurveEntities > 0,
+      hasApproximation: geometry.curveSummary.hasApproximation,
+      diagnosticsCount: geometry.curveDiagnostics.length,
+    },
     hatch: {
       solidOnly: String(expandedCad?.processingMode || 'full') !== 'full',
       approximated: (geometry.hatchSummary?.approximated || 0) > 0,
@@ -2929,10 +3280,16 @@ export function parseDxfTextContent(text, options = {}) {
     ? {
       lines: [],
       polylines: [],
+      arcs: [],
+      circles: [],
+      ellipses: [],
+      splines: [],
       texts: [],
       dimensions: [],
       hatches: [],
       hatchDiagnostics: [],
+      curveDiagnostics: [],
+      curveSummary: null,
       hatchSummary: null,
       renderHints: {
         processingMode: String(options?.processingMode || 'full'),
@@ -2985,6 +3342,10 @@ export function parseDxfTextContent(text, options = {}) {
     || (!options.pointsOnly && (
       geometry.lines.length > 0
       || geometry.polylines.length > 0
+      || geometry.arcs.length > 0
+      || geometry.circles.length > 0
+      || geometry.ellipses.length > 0
+      || geometry.splines.length > 0
       || geometry.texts.length > 0
       || geometry.hatches.length > 0
       || geometry.surfaces.length > 0
@@ -3008,9 +3369,15 @@ export function parseDxfTextContent(text, options = {}) {
 export const EMPTY_CAD_GEOMETRY = {
   lines: [],
   polylines: [],
+  arcs: [],
+  circles: [],
+  ellipses: [],
+  splines: [],
   texts: [],
   hatches: [],
   hatchDiagnostics: [],
+  curveDiagnostics: [],
+  curveSummary: null,
   hatchSummary: null,
   renderHints: null,
   surfaces: [],

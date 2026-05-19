@@ -2182,9 +2182,15 @@ const CoordinateConverter = () => {
     const safeGeometry = {
       lines: Array.isArray(geometry?.lines) ? geometry.lines : [],
       polylines: Array.isArray(geometry?.polylines) ? geometry.polylines : [],
+      arcs: Array.isArray(geometry?.arcs) ? geometry.arcs : [],
+      circles: Array.isArray(geometry?.circles) ? geometry.circles : [],
+      ellipses: Array.isArray(geometry?.ellipses) ? geometry.ellipses : [],
+      splines: Array.isArray(geometry?.splines) ? geometry.splines : [],
       texts: Array.isArray(geometry?.texts) ? geometry.texts : [],
       hatches: Array.isArray(geometry?.hatches) ? geometry.hatches : [],
       surfaces: Array.isArray(geometry?.surfaces) ? geometry.surfaces : [],
+      curveDiagnostics: Array.isArray(geometry?.curveDiagnostics) ? geometry.curveDiagnostics : [],
+      curveSummary: geometry?.curveSummary || null,
       layerSummary: geometry?.layerSummary || null,
       validation: geometry?.validation || null,
       notifications: Array.isArray(geometry?.notifications) ? geometry.notifications : [],
@@ -2193,13 +2199,19 @@ const CoordinateConverter = () => {
       performanceProfile: geometry?.performanceProfile || geometry?.renderHints?.performanceProfile || null,
     };
 
-    if (!safeGeometry.lines.length && !safeGeometry.polylines.length && !safeGeometry.texts.length && !safeGeometry.hatches.length && !safeGeometry.surfaces.length) {
+    if (!safeGeometry.lines.length && !safeGeometry.polylines.length && !safeGeometry.arcs.length && !safeGeometry.circles.length && !safeGeometry.ellipses.length && !safeGeometry.splines.length && !safeGeometry.texts.length && !safeGeometry.hatches.length && !safeGeometry.surfaces.length) {
       return {
         lines: [],
         polylines: [],
+        arcs: [],
+        circles: [],
+        ellipses: [],
+        splines: [],
         texts: [],
         hatches: [],
         surfaces: [],
+        curveDiagnostics: [],
+        curveSummary: null,
         layerSummary: null,
         validation: null,
         notifications: [],
@@ -2213,6 +2225,10 @@ const CoordinateConverter = () => {
           droppedEntities: 0,
           droppedLines: 0,
           droppedPolylines: 0,
+          droppedArcs: 0,
+          droppedCircles: 0,
+          droppedEllipses: 0,
+          droppedSplines: 0,
           droppedTexts: 0,
           droppedHatches: 0,
           droppedSurfaces: 0,
@@ -2254,6 +2270,25 @@ const CoordinateConverter = () => {
       });
       (Array.isArray(geometryForPreview?.polylines) ? geometryForPreview.polylines : []).forEach((poly) => {
         (Array.isArray(poly?.points) ? poly.points : []).forEach((point) => {
+          pushPoint(point?.[0], point?.[1]);
+        });
+      });
+      (Array.isArray(geometryForPreview?.arcs) ? geometryForPreview.arcs : []).forEach((arc) => {
+        const center = Array.isArray(arc?.center) ? arc.center : [];
+        pushPoint(center[0], center[1]);
+      });
+      (Array.isArray(geometryForPreview?.circles) ? geometryForPreview.circles : []).forEach((circle) => {
+        const center = Array.isArray(circle?.center) ? circle.center : [];
+        pushPoint(center[0], center[1]);
+      });
+      (Array.isArray(geometryForPreview?.ellipses) ? geometryForPreview.ellipses : []).forEach((ellipse) => {
+        const center = Array.isArray(ellipse?.center) ? ellipse.center : [];
+        const axis = Array.isArray(ellipse?.majorAxis) ? ellipse.majorAxis : [];
+        pushPoint(center[0], center[1]);
+        pushPoint(Number(center[0]) + Number(axis[0] || 0), Number(center[1]) + Number(axis[1] || 0));
+      });
+      (Array.isArray(geometryForPreview?.splines) ? geometryForPreview.splines : []).forEach((spline) => {
+        (Array.isArray(spline?.controlPoints) ? spline.controlPoints : []).forEach((point) => {
           pushPoint(point?.[0], point?.[1]);
         });
       });
@@ -2351,6 +2386,10 @@ const CoordinateConverter = () => {
       droppedEntities: 0,
       droppedLines: 0,
       droppedPolylines: 0,
+      droppedArcs: 0,
+      droppedCircles: 0,
+      droppedEllipses: 0,
+      droppedSplines: 0,
       droppedTexts: 0,
       droppedHatches: 0,
       droppedSurfaces: 0,
@@ -2432,6 +2471,31 @@ const CoordinateConverter = () => {
         const points = sourcePoints
           .map((p) => toLatLng(Number(p?.[0]), Number(p?.[1]), Number(p?.[2] ?? 0)))
           .filter(Boolean);
+        const vertices = (Array.isArray(poly?.vertices) ? poly.vertices : [])
+          .map((vertex) => {
+            const projected = toLatLng(Number(vertex?.x), Number(vertex?.y), Number(vertex?.z ?? 0));
+            if (!projected) return null;
+            return {
+              ...vertex,
+              x: Number(projected[0]),
+              y: Number(projected[1]),
+              z: Number(projected[2] ?? 0),
+            };
+          })
+          .filter(Boolean);
+        const segments = (Array.isArray(poly?.segments) ? poly.segments : [])
+          .map((segment) => {
+            const start = Array.isArray(segment?.start) ? toLatLng(Number(segment.start[0]), Number(segment.start[1]), Number(segment.start[2] ?? 0)) : null;
+            const end = Array.isArray(segment?.end) ? toLatLng(Number(segment.end[0]), Number(segment.end[1]), Number(segment.end[2] ?? 0)) : null;
+            if (!start || !end) return null;
+            if (segment?.kind === 'arc') {
+              const center = Array.isArray(segment?.center) ? toLatLng(Number(segment.center[0]), Number(segment.center[1]), Number(segment.center[2] ?? 0)) : null;
+              if (!center) return null;
+              return { ...segment, start, end, center };
+            }
+            return { ...segment, start, end };
+          })
+          .filter(Boolean);
         if (sourcePoints.length > points.length) {
           projectionCounters.droppedSegments += Math.max(0, sourcePoints.length - points.length - 1);
         }
@@ -2440,7 +2504,70 @@ const CoordinateConverter = () => {
           projectionCounters.droppedEntities += 1;
           return null;
         }
-        return { ...poly, points };
+        return { ...poly, points, vertices, segments };
+      })
+      .filter(Boolean);
+
+    const arcs = safeGeometry.arcs
+      .map((arc) => {
+        const center = Array.isArray(arc?.center) ? arc.center : [];
+        const projectedCenter = toLatLng(Number(center[0]), Number(center[1]), Number(center[2] ?? 0));
+        if (!projectedCenter) {
+          projectionCounters.droppedArcs += 1;
+          projectionCounters.droppedEntities += 1;
+          return null;
+        }
+        return { ...arc, center: projectedCenter };
+      })
+      .filter(Boolean);
+
+    const circles = safeGeometry.circles
+      .map((circle) => {
+        const center = Array.isArray(circle?.center) ? circle.center : [];
+        const projectedCenter = toLatLng(Number(center[0]), Number(center[1]), Number(center[2] ?? 0));
+        if (!projectedCenter) {
+          projectionCounters.droppedCircles += 1;
+          projectionCounters.droppedEntities += 1;
+          return null;
+        }
+        return { ...circle, center: projectedCenter };
+      })
+      .filter(Boolean);
+
+    const ellipses = safeGeometry.ellipses
+      .map((ellipse) => {
+        const center = Array.isArray(ellipse?.center) ? ellipse.center : [];
+        const axis = Array.isArray(ellipse?.majorAxis) ? ellipse.majorAxis : [];
+        const projectedCenter = toLatLng(Number(center[0]), Number(center[1]), Number(center[2] ?? 0));
+        const projectedAxisTip = toLatLng(Number(center[0]) + Number(axis[0] || 0), Number(center[1]) + Number(axis[1] || 0), Number(center[2] ?? 0));
+        if (!projectedCenter || !projectedAxisTip) {
+          projectionCounters.droppedEllipses += 1;
+          projectionCounters.droppedEntities += 1;
+          return null;
+        }
+        return {
+          ...ellipse,
+          center: projectedCenter,
+          majorAxis: [
+            Number(projectedAxisTip[0]) - Number(projectedCenter[0]),
+            Number(projectedAxisTip[1]) - Number(projectedCenter[1]),
+            Number(projectedAxisTip[2] ?? 0) - Number(projectedCenter[2] ?? 0),
+          ],
+        };
+      })
+      .filter(Boolean);
+
+    const splines = safeGeometry.splines
+      .map((spline) => {
+        const projectedControls = (Array.isArray(spline?.controlPoints) ? spline.controlPoints : [])
+          .map((point) => toLatLng(Number(point?.[0]), Number(point?.[1]), Number(point?.[2] ?? 0)))
+          .filter(Boolean);
+        if (projectedControls.length < 2) {
+          projectionCounters.droppedSplines += 1;
+          projectionCounters.droppedEntities += 1;
+          return null;
+        }
+        return { ...spline, controlPoints: projectedControls };
       })
       .filter(Boolean);
 
@@ -2514,9 +2641,15 @@ const CoordinateConverter = () => {
     return {
       lines,
       polylines,
+      arcs,
+      circles,
+      ellipses,
+      splines,
       texts,
       hatches,
       surfaces,
+      curveDiagnostics: safeGeometry.curveDiagnostics,
+      curveSummary: safeGeometry.curveSummary,
       layerSummary: safeGeometry.layerSummary,
       validation: safeGeometry.validation,
       notifications: safeGeometry.notifications,
@@ -2531,6 +2664,10 @@ const CoordinateConverter = () => {
         droppedEntities: projectionCounters.droppedEntities,
         droppedLines: projectionCounters.droppedLines,
         droppedPolylines: projectionCounters.droppedPolylines,
+        droppedArcs: projectionCounters.droppedArcs,
+        droppedCircles: projectionCounters.droppedCircles,
+        droppedEllipses: projectionCounters.droppedEllipses,
+        droppedSplines: projectionCounters.droppedSplines,
         droppedTexts: projectionCounters.droppedTexts,
         droppedHatches: projectionCounters.droppedHatches,
         droppedSurfaces: projectionCounters.droppedSurfaces,
@@ -2579,6 +2716,31 @@ const CoordinateConverter = () => {
       });
       (Array.isArray(geometryForPreview?.polylines) ? geometryForPreview.polylines : []).forEach((poly) => {
         (Array.isArray(poly?.points) ? poly.points : []).forEach((point) => {
+          if (Number.isFinite(Number(point?.[0])) && Number.isFinite(Number(point?.[1]))) {
+            points.push({ x: Number(point[0]), y: Number(point[1]), z: Number(point[2] ?? 0) });
+          }
+        });
+      });
+      (Array.isArray(geometryForPreview?.arcs) ? geometryForPreview.arcs : []).forEach((arc) => {
+        const center = Array.isArray(arc?.center) ? arc.center : [];
+        if (Number.isFinite(Number(center[0])) && Number.isFinite(Number(center[1]))) {
+          points.push({ x: Number(center[0]), y: Number(center[1]), z: Number(center[2] ?? 0) });
+        }
+      });
+      (Array.isArray(geometryForPreview?.circles) ? geometryForPreview.circles : []).forEach((circle) => {
+        const center = Array.isArray(circle?.center) ? circle.center : [];
+        if (Number.isFinite(Number(center[0])) && Number.isFinite(Number(center[1]))) {
+          points.push({ x: Number(center[0]), y: Number(center[1]), z: Number(center[2] ?? 0) });
+        }
+      });
+      (Array.isArray(geometryForPreview?.ellipses) ? geometryForPreview.ellipses : []).forEach((ellipse) => {
+        const center = Array.isArray(ellipse?.center) ? ellipse.center : [];
+        if (Number.isFinite(Number(center[0])) && Number.isFinite(Number(center[1]))) {
+          points.push({ x: Number(center[0]), y: Number(center[1]), z: Number(center[2] ?? 0) });
+        }
+      });
+      (Array.isArray(geometryForPreview?.splines) ? geometryForPreview.splines : []).forEach((spline) => {
+        (Array.isArray(spline?.controlPoints) ? spline.controlPoints : []).forEach((point) => {
           if (Number.isFinite(Number(point?.[0])) && Number.isFinite(Number(point?.[1]))) {
             points.push({ x: Number(point[0]), y: Number(point[1]), z: Number(point[2] ?? 0) });
           }
@@ -3513,7 +3675,7 @@ const CoordinateConverter = () => {
     setBulkIsConverting(false);
     bulkCancelRef.current = false;
     emit("converter:pointsForMap", { points: [] });
-    emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [], texts: [], hatches: [], surfaces: [] } });
+    emit("converter:cadGeometryForMap", { geometry: { lines: [], polylines: [], arcs: [], circles: [], ellipses: [], splines: [], texts: [], hatches: [], surfaces: [], curveDiagnostics: [], curveSummary: null } });
     emit("converter:resetAll");
     void purgeAppClientData();
   };
@@ -3640,6 +3802,10 @@ const CoordinateConverter = () => {
       const hasRenderableGeometry = Boolean(
         cadPayload?.geometry?.lines?.length
         || cadPayload?.geometry?.polylines?.length
+        || cadPayload?.geometry?.arcs?.length
+        || cadPayload?.geometry?.circles?.length
+        || cadPayload?.geometry?.ellipses?.length
+        || cadPayload?.geometry?.splines?.length
         || cadPayload?.geometry?.texts?.length
         || cadPayload?.geometry?.hatches?.length
         || cadPayload?.geometry?.surfaces?.length

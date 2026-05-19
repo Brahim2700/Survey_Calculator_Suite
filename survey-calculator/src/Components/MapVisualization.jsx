@@ -5,6 +5,7 @@ import { emit } from '../utils/eventBus';
 import { resolveCadWebFont } from '../utils/cadFontMap';
 import { safeGetString, safeSetString } from '../utils/storage';
 import { buildRenderableHatch } from '../lib/render/hatchRenderer.js';
+import { tessellateArcSegment, tessellateCircle, tessellateEllipse, tessellateSpline } from '../lib/cad/curveMath.js';
 import { EMPTY_CAD_GEOMETRY } from '../utils/cadShared';
 import { escapeHtml } from '../utils/escapeHtml';
 
@@ -225,6 +226,23 @@ const getCadPolylineSmoothFactor = (zoom, totalVertices, featureVertices, lodTie
   return 1.0 + (tierBoost * 0.5);
 };
 
+const getCurveToleranceDegrees = (zoom) => {
+  const safeZoom = Number.isFinite(Number(zoom)) ? Number(zoom) : 16;
+  const degPerPixel = 360 / (2 ** (safeZoom + 8));
+  return Math.max(1e-8, degPerPixel * 0.75);
+};
+
+const toLatLngTuple = (pointLike) => {
+  if (Array.isArray(pointLike) && Number.isFinite(Number(pointLike[0])) && Number.isFinite(Number(pointLike[1]))) {
+    return [Number(pointLike[0]), Number(pointLike[1]), Number(pointLike[2] ?? 0)];
+  }
+  const x = Number(pointLike?.x);
+  const y = Number(pointLike?.y);
+  const z = Number(pointLike?.z ?? 0);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return [x, y, Number.isFinite(z) ? z : 0];
+};
+
 const getRoundedScaleDenominator = (rawDenominator) => {
   if (!Number.isFinite(rawDenominator) || rawDenominator <= 0) return null;
   if (rawDenominator < 1000) return Math.round(rawDenominator / 10) * 10;
@@ -281,7 +299,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
   const [showPolylineLayer, setShowPolylineLayer] = useState(true);
   const [showHatches, setShowHatches] = useState(true);
   const [solidHatchPreviewOnly, setSolidHatchPreviewOnly] = useState(false);
-  const [showTinEdges, setShowTinEdges] = useState(true);
+  const [showTinEdges] = useState(true);
   const [showTinFill, setShowTinFill] = useState(false);
   const [showLabels, setShowLabels] = useState(true);
   const [removeDuplicates, setRemoveDuplicates] = useState(false);
@@ -632,6 +650,16 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
           const pt = polygon[j];
           if (Array.isArray(pt) && bounds.contains(pt)) return true;
         }
+      }
+    }
+    if (Array.isArray(geometry.center) && geometry.center.length >= 2) {
+      return bounds.contains(geometry.center);
+    }
+    if (Array.isArray(geometry.controlPoints) && geometry.controlPoints.length > 0) {
+      const step = Math.max(1, Math.floor(geometry.controlPoints.length / 50));
+      for (let i = 0; i < geometry.controlPoints.length; i += step) {
+        const pt = geometry.controlPoints[i];
+        if (Array.isArray(pt) && bounds.contains(pt)) return true;
       }
     }
     return false;
@@ -1173,6 +1201,10 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
 
     const rawCadLines = Array.isArray(cadGeometry?.lines) ? cadGeometry.lines : [];
     const rawCadPolylines = Array.isArray(cadGeometry?.polylines) ? cadGeometry.polylines : [];
+    const rawCadArcs = Array.isArray(cadGeometry?.arcs) ? cadGeometry.arcs : [];
+    const rawCadCircles = Array.isArray(cadGeometry?.circles) ? cadGeometry.circles : [];
+    const rawCadEllipses = Array.isArray(cadGeometry?.ellipses) ? cadGeometry.ellipses : [];
+    const rawCadSplines = Array.isArray(cadGeometry?.splines) ? cadGeometry.splines : [];
     const cadTexts = Array.isArray(cadGeometry?.texts) ? cadGeometry.texts : [];
     const cadHatches = Array.isArray(cadGeometry?.hatches) ? cadGeometry.hatches : [];
     const cadSurfaces = Array.isArray(cadGeometry?.surfaces) ? cadGeometry.surfaces : [];
@@ -1189,6 +1221,10 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
     const validPoints = dedupeResult.points;
     const cadLines = dedupeResult.lines;
     const cadPolylines = dedupeResult.polylines;
+    const cadArcs = rawCadArcs;
+    const cadCircles = rawCadCircles;
+    const cadEllipses = rawCadEllipses;
+    const cadSplines = rawCadSplines;
     const totalTinTriangles = cadSurfaces.reduce((sum, surface) => sum + (Array.isArray(surface?.triangles) ? surface.triangles.length : 0), 0);
 
     const overlapGroups = new Map();
@@ -1510,6 +1546,25 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
             }
           });
         });
+        cadArcs.forEach((arc) => {
+          const center = Array.isArray(arc?.center) ? arc.center : null;
+          if (center && Number.isFinite(center[0]) && Number.isFinite(center[1])) {
+            snapCandidates.push({ lat: center[0], lng: center[1], type: 'arc-center' });
+          }
+        });
+        cadCircles.forEach((circle) => {
+          const center = Array.isArray(circle?.center) ? circle.center : null;
+          if (center && Number.isFinite(center[0]) && Number.isFinite(center[1])) {
+            snapCandidates.push({ lat: center[0], lng: center[1], type: 'circle-center' });
+          }
+        });
+        cadSplines.forEach((spline) => {
+          (Array.isArray(spline?.controlPoints) ? spline.controlPoints : []).forEach((pt) => {
+            if (Array.isArray(pt) && Number.isFinite(pt[0]) && Number.isFinite(pt[1])) {
+              snapCandidates.push({ lat: pt[0], lng: pt[1], type: 'spline-control' });
+            }
+          });
+        });
         cadHatches.forEach((hatch) => {
           (Array.isArray(hatch?.polygons) ? hatch.polygons : []).forEach((polygon) => {
             (Array.isArray(polygon) ? polygon : []).forEach((pt) => {
@@ -1588,6 +1643,8 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
     if (showPolylineLayer) {
       const visibleCadPolylines = cadPolylines.filter((poly) => isCadLayerVisible(poly) && isGeometryInBounds(poly, viewportBounds));
       visibleCadPolylines.forEach((poly) => {
+        const hasArcSegments = Array.isArray(poly?.segments) && poly.segments.some((segment) => segment?.kind === 'arc');
+        if (hasArcSegments) return;
         const pts = Array.isArray(poly?.points) ? poly.points : [];
         const latlngs = pts
           .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
@@ -1617,6 +1674,139 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
             });
           })
           .addTo(map.current);
+        geometryLayersRef.current.push(layer);
+        markers.current.push(layer);
+      });
+    }
+
+    if (showPolylineLayer) {
+      const curveTolerance = getCurveToleranceDegrees(currentZoom);
+
+      cadPolylines.filter((poly) => isCadLayerVisible(poly) && isGeometryInBounds(poly, viewportBounds)).forEach((poly) => {
+        const segments = Array.isArray(poly?.segments) ? poly.segments : [];
+        if (!segments.some((segment) => segment?.kind === 'arc')) return;
+
+        const curvePath = [];
+        segments.forEach((segment, segmentIndex) => {
+          if (segment?.kind === 'arc') {
+            const center = toLatLngTuple(segment?.center);
+            const start = toLatLngTuple(segment?.start);
+            const end = toLatLngTuple(segment?.end);
+            const radius = Number(segment?.radius);
+            if (!center || !start || !end || !Number.isFinite(radius) || radius <= 0) return;
+            const samples = tessellateArcSegment({
+              center: { x: center[0], y: center[1], z: center[2] },
+              radius,
+              startAngle: Number(segment?.startAngle),
+              endAngle: Number(segment?.endAngle),
+              clockwise: Boolean(segment?.clockwise),
+            }, curveTolerance);
+            samples.forEach((sample, sampleIndex) => {
+              if (segmentIndex > 0 && sampleIndex === 0 && curvePath.length > 0) return;
+              curvePath.push([Number(sample?.x), Number(sample?.y)]);
+            });
+            return;
+          }
+
+          const start = toLatLngTuple(segment?.start);
+          const end = toLatLngTuple(segment?.end);
+          if (!start || !end) return;
+          if (curvePath.length === 0) curvePath.push([start[0], start[1]]);
+          curvePath.push([end[0], end[1]]);
+        });
+
+        if (curvePath.length < 2) return;
+        const curveLayer = L.polyline(curvePath, {
+          renderer: canvasRendererRef.current || undefined,
+          color: normalizeHexColor(poly.colorHex, '#2563eb'),
+          weight: 2.2,
+          opacity: 0.88,
+        })
+          .bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(poly.layer || 'CAD polyline')}</b><br/>Type: ${escapeHtml(poly.sourceType || 'POLYLINE')}<br/>Curve path: bulge-preserved</div>`)
+          .addTo(map.current);
+        geometryLayersRef.current.push(curveLayer);
+        markers.current.push(curveLayer);
+      });
+
+      cadArcs.filter((arc) => isCadLayerVisible(arc) && isGeometryInBounds(arc, viewportBounds)).forEach((arc) => {
+        const center = toLatLngTuple(arc?.center);
+        const radius = Number(arc?.radius);
+        if (!center || !Number.isFinite(radius) || radius <= 0) return;
+        const path = tessellateArcSegment({
+          center: { x: center[0], y: center[1], z: center[2] },
+          radius,
+          startAngle: Number(arc?.startAngle ?? 0),
+          endAngle: Number(arc?.endAngle ?? 0),
+          clockwise: Boolean(arc?.clockwise),
+        }, curveTolerance).map((p) => [Number(p?.x), Number(p?.y)]);
+        if (path.length < 2) return;
+        const layer = L.polyline(path, {
+          renderer: canvasRendererRef.current || undefined,
+          color: normalizeHexColor(arc.colorHex, '#2563eb'),
+          weight: 2,
+          opacity: 0.86,
+        }).bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(arc.layer || 'CAD arc')}</b><br/>Type: ARC</div>`).addTo(map.current);
+        geometryLayersRef.current.push(layer);
+        markers.current.push(layer);
+      });
+
+      cadCircles.filter((circle) => isCadLayerVisible(circle) && isGeometryInBounds(circle, viewportBounds)).forEach((circle) => {
+        const center = toLatLngTuple(circle?.center);
+        const radius = Number(circle?.radius);
+        if (!center || !Number.isFinite(radius) || radius <= 0) return;
+        const path = tessellateCircle({ center: { x: center[0], y: center[1], z: center[2] }, radius }, curveTolerance)
+          .map((p) => [Number(p?.x), Number(p?.y)]);
+        if (path.length < 3) return;
+        const layer = L.polyline(path, {
+          renderer: canvasRendererRef.current || undefined,
+          color: normalizeHexColor(circle.colorHex, '#1d4ed8'),
+          weight: 2,
+          opacity: 0.85,
+        }).bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(circle.layer || 'CAD circle')}</b><br/>Type: CIRCLE</div>`).addTo(map.current);
+        geometryLayersRef.current.push(layer);
+        markers.current.push(layer);
+      });
+
+      cadEllipses.filter((ellipse) => isCadLayerVisible(ellipse) && isGeometryInBounds(ellipse, viewportBounds)).forEach((ellipse) => {
+        const center = toLatLngTuple(ellipse?.center);
+        const axis = toLatLngTuple(ellipse?.majorAxis);
+        if (!center || !axis) return;
+        const path = tessellateEllipse({
+          center: { x: center[0], y: center[1], z: center[2] },
+          majorAxis: { x: axis[0], y: axis[1], z: axis[2] },
+          ratio: Number(ellipse?.ratio ?? 1),
+          startAngle: ellipse?.startAngle,
+          endAngle: ellipse?.endAngle,
+        }, curveTolerance).map((p) => [Number(p?.x), Number(p?.y)]);
+        if (path.length < 3) return;
+        const layer = L.polyline(path, {
+          renderer: canvasRendererRef.current || undefined,
+          color: normalizeHexColor(ellipse.colorHex, '#2563eb'),
+          weight: 2,
+          opacity: 0.82,
+          dashArray: '4 2',
+        }).bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(ellipse.layer || 'CAD ellipse')}</b><br/>Type: ELLIPSE (adaptive preview)</div>`).addTo(map.current);
+        geometryLayersRef.current.push(layer);
+        markers.current.push(layer);
+      });
+
+      cadSplines.filter((spline) => isCadLayerVisible(spline) && isGeometryInBounds(spline, viewportBounds)).forEach((spline) => {
+        const controls = (Array.isArray(spline?.controlPoints) ? spline.controlPoints : [])
+          .map((point) => {
+            const p = toLatLngTuple(point);
+            return p ? { x: p[0], y: p[1], z: p[2] } : null;
+          })
+          .filter(Boolean);
+        const path = tessellateSpline({ controlPoints: controls, degree: spline?.degree }, curveTolerance)
+          .map((p) => [Number(p?.x), Number(p?.y)]);
+        if (path.length < 2) return;
+        const layer = L.polyline(path, {
+          renderer: canvasRendererRef.current || undefined,
+          color: normalizeHexColor(spline.colorHex, '#0f766e'),
+          weight: 2,
+          opacity: 0.84,
+          dashArray: '6 3',
+        }).bindPopup(`<div style="font-size:12px;"><b>${escapeHtml(spline.layer || 'CAD spline')}</b><br/>Type: SPLINE (adaptive preview)</div>`).addTo(map.current);
         geometryLayersRef.current.push(layer);
         markers.current.push(layer);
       });

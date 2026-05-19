@@ -189,13 +189,19 @@ function App() {
 
   useEffect(() => {
     const off = on("converter:cadGeometryForMap", ({ geometry, append = false, sourceKey = null }) => {
-      if (geometry && (Array.isArray(geometry.lines) || Array.isArray(geometry.polylines) || Array.isArray(geometry.texts) || Array.isArray(geometry.hatches) || Array.isArray(geometry.surfaces))) {
+      if (geometry && (Array.isArray(geometry.lines) || Array.isArray(geometry.polylines) || Array.isArray(geometry.arcs) || Array.isArray(geometry.circles) || Array.isArray(geometry.ellipses) || Array.isArray(geometry.splines) || Array.isArray(geometry.texts) || Array.isArray(geometry.hatches) || Array.isArray(geometry.surfaces))) {
         const normalizedGeometry = {
           lines: (Array.isArray(geometry.lines) ? geometry.lines : []).map((line) => ({ ...line, sourceFileKey: sourceKey || line?.sourceFileKey || null })),
           polylines: (Array.isArray(geometry.polylines) ? geometry.polylines : []).map((polyline) => ({ ...polyline, sourceFileKey: sourceKey || polyline?.sourceFileKey || null })),
+          arcs: (Array.isArray(geometry.arcs) ? geometry.arcs : []).map((arc) => ({ ...arc, sourceFileKey: sourceKey || arc?.sourceFileKey || null })),
+          circles: (Array.isArray(geometry.circles) ? geometry.circles : []).map((circle) => ({ ...circle, sourceFileKey: sourceKey || circle?.sourceFileKey || null })),
+          ellipses: (Array.isArray(geometry.ellipses) ? geometry.ellipses : []).map((ellipse) => ({ ...ellipse, sourceFileKey: sourceKey || ellipse?.sourceFileKey || null })),
+          splines: (Array.isArray(geometry.splines) ? geometry.splines : []).map((spline) => ({ ...spline, sourceFileKey: sourceKey || spline?.sourceFileKey || null })),
           texts: (Array.isArray(geometry.texts) ? geometry.texts : []).map((text) => ({ ...text, sourceFileKey: sourceKey || text?.sourceFileKey || null })),
           hatches: (Array.isArray(geometry.hatches) ? geometry.hatches : []).map((hatch) => ({ ...hatch, sourceFileKey: sourceKey || hatch?.sourceFileKey || null })),
           hatchDiagnostics: Array.isArray(geometry.hatchDiagnostics) ? geometry.hatchDiagnostics : [],
+          curveDiagnostics: Array.isArray(geometry.curveDiagnostics) ? geometry.curveDiagnostics : [],
+          curveSummary: geometry.curveSummary || null,
           hatchSummary: geometry.hatchSummary || null,
           renderHints: geometry.renderHints || null,
           surfaces: (Array.isArray(geometry.surfaces) ? geometry.surfaces : []).map((surface) => ({ ...surface, sourceFileKey: sourceKey || surface?.sourceFileKey || null })),
@@ -210,9 +216,15 @@ function App() {
           setCadGeometry((prev) => ({
             lines: [...(Array.isArray(prev?.lines) ? prev.lines : []), ...normalizedGeometry.lines],
             polylines: [...(Array.isArray(prev?.polylines) ? prev.polylines : []), ...normalizedGeometry.polylines],
+            arcs: [...(Array.isArray(prev?.arcs) ? prev.arcs : []), ...normalizedGeometry.arcs],
+            circles: [...(Array.isArray(prev?.circles) ? prev.circles : []), ...normalizedGeometry.circles],
+            ellipses: [...(Array.isArray(prev?.ellipses) ? prev.ellipses : []), ...normalizedGeometry.ellipses],
+            splines: [...(Array.isArray(prev?.splines) ? prev.splines : []), ...normalizedGeometry.splines],
             texts: [...(Array.isArray(prev?.texts) ? prev.texts : []), ...normalizedGeometry.texts],
             hatches: [...(Array.isArray(prev?.hatches) ? prev.hatches : []), ...normalizedGeometry.hatches],
             hatchDiagnostics: [...(Array.isArray(prev?.hatchDiagnostics) ? prev.hatchDiagnostics : []), ...(Array.isArray(normalizedGeometry?.hatchDiagnostics) ? normalizedGeometry.hatchDiagnostics : [])],
+            curveDiagnostics: [...(Array.isArray(prev?.curveDiagnostics) ? prev.curveDiagnostics : []), ...(Array.isArray(normalizedGeometry?.curveDiagnostics) ? normalizedGeometry.curveDiagnostics : [])],
+            curveSummary: normalizedGeometry.curveSummary || prev?.curveSummary || null,
             hatchSummary: normalizedGeometry.hatchSummary || prev?.hatchSummary || null,
             renderHints: normalizedGeometry.renderHints || prev?.renderHints || null,
             surfaces: [...(Array.isArray(prev?.surfaces) ? prev.surfaces : []), ...normalizedGeometry.surfaces],
@@ -357,6 +369,22 @@ function App() {
       const layer = touchLayer(polyline?.sourceFileKey || null);
       layer.polylineCount += 1;
     });
+    (Array.isArray(cadGeometry?.arcs) ? cadGeometry.arcs : []).forEach((arc) => {
+      const layer = touchLayer(arc?.sourceFileKey || null);
+      layer.arcCount = (layer.arcCount || 0) + 1;
+    });
+    (Array.isArray(cadGeometry?.circles) ? cadGeometry.circles : []).forEach((circle) => {
+      const layer = touchLayer(circle?.sourceFileKey || null);
+      layer.circleCount = (layer.circleCount || 0) + 1;
+    });
+    (Array.isArray(cadGeometry?.ellipses) ? cadGeometry.ellipses : []).forEach((ellipse) => {
+      const layer = touchLayer(ellipse?.sourceFileKey || null);
+      layer.ellipseCount = (layer.ellipseCount || 0) + 1;
+    });
+    (Array.isArray(cadGeometry?.splines) ? cadGeometry.splines : []).forEach((spline) => {
+      const layer = touchLayer(spline?.sourceFileKey || null);
+      layer.splineCount = (layer.splineCount || 0) + 1;
+    });
     (Array.isArray(cadGeometry?.texts) ? cadGeometry.texts : []).forEach((text) => {
       const layer = touchLayer(text?.sourceFileKey || null);
       layer.textCount += 1;
@@ -374,6 +402,10 @@ function App() {
     return Array.from(stats.values()).map((entry) => ({
       ...entry,
       visible: !hiddenLayerKeys.includes(entry.key),
+      arcCount: Number(entry.arcCount || 0),
+      circleCount: Number(entry.circleCount || 0),
+      ellipseCount: Number(entry.ellipseCount || 0),
+      splineCount: Number(entry.splineCount || 0),
       surfaceCount: Number(entry.surfaceCount || 0),
       triangleCount: Number(entry.triangleCount || 0),
     }));
@@ -396,9 +428,15 @@ function App() {
       ...cadGeometry,
       lines: (Array.isArray(cadGeometry?.lines) ? cadGeometry.lines : []).filter((line) => isFileVisible(line?.sourceFileKey) && isDxfLayerVisible(line)),
       polylines: (Array.isArray(cadGeometry?.polylines) ? cadGeometry.polylines : []).filter((polyline) => isFileVisible(polyline?.sourceFileKey) && isDxfLayerVisible(polyline)),
+      arcs: (Array.isArray(cadGeometry?.arcs) ? cadGeometry.arcs : []).filter((arc) => isFileVisible(arc?.sourceFileKey) && isDxfLayerVisible(arc)),
+      circles: (Array.isArray(cadGeometry?.circles) ? cadGeometry.circles : []).filter((circle) => isFileVisible(circle?.sourceFileKey) && isDxfLayerVisible(circle)),
+      ellipses: (Array.isArray(cadGeometry?.ellipses) ? cadGeometry.ellipses : []).filter((ellipse) => isFileVisible(ellipse?.sourceFileKey) && isDxfLayerVisible(ellipse)),
+      splines: (Array.isArray(cadGeometry?.splines) ? cadGeometry.splines : []).filter((spline) => isFileVisible(spline?.sourceFileKey) && isDxfLayerVisible(spline)),
       texts: (Array.isArray(cadGeometry?.texts) ? cadGeometry.texts : []).filter((text) => isFileVisible(text?.sourceFileKey) && isDxfLayerVisible(text)),
       hatches: (Array.isArray(cadGeometry?.hatches) ? cadGeometry.hatches : []).filter((hatch) => isFileVisible(hatch?.sourceFileKey) && isDxfLayerVisible(hatch)),
       hatchDiagnostics: Array.isArray(cadGeometry?.hatchDiagnostics) ? cadGeometry.hatchDiagnostics : [],
+      curveDiagnostics: Array.isArray(cadGeometry?.curveDiagnostics) ? cadGeometry.curveDiagnostics : [],
+      curveSummary: cadGeometry?.curveSummary || null,
       hatchSummary: cadGeometry?.hatchSummary || null,
       renderHints: cadGeometry?.renderHints || null,
       surfaces: (Array.isArray(cadGeometry?.surfaces) ? cadGeometry.surfaces : []).filter((surface) => isFileVisible(surface?.sourceFileKey) && isDxfLayerVisible(surface)),
