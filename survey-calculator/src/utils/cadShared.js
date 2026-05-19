@@ -1078,6 +1078,21 @@ const getCadTransformAverageScale = (transform) => {
   return Number.isFinite(avg) && avg > 0 ? avg : 1;
 };
 
+const getCadTransformDeterminant = (transform) => {
+  const a = Number(transform?.a ?? 1);
+  const b = Number(transform?.b ?? 0);
+  const c = Number(transform?.c ?? 0);
+  const d = Number(transform?.d ?? 1);
+  return (a * d) - (b * c);
+};
+
+const isCadTransformUniformScale = (transform, tolerance = 1e-9) => {
+  const sx = Math.hypot(Number(transform?.a ?? 1), Number(transform?.b ?? 0));
+  const sy = Math.hypot(Number(transform?.c ?? 0), Number(transform?.d ?? 1));
+  if (!Number.isFinite(sx) || !Number.isFinite(sy)) return false;
+  return Math.abs(sx - sy) <= (Math.max(1, sx, sy) * tolerance);
+};
+
 const transformCadEntity = (entity, transform, metadata = {}) => {
   const type = String(entity?.type || '').toUpperCase();
   const entityLayer = String(entity?.layer || '').trim();
@@ -1109,17 +1124,35 @@ const transformCadEntity = (entity, transform, metadata = {}) => {
       return transformed;
     case 'LWPOLYLINE':
     case 'POLYLINE':
+      {
+        const mirrored = getCadTransformDeterminant(transform) < 0;
+        const uniformScale = isCadTransformUniformScale(transform);
       transformed.vertices = (Array.isArray(entity?.vertices) ? entity.vertices : []).map((vertex) => {
         const projected = applyCadTransform(vertex, transform);
+        const originalBulge = asFiniteNumber(vertex?.bulge, 0);
+        let nextBulge = originalBulge;
+        let bulgeTransformDisabled = null;
+        if (Math.abs(originalBulge) > 1e-12) {
+          if (!uniformScale) {
+            nextBulge = 0;
+            bulgeTransformDisabled = 'non-uniform-transform';
+          } else if (mirrored) {
+            nextBulge = -originalBulge;
+          }
+        }
         return {
           ...vertex,
           ...projected,
+          bulge: nextBulge,
+          __originalBulge: originalBulge,
+          __bulgeTransformDisabled: bulgeTransformDisabled,
           vertexIndices: Array.isArray(vertex?.vertexIndices) ? [...vertex.vertexIndices] : vertex?.vertexIndices,
           indices: Array.isArray(vertex?.indices) ? [...vertex.indices] : vertex?.indices,
           face: Array.isArray(vertex?.face) ? [...vertex.face] : vertex?.face,
         };
       });
       return transformed;
+      }
     case '3DLINE':
       transformed.vertices = (Array.isArray(entity?.vertices) ? entity.vertices : [entity?.start, entity?.end])
         .filter(Boolean)
@@ -2273,11 +2306,14 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
         const z = Number(v?.z ?? 0);
         if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
         const bulge = Number(v?.bulge);
+        const originalBulge = Number(v?.__originalBulge);
         return {
           x,
           y,
           z: Number.isFinite(z) ? z : 0,
           bulge: Number.isFinite(bulge) ? bulge : 0,
+          originalBulge: Number.isFinite(originalBulge) ? originalBulge : (Number.isFinite(bulge) ? bulge : 0),
+          bulgeTransformDisabled: v?.__bulgeTransformDisabled || null,
         };
       })
       .filter(Boolean);
@@ -2303,6 +2339,15 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
     for (let i = 0; i < safeVertices.length - 1; i += 1) {
       const start = safeVertices[i];
       const end = safeVertices[i + 1];
+      if (start?.bulgeTransformDisabled && Math.abs(Number(start?.originalBulge || 0)) > 1e-12) {
+        pushCurveDiagnostic({
+          code: CURVE_DIAGNOSTIC_CODES.BULGE_IGNORED,
+          entity: sourceEntity,
+          exact: false,
+          approximated: true,
+          recommendation: 'Bulge arc was inside a non-uniform block transform, so it was downgraded to a chord instead of rendering an incorrect circular arc.',
+        });
+      }
       const bulge = Number(start?.bulge || 0);
       if (Math.abs(bulge) > 1e-12) {
         const arc = bulgeToArc(start, end, bulge);
@@ -2316,6 +2361,7 @@ export const collectCadGeometryFromDxf = (dxfData, expandedCad = null) => {
             radius: Number(arc.radius),
             startAngle: Number(arc.startAngle),
             endAngle: Number(arc.endAngle),
+            sweepAngle: Number(arc.sweepAngle),
             clockwise: Boolean(arc.clockwise),
             bulge,
           });

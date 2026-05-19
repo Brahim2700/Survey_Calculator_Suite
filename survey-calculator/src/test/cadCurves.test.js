@@ -124,4 +124,77 @@ describe('CAD curve extraction', () => {
     expect(segments.some((segment) => segment.kind === 'line')).toBe(true);
     expect(segments.some((segment) => segment.kind === 'arc')).toBe(true);
   });
+
+  it('flips bulge direction when a block insert mirrors the source polyline', () => {
+    const dxfData = makeDxfData([
+      {
+        type: 'INSERT',
+        name: 'ROUNDABOUT_ARC',
+        layer: 'ROAD',
+        position: { x: 0, y: 0 },
+        xScale: -1,
+        yScale: 1,
+      },
+    ]);
+
+    dxfData.blocks = {
+      ROUNDABOUT_ARC: {
+        name: 'ROUNDABOUT_ARC',
+        entities: [
+          {
+            type: 'LWPOLYLINE',
+            layer: 'ROAD',
+            vertices: [
+              { x: 1, y: 0, bulge: 0.41421356237 },
+              { x: 0, y: 1 },
+            ],
+          },
+        ],
+      },
+    };
+
+    const geometry = collectCadGeometryFromDxf(dxfData);
+    const segment = geometry.polylines[0].segments[0];
+
+    expect(segment.kind).toBe('arc');
+    expect(segment.clockwise).toBe(true);
+    expect(segment.center[0]).toBeCloseTo(0, 9);
+    expect(segment.center[1]).toBeCloseTo(0, 9);
+    expect(segment.sweepAngle).toBeCloseTo(-(Math.PI / 2), 9);
+  });
+
+  it('downgrades bulge arcs under non-uniform insert scaling instead of fabricating a circular arc', () => {
+    const dxfData = makeDxfData([
+      {
+        type: 'INSERT',
+        name: 'SCALED_ARC',
+        layer: 'ROAD',
+        position: { x: 0, y: 0 },
+        xScale: 2,
+        yScale: 1,
+      },
+    ]);
+
+    dxfData.blocks = {
+      SCALED_ARC: {
+        name: 'SCALED_ARC',
+        entities: [
+          {
+            type: 'LWPOLYLINE',
+            layer: 'ROAD',
+            vertices: [
+              { x: 1, y: 0, bulge: 0.41421356237 },
+              { x: 0, y: 1 },
+            ],
+          },
+        ],
+      },
+    };
+
+    const geometry = collectCadGeometryFromDxf(dxfData);
+    const segment = geometry.polylines[0].segments[0];
+
+    expect(segment.kind).toBe('line');
+    expect(geometry.curveDiagnostics.some((diag) => diag.code === 'CURVE_BULGE_IGNORED')).toBe(true);
+  });
 });

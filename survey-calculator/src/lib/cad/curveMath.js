@@ -69,6 +69,7 @@ export function bulgeToArc(start, end, bulge) {
     radius,
     startAngle,
     endAngle,
+    sweepAngle: theta,
     clockwise: !counterClockwise,
     bulge: b,
   };
