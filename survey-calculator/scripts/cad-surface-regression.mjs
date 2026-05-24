@@ -43,6 +43,19 @@ const test3dFaceTriangulation = () => {
   );
 };
 
+const test3dFaceGeometryWithoutPointRows = () => {
+  const payload = parseDxfTextContent(buildMinimal3dFaceDxf(), {
+    returnPayload: true,
+    strictExistingPointsOnly: true,
+  });
+
+  const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+  const surfaces = payload?.geometry?.surfaces || [];
+
+  assert(rows.length === 0, `Expected 0 point rows in strict mode, received ${rows.length}.`);
+  assert(surfaces.length === 1, `Expected geometry extraction to keep 1 3DFACE surface, received ${surfaces.length}.`);
+};
+
 const testPolyfaceLikeSurfaceExtraction = () => {
   const geometry = collectCadGeometryFromDxf({
     entities: [
@@ -108,6 +121,7 @@ const testMeshExtraction = () => {
 
 const run = () => {
   test3dFaceTriangulation();
+  test3dFaceGeometryWithoutPointRows();
   testPolyfaceLikeSurfaceExtraction();
   testMeshExtraction();
 
@@ -117,7 +131,7 @@ const run = () => {
     process.exit(1);
   }
 
-  console.log('cad-surface-regression passed (3 tests).');
+  console.log('cad-surface-regression passed (4 tests).');
 };
 
 run();

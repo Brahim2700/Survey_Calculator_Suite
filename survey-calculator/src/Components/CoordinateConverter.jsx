@@ -4133,7 +4133,18 @@ const CoordinateConverter = () => {
           onProgressiveUpdate: (refinedPayload) => {
             try {
               const refinedRows = Array.isArray(refinedPayload?.rows) ? refinedPayload.rows : [];
-              if (!refinedRows.length) return;
+              const refinedHasRenderableGeometry = Boolean(
+                refinedPayload?.geometry?.lines?.length
+                || refinedPayload?.geometry?.polylines?.length
+                || refinedPayload?.geometry?.arcs?.length
+                || refinedPayload?.geometry?.circles?.length
+                || refinedPayload?.geometry?.ellipses?.length
+                || refinedPayload?.geometry?.splines?.length
+                || refinedPayload?.geometry?.texts?.length
+                || refinedPayload?.geometry?.hatches?.length
+                || refinedPayload?.geometry?.surfaces?.length
+              );
+              if (!refinedRows.length && !refinedHasRenderableGeometry) return;
               const refinedSourceCrs = resolveCadSourceCrs(refinedRows, refinedPayload, { preferDetected: true });
               const refinedGeometry = projectCadGeometryToWgs84(refinedPayload?.geometry, refinedSourceCrs, refinedRows);
               setCadInspection(buildCadInspectionSummary(
@@ -4368,7 +4379,18 @@ const CoordinateConverter = () => {
             onProgressiveUpdate: (refinedPayload) => {
               try {
                 const refinedRows = Array.isArray(refinedPayload?.rows) ? refinedPayload.rows : [];
-                if (!refinedRows.length) return;
+                  const refinedHasRenderableGeometry = Boolean(
+                    refinedPayload?.geometry?.lines?.length
+                    || refinedPayload?.geometry?.polylines?.length
+                    || refinedPayload?.geometry?.arcs?.length
+                    || refinedPayload?.geometry?.circles?.length
+                    || refinedPayload?.geometry?.ellipses?.length
+                    || refinedPayload?.geometry?.splines?.length
+                    || refinedPayload?.geometry?.texts?.length
+                    || refinedPayload?.geometry?.hatches?.length
+                    || refinedPayload?.geometry?.surfaces?.length
+                  );
+                  if (!refinedRows.length && !refinedHasRenderableGeometry) return;
                 const refinedSourceCrs = resolveCadSourceCrs(refinedRows, refinedPayload);
                 const refinedGeometry = projectCadGeometryToWgs84(refinedPayload?.geometry, refinedSourceCrs, refinedRows);
                 setCadInspection(buildCadInspectionSummary(
@@ -4396,7 +4418,21 @@ const CoordinateConverter = () => {
           throw new Error(`Unsupported file type: .${ext}`);
         }
 
-        if (!rows || rows.length === 0) throw new Error("No point features found");
+        const hasRenderableCadGeometry = Boolean(
+          cadPayload?.geometry?.lines?.length
+          || cadPayload?.geometry?.polylines?.length
+          || cadPayload?.geometry?.arcs?.length
+          || cadPayload?.geometry?.circles?.length
+          || cadPayload?.geometry?.ellipses?.length
+          || cadPayload?.geometry?.splines?.length
+          || cadPayload?.geometry?.texts?.length
+          || cadPayload?.geometry?.hatches?.length
+          || cadPayload?.geometry?.surfaces?.length
+        );
+
+        if ((!rows || rows.length === 0) && !(["dxf", "dwg"].includes(ext) && hasRenderableCadGeometry)) {
+          throw new Error("No point features found");
+        }
         
         // CRS detection already happened on file select, just use detected CRS
         const anyCrs = rows.find((r) => r.detectedFromCrs);
@@ -4428,7 +4464,9 @@ const CoordinateConverter = () => {
           zTypeSource: null,
         })).filter(p => Number.isFinite(p.x) && Number.isFinite(p.y));
         
-        if (parsed.length === 0) throw new Error("No valid coordinates in file");
+        if (parsed.length === 0 && !(["dxf", "dwg"].includes(ext) && hasRenderableCadGeometry)) {
+          throw new Error("No valid coordinates in file");
+        }
 
         if (["dxf", "dwg"].includes(ext)) {
           const sourceCrsForGeometry = resolveCadSourceCrs(rows, cadPayload);
