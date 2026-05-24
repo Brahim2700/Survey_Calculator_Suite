@@ -1951,6 +1951,71 @@ const collectFallbackVertices = (segments, addRow) => {
   });
 };
 
+const collectCrsDetectionCoordinates = (rows = [], expandedEntities = []) => {
+  const coordinates = [];
+  const dedup = new Set();
+  const MAX_COORDINATES = 20000;
+
+  const pushPoint = (xRaw, yRaw, zRaw = null) => {
+    if (coordinates.length >= MAX_COORDINATES) return;
+    const x = Number(xRaw);
+    const y = Number(yRaw);
+    const z = Number(zRaw);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const key = `${x.toFixed(3)},${y.toFixed(3)}`;
+    if (dedup.has(key)) return;
+    dedup.add(key);
+    coordinates.push({
+      x,
+      y,
+      z: Number.isFinite(z) ? z : null,
+    });
+  };
+
+  const pushVertexList = (vertices) => {
+    if (!Array.isArray(vertices)) return;
+    if (!vertices.length) return;
+    const stride = vertices.length > 6000 ? Math.ceil(vertices.length / 6000) : 1;
+    for (let i = 0; i < vertices.length; i += stride) {
+      const vertex = vertices[i];
+      pushPoint(vertex?.x ?? vertex?.[0], vertex?.y ?? vertex?.[1], vertex?.z ?? vertex?.[2] ?? 0);
+      if (coordinates.length >= MAX_COORDINATES) break;
+    }
+  };
+
+  rows.forEach((row) => {
+    pushPoint(row?.x, row?.y, row?.z);
+  });
+
+  if (coordinates.length < MAX_COORDINATES && Array.isArray(expandedEntities)) {
+    expandedEntities.forEach((entity) => {
+      const type = String(entity?.type || '').toUpperCase();
+      if (type === 'LINE') {
+        pushPoint(entity?.start?.x, entity?.start?.y, entity?.start?.z ?? 0);
+        pushPoint(entity?.end?.x, entity?.end?.y, entity?.end?.z ?? 0);
+        return;
+      }
+
+      if (['LWPOLYLINE', 'POLYLINE', '3DLINE', '3DFACE', 'FACE3D', 'MESH', 'PLANESURFACE'].includes(type)) {
+        pushVertexList(entity?.vertices);
+        if (type === '3DFACE' || type === 'FACE3D') {
+          pushPoint(entity?.firstCorner?.x, entity?.firstCorner?.y, entity?.firstCorner?.z ?? 0);
+          pushPoint(entity?.secondCorner?.x, entity?.secondCorner?.y, entity?.secondCorner?.z ?? 0);
+          pushPoint(entity?.thirdCorner?.x, entity?.thirdCorner?.y, entity?.thirdCorner?.z ?? 0);
+          pushPoint(entity?.fourthCorner?.x, entity?.fourthCorner?.y, entity?.fourthCorner?.z ?? 0);
+        }
+        return;
+      }
+
+      if (type === 'POINT') {
+        pushPoint(entity?.position?.x, entity?.position?.y, entity?.position?.z ?? 0);
+      }
+    });
+  }
+
+  return coordinates;
+};
+
 const countEntityTypes = (dxfData) => {
   const counts = {};
   const addEntities = (entities) => {
@@ -2167,7 +2232,7 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
   diagnostics.extraction.textLabelAssigned = assignNearbyTextNames(rows, textLabels, drawingDiagonal);
   diagnostics.extraction.textElevationAssigned = assignNearbyTextElevations(rows, textLabels, drawingDiagonal);
 
-  const coordinates = rows.map((row) => ({ x: row.x, y: row.y, z: row.z }));
+  const coordinates = collectCrsDetectionCoordinates(rows, expandedEntities);
   const bounds = getBoundingBoxFromPoints(coordinates);
   const metadata = { projection: detectedFromCrs || null };
   const crsSuggestions = detectCRS(coordinates, metadata);
@@ -2213,6 +2278,16 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
     if (topConfidence >= 0.84 && confidenceGap >= 0.08) return top.code;
     return null;
   };
+
+  if (
+    !detectedFromCrs
+    && referenceAssessment?.status === 'referenced'
+    && !referenceAssessment?.isAmbiguous
+    && Number(referenceAssessment?.confidence || 0) >= 0.75
+    && referenceAssessment?.recommendedCrs
+  ) {
+    detectedFromCrs = referenceAssessment.recommendedCrs;
+  }
 
   if (!detectedFromCrs) {
     detectedFromCrs = pickAutoDetectedCrs(crsSuggestions);
