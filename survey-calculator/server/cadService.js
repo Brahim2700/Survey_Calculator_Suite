@@ -19,6 +19,9 @@ const DEFAULT_DWG2DXF_PATHS = [
   '/usr/bin/dwg2dxf',
   '/usr/local/bin/dwg2dxf',
   '/opt/homebrew/bin/dwg2dxf',
+  'C:\\Program Files\\LibreDWG\\bin\\dwg2dxf.exe',
+  'C:\\ProgramData\\chocolatey\\bin\\dwg2dxf.exe',
+  'C:\\msys64\\usr\\bin\\dwg2dxf.exe',
 ];
 
 function getFileExtension(fileName = '') {
