@@ -14,24 +14,21 @@ export default function AppHeader({ uiLanguage = 'en', onLanguageChange, t }) {
           </div>
         </div>
 
-        <div className="header-language-switch" aria-label={t('header.language')}>
-          <span className="header-language-label">{t('header.language')}</span>
-          <div className="header-language-buttons">
-            <button
-              type="button"
-              className={`header-language-btn${uiLanguage === 'fr' ? ' active' : ''}`}
-              onClick={() => onLanguageChange?.('fr')}
-            >
-              FR
-            </button>
-            <button
-              type="button"
-              className={`header-language-btn${uiLanguage === 'en' ? ' active' : ''}`}
-              onClick={() => onLanguageChange?.('en')}
-            >
-              EN
-            </button>
-          </div>
+        <div className="header-language-switch" aria-label="Language">
+          <button
+            type="button"
+            className={`header-language-btn${uiLanguage === 'fr' ? ' active' : ''}`}
+            onClick={() => onLanguageChange?.('fr')}
+          >
+            FR
+          </button>
+          <button
+            type="button"
+            className={`header-language-btn${uiLanguage === 'en' ? ' active' : ''}`}
+            onClick={() => onLanguageChange?.('en')}
+          >
+            EN
+          </button>
         </div>
       </div>
     </header>
