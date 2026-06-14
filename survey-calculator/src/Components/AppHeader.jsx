@@ -19,10 +19,6 @@ export default function AppHeader() {
             <span className="badge-icon">🔒</span>
             <span className="badge-text">MIT Licensed</span>
           </div>
-          <div className="security-badge secure">
-            <span className="badge-icon">✓</span>
-            <span className="badge-text">Open Source</span>
-          </div>
         </div>
       </div>
     </header>
