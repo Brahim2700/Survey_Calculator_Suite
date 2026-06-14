@@ -5567,62 +5567,62 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
         <div style={{ fontSize: "0.84rem", color: "#334155", marginTop: "0.25rem", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: "0.35rem" }}>
           <div><strong>Input height type:</strong> {resolveInputHeightType(null, fromCrs).type}</div>
           <div><strong>Output height type:</strong> {resolveOutputHeightType(null, toCrs).type}</div>
-          <div><strong>Geoid mode:</strong> {geoidMode}</div>
-          <div><strong>Geoid grid:</strong> {geoidName || "N/A"}</div>
+          <div><strong>{t('converter.geoidMode')}</strong> {geoidMode}</div>
+          <div><strong>{t('converter.geoidGrid')}</strong> {geoidName || t('converter.notAvailable')}</div>
         </div>
       </div>
 
       <div style={{ marginTop: "0.9rem", marginBottom: "0.45rem", fontSize: "0.73rem", fontWeight: 700, color: "var(--c-text-secondary, #475569)", textTransform: "uppercase", letterSpacing: "0.06em", paddingBottom: "0.3rem", borderBottom: "2px solid var(--c-primary, #1d4ed8)" }}>
-        Single Point Conversion
+        {t('converter.singlePointConversion')}
       </div>
 
       {CRS_LIST.find((c) => c.code === fromCrs)?.type === "geographic" && (
         <div style={{ marginTop: "1rem" }}>
-          <label style={{ fontWeight: 600, marginRight: "1rem" }}>Input Format:</label>
+          <label style={{ fontWeight: 600, marginRight: "1rem" }}>{t('converter.inputFormat')}</label>
           <select 
             value={inputFormat} 
             onChange={(e) => setInputFormat(e.target.value)}
             style={{ padding: "0.5rem", borderRadius: "6px", border: "1px solid #bbb", cursor: "pointer" }}
           >
-            <option value="DD">Decimal Degrees (DD)</option>
-            <option value="DMS">Degrees/Minutes/Seconds (DMS)</option>
+            <option value="DD">{t('converter.decimalDegrees')}</option>
+            <option value="DMS">{t('converter.degreesMinutesSeconds')}</option>
           </select>
           <span style={{ marginLeft: "1rem", fontSize: "0.9rem", color: "#666" }}>
-            {inputFormat === "DMS" && "Formats: 48°51'24\"N, 48:51:24, or 48 51 24"}
+            {inputFormat === "DMS" && t('converter.inputFormatHintDms')}
           </span>
         </div>
       )}
 
       {CRS_LIST.find((c) => c.code === toCrs)?.type === "geographic" && (
         <div style={{ marginTop: "0.75rem" }}>
-          <label style={{ fontWeight: 600, marginRight: "1rem" }}>Output Format:</label>
+          <label style={{ fontWeight: 600, marginRight: "1rem" }}>{t('converter.outputFormat')}</label>
           <select 
             value={outputFormat} 
             onChange={(e) => setOutputFormat(e.target.value)}
             style={{ padding: "0.5rem", borderRadius: "6px", border: "1px solid #bbb", cursor: "pointer" }}
           >
-            <option value="DD">Decimal Degrees (DD)</option>
-            <option value="DMS">Degrees/Minutes/Seconds (DMS)</option>
-            <option value="BOTH">Both DD and DMS</option>
+            <option value="DD">{t('converter.decimalDegrees')}</option>
+            <option value="DMS">{t('converter.degreesMinutesSeconds')}</option>
+            <option value="BOTH">{t('converter.bothDdAndDms')}</option>
           </select>
           <span style={{ marginLeft: "1rem", fontSize: "0.9rem", color: "#666" }}>
-            {outputFormat === "DMS" && "Shown with N/S/E/W (e.g., 48°51'24\"N)"}
-            {outputFormat === "BOTH" && "Shows separate columns for DD and DMS"}
+            {outputFormat === "DMS" && t('converter.outputFormatHintDms')}
+            {outputFormat === "BOTH" && t('converter.outputFormatHintBoth')}
           </span>
         </div>
       )}
 
       <div style={{ marginTop: "1rem", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.9rem" }}>
         <div>
-          <label style={{ fontWeight: 600 }}>X / Lon</label>
+          <label style={{ fontWeight: 600 }}>{t('converter.xLon')}</label>
           <input type={inputFormat === "DMS" ? "text" : "number"} value={x} onChange={(e) => setX(e.target.value)} placeholder={placeholders.x} style={{ width: "100%", padding: "0.5rem", borderRadius: "6px", border: "1px solid #bbb" }} />
         </div>
         <div>
-          <label style={{ fontWeight: 600 }}>Y / Lat</label>
+          <label style={{ fontWeight: 600 }}>{t('converter.yLat')}</label>
           <input type={inputFormat === "DMS" ? "text" : "number"} value={y} onChange={(e) => setY(e.target.value)} placeholder={placeholders.y} style={{ width: "100%", padding: "0.5rem", borderRadius: "6px", border: "1px solid #bbb" }} />
         </div>
         <div>
-          <label style={{ fontWeight: 600 }}>Height</label>
+          <label style={{ fontWeight: 600 }}>{t('converter.height')}</label>
           <input type="number" value={z} onChange={(e) => setZ(e.target.value)} placeholder={placeholders.z} style={{ width: "100%", padding: "0.5rem", borderRadius: "6px", border: "1px solid #bbb" }} />
         </div>
       </div>
@@ -5710,7 +5710,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
 
       <div style={{ marginTop: "1rem", display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "center" }}>
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-          <label style={{ fontWeight: 600 }}>Geoid mode:</label>
+          <label style={{ fontWeight: 600 }}>{t('converter.geoidMode')}</label>
           {" "}
           <select value={geoidMode} onChange={(e) => setGeoidMode(e.target.value)} style={{ padding: "0.45rem", borderRadius: "6px", border: "1px solid #bbb" }}>
             <option value="none">None (2D)</option>
@@ -5768,12 +5768,12 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
         }}
       >
         <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center" }}>
-          <button onClick={handleSingleConvert} style={{ minWidth: "130px", padding: "0.65rem 0.9rem", background: "#2563eb", color: "#fff", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: 600 }}>Convert Single Point</button>
+          <button onClick={handleSingleConvert} style={{ minWidth: "130px", padding: "0.65rem 0.9rem", background: "#2563eb", color: "#fff", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: 600 }}>{t('converter.convertSinglePoint')}</button>
         </div>
 
         <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center" }}>
           <div style={{ position: "relative", display: "flex", alignItems: "center", gap: "0.35rem" }}>
-            <button onClick={handleDetectCrs} disabled={detectLoading} style={{ minWidth: "130px", padding: "0.65rem 0.9rem", background: "#6d28d9", color: "#fff", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: 600 }}>{detectLoading ? "Detecting..." : "Detect CRS"}</button>
+            <button onClick={handleDetectCrs} disabled={detectLoading} style={{ minWidth: "130px", padding: "0.65rem 0.9rem", background: "#6d28d9", color: "#fff", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: 600 }}>{detectLoading ? t('converter.detecting') : t('converter.detectCrs')}</button>
             <span onMouseEnter={() => setShowConfidenceTooltip(true)} onMouseLeave={() => setShowConfidenceTooltip(false)} style={{ cursor: "help", fontWeight: 700, color: "#6d28d9" }}>?</span>
             {showConfidenceTooltip && (
               <div style={{
@@ -5789,11 +5789,11 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
                 minWidth: "280px",
                 boxShadow: "0 4px 12px rgba(0,0,0,0.3)"
               }}>
-                <div style={{ fontWeight: 700, marginBottom: "0.5rem" }}>Confidence Scale</div>
-                <div style={{ marginBottom: "0.4rem" }}>90-100%: High - Extents-based match</div>
-                <div style={{ marginBottom: "0.4rem" }}>75-89%: Good - UTM/metadata match</div>
-                <div style={{ marginBottom: "0.4rem" }}>60-74%: Fair - Trial transform</div>
-                <div>Below 60%: Low - Use with caution</div>
+                <div style={{ fontWeight: 700, marginBottom: "0.5rem" }}>{t('converter.confidenceScale')}</div>
+                <div style={{ marginBottom: "0.4rem" }}>{t('converter.confidenceHigh')}</div>
+                <div style={{ marginBottom: "0.4rem" }}>{t('converter.confidenceGood')}</div>
+                <div style={{ marginBottom: "0.4rem" }}>{t('converter.confidenceFair')}</div>
+                <div>{t('converter.confidenceLow')}</div>
               </div>
             )}
           </div>
@@ -5810,7 +5810,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
               fontWeight: 600
             }}
           >
-            Reset Single
+            {t('converter.resetSingle')}
           </button>
         </div>
       </div>
@@ -5831,7 +5831,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
             return (
               <>
           <div style={{ fontWeight: 700, marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <span>Detected CRS suggestions</span>
+            <span>{t('converter.detectedCrsSuggestions')}</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               <div style={{ display: 'inline-flex', border: '1px solid #cbd5e1', borderRadius: 6, overflow: 'hidden' }}>
                 <button
@@ -5847,7 +5847,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
                     fontWeight: 600
                   }}
                 >
-                  Top detections only
+                  {t('converter.topDetectionsOnly')}
                 </button>
                 <button
                   onClick={() => setDetectionMapMode('all')}
@@ -5861,28 +5861,28 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
                     fontWeight: 600
                   }}
                 >
-                  All detections
+                  {t('converter.allDetections')}
                 </button>
               </div>
               <button
                 onClick={() => setDetectSuggestionsCompact((v) => !v)}
                 style={{ padding: '0.35rem 0.7rem', background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', borderRadius: 6, cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600 }}
               >
-                {detectSuggestionsCompact ? 'Expand List' : 'Compact List'}
+                {detectSuggestionsCompact ? t('converter.expandList') : t('converter.compactList')}
               </button>
               <button onClick={handlePlotDetections} style={{ padding: '0.35rem 0.7rem', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: '0.85rem' }}>
-                Plot on Map
+                {t('converter.plotOnMap')}
               </button>
             </div>
           </div>
           <div style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '0.35rem' }}>
             {detectionMapMode === 'top'
-              ? `Top mode shows and plots the top ${Math.min(TOP_DETECTION_LIMIT, detectSuggestions.length)} highest-confidence detections.`
-              : `All mode plots all ${detectSuggestions.length} detections.`}
+              ? t('converter.topModeShows', { count: Math.min(TOP_DETECTION_LIMIT, detectSuggestions.length) })
+              : t('converter.allModePlots', { count: detectSuggestions.length })}
           </div>
           {topConfidence < 0.75 && (
             <div style={{ marginBottom: '0.5rem', padding: '0.5rem 0.6rem', border: '1px solid #f59e0b', borderRadius: 6, background: '#fffbeb', color: '#92400e', fontSize: '0.82rem' }}>
-              Low confidence detection. Review the top 3 suggestions and plot points on map before applying.
+              {t('converter.lowConfidenceWarning')}
             </div>
           )}
           {(() => {
@@ -5915,14 +5915,14 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
                   <div style={{ fontSize: '0.85rem', color: '#475569' }}>{Math.round((s.confidence||0)*100)}% — {s.reason}</div>
                 </div>
                 <div>
-                  <button onClick={() => { setFromCrsManually(s.code); setShowDetectSuggestions(false); }} style={{ padding: '0.35rem 0.6rem', background: '#10b981', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Use</button>
+                  <button onClick={() => { setFromCrsManually(s.code); setShowDetectSuggestions(false); }} style={{ padding: '0.35rem 0.6rem', background: '#10b981', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>{t('converter.use')}</button>
                 </div>
               </div>
             ))}
           </div>
           {detectSuggestionsCompact && suggestionsForView.length > visibleRows.length && (
             <div style={{ marginTop: '0.4rem', fontSize: '0.78rem', color: '#64748b' }}>
-              Showing {visibleRows.length} of {suggestionsForView.length} suggestions. Use Expand List for full ranking.
+              {t('converter.showingSuggestions', { visible: visibleRows.length, total: suggestionsForView.length })}
             </div>
           )}
               </>
@@ -6033,8 +6033,8 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
         onClick={() => togglePanel("import")}
         style={{ marginTop: "1.2rem", marginBottom: "0.45rem", width: "100%", textAlign: "left", fontSize: "0.73rem", fontWeight: 700, color: "var(--c-text-secondary, #475569)", textTransform: "uppercase", letterSpacing: "0.06em", padding: "0 0 0.3rem 0", border: "none", borderBottom: "2px solid var(--c-secondary, #0891b2)", background: "transparent", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
       >
-        <span>Bulk Conversion / Import</span>
-        <span>{panelOpen.import ? "Hide" : "Show"}</span>
+        <span>{t('converter.bulkConversionImport')}</span>
+        <span>{panelOpen.import ? t('converter.hide') : t('converter.show')}</span>
       </button>
 
       {panelOpen.import && (
@@ -6055,7 +6055,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
             cursor: "pointer"
           }}
         >
-          {showBulkTextInput ? "Hide" : "Show"} Bulk input (one point per line: [ID] x y [z])
+          {t('converter.bulkInputToggle', { action: showBulkTextInput ? t('converter.hide') : t('converter.show') })}
         </button>
 
         {showBulkTextInput && (
@@ -6094,7 +6094,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
                     }} />
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.18rem", fontSize: "0.72rem", color: "#94a3b8" }}>
-                    <span>Uploading</span>
+                    <span>{t('converter.uploading')}</span>
                     <span>{pct}%</span>
                   </div>
                 </div>
@@ -6106,7 +6106,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       </div>
 
       <div ref={bulkSectionRef} style={{ marginTop: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-        <label style={{ fontWeight: 700 }}>Upload bulk file (CSV/TXT/GeoJSON/GPX/KML/KMZ/ZIP/XLSX)</label>
+        <label style={{ fontWeight: 700 }}>{t('converter.uploadBulkFile')}</label>
         {(bulkUploadFile || hasImportedFileData) && (
           <div style={{ display: "flex", alignItems: "center", gap: "0.55rem", flexWrap: "wrap" }}>
             <label style={{ fontSize: "0.84rem", fontWeight: 700, color: "#334155" }}>Import mode</label>
@@ -6149,17 +6149,17 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
               applyBulkFileSelection(f);
           }} style={{ display: "none" }} />
           <button onClick={() => bulkFileInputRef.current?.click()} style={{ padding: "0.5rem 0.9rem", background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", borderRadius: "6px", cursor: "pointer" }}>
-            Choose file
+            {t('converter.chooseFile')}
           </button>
             <button onClick={handleLoadSampleDwg} style={{ padding: "0.5rem 0.9rem", background: "#eef2ff", color: "#3730a3", border: "1px solid #c7d2fe", borderRadius: "6px", cursor: "pointer", fontWeight: 600 }}>
-              Load DWG Sample
+              {t('converter.loadDwgSample')}
             </button>
           <button onClick={handleBulkConvert} style={{ padding: "0.5rem 0.9rem", background: "#0f766e", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: 600 }}>
-            Convert File/Bulk
+            {t('converter.convertFileBulk')}
           </button>
           <MapToolTip
-            title="Detect CRS + Visualize Only"
-            description="Automatically detects the coordinate reference system of the loaded DXF or DWG file and renders its geometry directly on the map without applying any CRS conversion. Use this to inspect a CAD file's original position and verify its CRS before converting."
+            title={t('converter.detectCrsVisualizeOnlyTitle')}
+            description={t('converter.detectCrsVisualizeOnlyDescription')}
           >
             <button
               onClick={handleDetectAndVisualizeCadOnly}
@@ -6175,7 +6175,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
                 opacity: (!bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())) ? 0.65 : 1,
               }}
             >
-              {cadPreviewLoading ? "Preparing Preview..." : "Detect CRS + Visualize Only"}
+              {cadPreviewLoading ? t('converter.preparingPreview') : t('converter.detectCrsVisualizeOnly')}
             </button>
           </MapToolTip>
           {bulkIsConverting && (
@@ -6190,30 +6190,30 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
             onClick={handleBulkResetAll}
             style={{ padding: "0.5rem 0.9rem", background: "#f8fafc", color: "#334155", border: "1px solid #cbd5e1", borderRadius: "6px", cursor: "pointer", fontWeight: 600 }}
           >
-            Reset Bulk
+            {t('converter.resetBulk')}
           </button>
           <MapToolTip
-            title="Download CAD Summary Report"
-            description="Generates and downloads a human-readable text report of the CAD file inspection results. Includes layer names, entity counts, detected CRS, warnings, and repair actions applied during import."
+            title={t('converter.downloadCadSummaryTitle')}
+            description={t('converter.downloadCadSummaryDescription')}
           >
             <button
               onClick={downloadCadSummaryReport}
               disabled={!cadInspection}
               style={{ padding: "0.5rem 0.9rem", background: "#fff", color: "#0f172a", border: "1px solid #cbd5e1", borderRadius: "6px", cursor: cadInspection ? "pointer" : "not-allowed", opacity: cadInspection ? 1 : 0.55, fontWeight: 600 }}
             >
-              Download CAD Summary
+              {t('converter.downloadCadSummary')}
             </button>
           </MapToolTip>
           <MapToolTip
-            title="Download Raw CAD Debug JSON"
-            description="Downloads the full raw diagnostic JSON payload from the CAD parser. This is intended for technical support and debugging — it contains every internal field returned by the server including raw vertex data and error traces."
+            title={t('converter.downloadRawCadDebugTitle')}
+            description={t('converter.downloadRawCadDebugDescription')}
           >
             <button
               onClick={downloadCadDiagnosticReport}
               disabled={!cadInspection}
               style={{ padding: "0.5rem 0.9rem", background: "#f8fafc", color: "#334155", border: "1px solid #cbd5e1", borderRadius: "6px", cursor: cadInspection ? "pointer" : "not-allowed", opacity: cadInspection ? 1 : 0.55, fontWeight: 600 }}
             >
-              Download Raw CAD Debug
+              {t('converter.downloadRawCadDebug')}
             </button>
           </MapToolTip>
           {bulkUploadFile && <span style={{ fontSize: "0.85rem", color: "#059669", fontWeight: 500 }}>✓ {bulkUploadFile.name}</span>}
@@ -6233,8 +6233,8 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
         onClick={() => togglePanel("cad")}
         style={{ marginTop: "0.6rem", marginBottom: "0.45rem", width: "100%", textAlign: "left", fontSize: "0.73rem", fontWeight: 700, color: "#0f172a", textTransform: "uppercase", letterSpacing: "0.06em", padding: "0.2rem 0 0.3rem 0", border: "none", borderBottom: "2px solid #94a3b8", background: "transparent", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
       >
-        <span>CAD Inspection & Validation</span>
-        <span>{panelOpen.cad ? "Hide" : "Show"}</span>
+        <span>{t('converter.cadInspectionValidation')}</span>
+        <span>{panelOpen.cad ? t('converter.hide') : t('converter.show')}</span>
       </button>
 
       {panelOpen.cad && (
@@ -6256,7 +6256,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
           </div>
           <div style={{ border: "1px solid #e2e8f0", borderRadius: "8px", background: "#ffffff", padding: "0.75rem" }}>
             <div style={{ fontWeight: 700, color: "#0f172a", fontSize: "0.76rem", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.35rem" }}>CAD Inspection</div>
-            {!cadInspection && <div style={{ fontSize: "0.84rem", color: "#64748b" }}>Select a DXF or DWG file, then use Detect CRS + Visualize Only (preview) or Convert File/Bulk to inspect routing, detected CRS, and parsed bounds.</div>}
+            {!cadInspection && <div style={{ fontSize: "0.84rem", color: "#64748b" }}>{t('converter.selectCadFileHint')}</div>}
             {cadInspection && (
               <div style={{ display: "grid", gap: "0.18rem", fontSize: "0.84rem", color: "#334155" }}>
                 <div><strong>{cadInspection.fileName}</strong> {cadInspection.extension ? `(${cadInspection.extension})` : ""}</div>
@@ -6485,13 +6485,13 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
         onClick={() => togglePanel("benchmark")}
         style={{ marginTop: "0.6rem", marginBottom: "0.35rem", width: "100%", textAlign: "left", fontSize: "0.73rem", fontWeight: 700, color: "var(--c-primary, #1d4ed8)", textTransform: "uppercase", letterSpacing: "0.06em", padding: "0.2rem 0 0.3rem 0", border: "none", borderBottom: "2px solid #bfdbfe", background: "transparent", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
       >
-        <span>Benchmark / Reference Validation</span>
-        <span>{panelOpen.benchmark ? "Hide" : "Show"}</span>
+        <span>{t('converter.benchmarkReferenceValidation')}</span>
+        <span>{panelOpen.benchmark ? t('converter.hide') : t('converter.show')}</span>
       </button>
 
       {panelOpen.benchmark && (
       <div style={{ marginTop: "0.15rem", padding: "0.7rem", border: "1px solid #dbeafe", borderRadius: "8px", background: "#f8fbff" }}>
-        <div style={{ fontWeight: 700, color: "var(--c-primary, #1d4ed8)", marginBottom: "0.4rem", fontSize: "0.73rem", textTransform: "uppercase", letterSpacing: "0.06em" }}>Benchmark / Reference Validation</div>
+        <div style={{ fontWeight: 700, color: "var(--c-primary, #1d4ed8)", marginBottom: "0.4rem", fontSize: "0.73rem", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t('converter.benchmarkReferenceValidation')}</div>
         <div style={{ fontSize: "0.82rem", color: "#334155", marginBottom: "0.45rem" }}>
           Upload CSV with columns: id, expectedX, expectedY and optional expectedZ to compare against current bulk outputs.
         </div>
@@ -7007,9 +7007,13 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       )}
 
       <div style={{ marginTop: "1rem" }}>
-        <GeoidLoader onLoadComplete={handleGeoidLoadComplete} />
+        <GeoidLoader onLoadComplete={handleGeoidLoadComplete} uiLanguage={uiLanguage} t={t} />
         <div style={{ fontSize: "0.85rem", color: "#475569" }}>
-          Loaded grids: {loadedGeoidGrids.length === 0 ? "none" : loadedGeoidGrids.join(", ")}
+          {t('converter.loadedGrids', {
+            value: loadedGeoidGrids.length === 0
+              ? t('converter.none')
+              : loadedGeoidGrids.map((grid) => (grid === 'ready' ? t('converter.ready') : grid)).join(', '),
+          })}
         </div>
       </div>
 

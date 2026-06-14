@@ -2,8 +2,10 @@
 // Status indicator only - all grids load on-demand
 
 import { useEffect } from "react";
+import { createTranslator } from "../utils/uiLanguage";
 
-const GeoidLoader = ({ onLoadComplete }) => {
+const GeoidLoader = ({ onLoadComplete, uiLanguage = 'en', t: tFromProps }) => {
+  const t = tFromProps || createTranslator(uiLanguage);
   useEffect(() => {
     // Immediately signal ready - no grids loaded
     if (onLoadComplete) onLoadComplete(['ready'], []);
@@ -19,7 +21,7 @@ const GeoidLoader = ({ onLoadComplete }) => {
         fontSize: "0.85rem",
         color: "#155724"
       }}>
-        ✓ 3D conversion ready. Geoid grids will load automatically when needed.
+        ✓ {t('converter.geoidReadyBanner')}
       </div>
     </div>
   );
