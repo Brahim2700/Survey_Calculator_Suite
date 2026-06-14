@@ -74,6 +74,20 @@
   color: #888;
 }
 
+.footer-email-link {
+  color: #00d4ff;
+  text-decoration: none;
+  padding: 0.2rem 0.45rem;
+  border-radius: 4px;
+  transition: all 0.3s ease;
+}
+
+.footer-email-link:hover {
+  color: #fff;
+  background: rgba(0, 212, 255, 0.2);
+  text-decoration: underline;
+}
+
 .footer-credit {
   text-align: center;
   padding-top: 0.75rem;

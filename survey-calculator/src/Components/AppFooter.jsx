@@ -29,6 +29,14 @@ export default function AppFooter() {
 
         <div className="footer-section footer-version">
           <span>v0.0.1 | Open Source</span>
+          <span className="link-separator">|</span>
+          <a
+            className="footer-email-link"
+            href="mailto:frahbrahim27@hotmail.fr?subject=Code%20or%20Website%20Creation%20Request"
+            title="Request source code or website creation"
+          >
+            Request Code or Website (Email)
+          </a>
         </div>
       </div>
 
