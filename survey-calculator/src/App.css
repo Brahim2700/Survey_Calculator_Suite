@@ -41,10 +41,7 @@
   pointer-events: none;
 }
 
-/* ── Header (OLD - now using AppHeader component) ── */
-.app-header {
-  display: none;
-}
+/* ── Legacy header styles (kept for backward compatibility) ── */
 .app-kicker {
   color: rgba(224, 234, 255, 0.86);
   font-size: 0.72rem;
