@@ -1337,11 +1337,11 @@ function App() {
                 )}
 
                 {panels.markerStyle && (
-                  <MarkerStyleManager onChange={setMarkerStyleConfig} />
+                  <MarkerStyleManager onChange={setMarkerStyleConfig} t={t} />
                 )}
 
                 {panels.conflict && (
-                  <SmartConflictDetection points={visibleConverterPoints} />
+                  <SmartConflictDetection points={visibleConverterPoints} t={t} />
                 )}
                 {panels.dxfLayer && (
                   <DxfLayerManager
@@ -1363,16 +1363,16 @@ function App() {
                   />
                 )}
                 {panels.hatch && (
-                  <HatchAreaPanel hatches={Array.isArray(cadGeometry?.hatches) ? cadGeometry.hatches : []} />
+                  <HatchAreaPanel hatches={Array.isArray(cadGeometry?.hatches) ? cadGeometry.hatches : []} t={t} />
                 )}
                 {panels.dxfDiff && (
-                  <DxfDiffPanel />
+                  <DxfDiffPanel t={t} />
                 )}
                 {panels.entityBreakdown && (
-                  <EntityTypeBreakdown geometry={cadGeometry} />
+                  <EntityTypeBreakdown geometry={cadGeometry} t={t} />
                 )}
                 {panels.entityPicker && (
-                  <CadEntityPicker />
+                  <CadEntityPicker t={t} />
                 )}
                 {panels.geoidPreview && (
                   <ErrorBoundary label="Geoid Grid Preview">

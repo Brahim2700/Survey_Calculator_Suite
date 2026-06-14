@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { createTranslator } from '../utils/uiLanguage';
 
 const FEET_PER_METER = 3.28084;
 
@@ -26,7 +27,8 @@ const pickSeverityColor = (severity) => {
   return '#93c5fd';
 };
 
-const SmartConflictDetection = ({ points = [] }) => {
+const SmartConflictDetection = ({ points = [], t: tProp }) => {
+  const t = tProp || createTranslator('en');
   const analysis = useMemo(() => {
     const validPoints = (Array.isArray(points) ? points : []).filter(
       (p) => Number.isFinite(Number(p?.lat)) && Number.isFinite(Number(p?.lng))
@@ -120,44 +122,44 @@ const SmartConflictDetection = ({ points = [] }) => {
     if (duplicateIdEntries.length > 0) {
       findings.push({
         severity: 'high',
-        title: 'Duplicate point IDs',
-        detail: `${duplicateIdEntries.length} duplicated exact ID value(s).`,
+        title: t('panels.duplicatePointIds'),
+        detail: t('panels.duplicatePointIdsDetail', { count: duplicateIdEntries.length }),
       });
     }
 
     if (duplicateBaseIdEntries.length > 0) {
       findings.push({
         severity: 'medium',
-        title: 'Duplicate logical IDs across files',
-        detail: `${duplicateBaseIdEntries.length} repeated base ID value(s) after source prefix stripping.`,
+        title: t('panels.duplicateLogicalIds'),
+        detail: t('panels.duplicateLogicalIdsDetail', { count: duplicateBaseIdEntries.length }),
       });
     }
 
     if (overlappingElevationConflicts.length > 0) {
       findings.push({
         severity: 'high',
-        title: 'Overlapping points with different elevations',
-        detail: `${overlappingElevationConflicts.length} coordinate overlap group(s) show elevation mismatch >= 0.5 m.`,
+        title: t('panels.overlapElevations'),
+        detail: t('panels.overlapElevationsDetail', { count: overlappingElevationConflicts.length }),
       });
     }
 
     if (overlapFeetMeterCandidates > 0 || globalUnitSuspicion) {
       findings.push({
         severity: 'medium',
-        title: 'Potential inconsistent height units',
+        title: t('panels.inconsistentHeightUnits'),
         detail: overlapFeetMeterCandidates > 0
-          ? `${overlapFeetMeterCandidates} overlap group(s) contain height pairs close to meter/feet ratio.`
-          : `Very large absolute height values detected (max |Z| ${maxAbsHeight.toFixed(1)}).`,
+          ? t('panels.inconsistentHeightUnitsDetail', { count: overlapFeetMeterCandidates })
+          : t('panels.inconsistentHeightUnitsMax', { value: maxAbsHeight.toFixed(1) }),
       });
     }
 
     if (impossibleAxisCount > 0 || swapPairKeys.size > 0) {
       findings.push({
         severity: impossibleAxisCount > 0 ? 'high' : 'medium',
-        title: 'Possible mixed axis order',
+        title: t('panels.mixedAxisOrder'),
         detail: impossibleAxisCount > 0
-          ? `${impossibleAxisCount} point(s) exceed valid lat/lng bounds.`
-          : `${swapPairKeys.size} coordinate pair(s) appear in swapped order (lat/lng and lng/lat).`,
+          ? t('panels.mixedAxisOrderImpossible', { count: impossibleAxisCount })
+          : t('panels.mixedAxisOrderSwap', { count: swapPairKeys.size }),
       });
     }
 
@@ -171,7 +173,7 @@ const SmartConflictDetection = ({ points = [] }) => {
       swapPairCount: swapPairKeys.size,
       findings,
     };
-  }, [points]);
+  }, [points, t]);
 
   const hasFindings = analysis.findings.length > 0;
 
@@ -189,7 +191,7 @@ const SmartConflictDetection = ({ points = [] }) => {
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
         <div style={{ fontWeight: 800, color: '#e0eaff', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-          Smart Conflict Detection
+          {t('panels.smartConflictTitle')}
         </div>
         <div style={{
           fontSize: '9px',
@@ -200,16 +202,16 @@ const SmartConflictDetection = ({ points = [] }) => {
           padding: '1px 8px',
           background: hasFindings ? 'rgba(245,158,11,0.15)' : 'rgba(34,197,94,0.15)',
         }}>
-          {hasFindings ? `${analysis.findings.length} issue type(s)` : 'No conflicts'}
+          {hasFindings ? t('panels.issueTypes', { count: analysis.findings.length }) : t('panels.noConflicts')}
         </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '6px', marginBottom: '8px', fontSize: '9px' }}>
         <div style={{ background: 'rgba(15,23,42,0.55)', borderRadius: '6px', padding: '6px 8px' }}>
-          Points checked: <strong style={{ color: '#e2e8f0' }}>{analysis.totalPoints}</strong>
+          {t('panels.pointsChecked')}: <strong style={{ color: '#e2e8f0' }}>{analysis.totalPoints}</strong>
         </div>
         <div style={{ background: 'rgba(15,23,42,0.55)', borderRadius: '6px', padding: '6px 8px' }}>
-          Axis alerts: <strong style={{ color: '#e2e8f0' }}>{analysis.impossibleAxisCount + analysis.swapPairCount}</strong>
+          {t('panels.axisAlerts')}: <strong style={{ color: '#e2e8f0' }}>{analysis.impossibleAxisCount + analysis.swapPairCount}</strong>
         </div>
       </div>
 
@@ -229,19 +231,19 @@ const SmartConflictDetection = ({ points = [] }) => {
 
           {analysis.duplicateIdEntries.length > 0 && (
             <div style={{ fontSize: '9px', color: '#bfdbfe' }}>
-              Top duplicate IDs: {analysis.duplicateIdEntries.slice(0, 4).map(([id, count]) => `${id} (${count})`).join(', ')}
+              {t('panels.topDuplicateIds')}: {analysis.duplicateIdEntries.slice(0, 4).map(([id, count]) => `${id} (${count})`).join(', ')}
             </div>
           )}
 
           {analysis.overlappingElevationConflicts.length > 0 && (
             <div style={{ fontSize: '9px', color: '#bfdbfe' }}>
-              Largest overlap elevation delta: {analysis.overlappingElevationConflicts[0].delta.toFixed(3)} m at {analysis.overlappingElevationConflicts[0].key}
+              {t('panels.largestOverlapDelta')}: {analysis.overlappingElevationConflicts[0].delta.toFixed(3)} m at {analysis.overlappingElevationConflicts[0].key}
             </div>
           )}
         </div>
       ) : (
         <div style={{ color: '#94a3b8', fontSize: '9px' }}>
-          No major ID, overlap, unit, or axis-order conflicts were detected in current visible points.
+          {t('panels.noMajorConflicts')}
         </div>
       )}
     </div>

@@ -1,12 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
 import { on } from "../utils/eventBus";
+import { createTranslator } from '../utils/uiLanguage';
 
 /**
  * CadEntityPicker
  * Displays information about the last CAD entity picked (clicked) on the map.
  * Listens to the 'cad:entityPicked' event emitted from MapVisualization.jsx.
  */
-export default function CadEntityPicker() {
+export default function CadEntityPicker({ t: tProp }) {
+  const t = tProp || createTranslator('en');
   const [entity, setEntity] = useState(null);
   const [flash, setFlash] = useState(false);
   const flashTimer = useRef(null);
@@ -23,14 +25,14 @@ export default function CadEntityPicker() {
   return (
     <div className="tool-panel">
       <div className="tool-panel-header" style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-        <span className="tool-panel-title">🖱 Entity Picker</span>
-        {entity && <span className="tool-panel-badge">Active</span>}
+        <span className="tool-panel-title">🖱 {t('panels.entityPickerTitle')}</span>
+        {entity && <span className="tool-panel-badge">{t('panels.active')}</span>}
       </div>
 
       <div style={{ padding: "0.6rem 0.75rem", fontSize: "0.75rem" }}>
         {!entity ? (
           <div style={{ color: "var(--text-muted)" }}>
-            Click any CAD line or polyline on the map to inspect its properties.
+            {t('panels.clickEntityToInspect')}
           </div>
         ) : (
           <div
@@ -45,13 +47,13 @@ export default function CadEntityPicker() {
             }}
           >
             {[
-              ["Type", entity.type],
-              ["Layer", entity.layer],
-              ["Color", entity.colorHex],
-              ["Source", entity.sourceType],
-              ["Length", entity.length != null ? `${Number(entity.length).toFixed(3)} map units` : null],
-              ["Vertices", entity.vertexCount],
-              ["Handle", entity.handle],
+              [t('panels.type'), entity.type],
+              [t('panels.layer'), entity.layer],
+              [t('panels.color'), entity.colorHex],
+              [t('panels.source'), entity.sourceType],
+              [t('panels.length'), entity.length != null ? `${Number(entity.length).toFixed(3)} ${t('panels.mapUnits')}` : null],
+              [t('panels.verticesLabel'), entity.vertexCount],
+              [t('panels.handle'), entity.handle],
             ]
               .filter(([, v]) => v != null && v !== "")
               .map(([label, value]) => (

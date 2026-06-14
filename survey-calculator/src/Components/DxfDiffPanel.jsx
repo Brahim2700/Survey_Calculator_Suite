@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback } from "react";
 import { parseDXFFile } from "../utils/fileImport";
+import { createTranslator } from '../utils/uiLanguage';
 
 /**
  * DxfDiffPanel
@@ -44,7 +45,8 @@ const buildGeomSets = (payload) => {
   };
 };
 
-export default function DxfDiffPanel() {
+export default function DxfDiffPanel({ t: tProp }) {
+  const t = tProp || createTranslator('en');
   const [fileA, setFileA] = useState(null);
   const [fileB, setFileB] = useState(null);
   const [geoA, setGeoA] = useState(null);
@@ -60,11 +62,11 @@ export default function DxfDiffPanel() {
       const result = await parseDXFFile(file, { returnPayload: true });
       setter(result);
     } catch (err) {
-      setError(`Failed to load ${file.name}: ${err.message}`);
+      setError(t('panels.failedToLoadFile', { name: file.name, message: err.message }));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const handleFileA = (e) => {
     const f = e.target.files?.[0];
@@ -104,15 +106,15 @@ export default function DxfDiffPanel() {
   return (
     <div className="tool-panel">
       <div className="tool-panel-header">
-        <span className="tool-panel-title">🔀 DXF Diff</span>
-        {diff && <span className="tool-panel-badge">Compare complete</span>}
+        <span className="tool-panel-title">🔀 {t('panels.dxfDiffTitle')}</span>
+        {diff && <span className="tool-panel-badge">{t('panels.compareComplete')}</span>}
       </div>
 
       <div style={{ padding: "0.6rem 0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
         {/* File A */}
         <div>
           <label style={{ fontSize: "0.72rem", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>
-            Baseline (A — original)
+            {t('panels.baselineOriginal')}
           </label>
           <input
             type="file"
@@ -126,7 +128,7 @@ export default function DxfDiffPanel() {
         {/* File B */}
         <div>
           <label style={{ fontSize: "0.72rem", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>
-            Revised (B — current)
+            {t('panels.revisedCurrent')}
           </label>
           <input
             type="file"
@@ -138,7 +140,7 @@ export default function DxfDiffPanel() {
         </div>
 
         {loading && (
-          <div style={{ fontSize: "0.75rem", color: "var(--accent-primary, #818cf8)" }}>Loading DXF…</div>
+          <div style={{ fontSize: "0.75rem", color: "var(--accent-primary, #818cf8)" }}>{t('panels.loadingDxf')}</div>
         )}
         {error && (
           <div style={{ fontSize: "0.75rem", color: "#f87171" }}>{error}</div>
@@ -149,7 +151,7 @@ export default function DxfDiffPanel() {
       {diff && (
         <div style={{ padding: "0 0.75rem 0.75rem" }}>
           <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginBottom: "0.4rem", fontWeight: 600 }}>
-            Changes detected (coord tolerance: {TOLERANCE} m):
+            {t('panels.changesDetected', { tolerance: TOLERANCE })}
           </div>
 
           {/* Summary table */}
@@ -171,21 +173,21 @@ export default function DxfDiffPanel() {
             >
               <span style={{ width: "60px", color: "var(--text-muted)" }}>{label}</span>
               {badge(d.added, "#22c55e")}
-              {d.added > 0 && <span style={{ fontSize: "0.65rem", color: "#22c55e" }}>+{d.added} added</span>}
+              {d.added > 0 && <span style={{ fontSize: "0.65rem", color: "#22c55e" }}>+{t('panels.added', { count: d.added })}</span>}
               {badge(d.removed, "#ef4444")}
-              {d.removed > 0 && <span style={{ fontSize: "0.65rem", color: "#ef4444" }}>−{d.removed} removed</span>}
-              <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>{d.unchanged} unchanged</span>
+              {d.removed > 0 && <span style={{ fontSize: "0.65rem", color: "#ef4444" }}>−{t('panels.removed', { count: d.removed })}</span>}
+              <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>{t('panels.unchanged', { count: d.unchanged })}</span>
             </div>
           ))}
 
           {/* Summary verdict */}
           {diff.points.added + diff.points.removed + diff.lines.added + diff.lines.removed + diff.polys.added + diff.polys.removed === 0 ? (
             <div style={{ marginTop: "0.5rem", fontSize: "0.75rem", color: "#22c55e", fontWeight: 600 }}>
-              ✓ Files are geometrically identical (within tolerance)
+              ✓ {t('panels.identicalFiles')}
             </div>
           ) : (
             <div style={{ marginTop: "0.5rem", fontSize: "0.75rem", color: "#f59e0b" }}>
-              ⚠ {diff.lines.added + diff.lines.removed + diff.polys.added + diff.polys.removed} line/polyline change(s) and {diff.points.added + diff.points.removed} point change(s) detected
+              ⚠ {t('panels.changesVerdict', { lineChanges: diff.lines.added + diff.lines.removed + diff.polys.added + diff.polys.removed, pointChanges: diff.points.added + diff.points.removed })}
             </div>
           )}
         </div>

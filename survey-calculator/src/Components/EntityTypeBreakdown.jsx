@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { createTranslator } from '../utils/uiLanguage';
 
 /**
  * EntityTypeBreakdown
@@ -9,7 +10,8 @@ import React, { useMemo, useState } from "react";
  *  - geometry: cadGeometry object from App.jsx state
  *              { lines, polylines, texts, dimensions, hatches, points, layerSummary }
  */
-export default function EntityTypeBreakdown({ geometry = null }) {
+export default function EntityTypeBreakdown({ geometry = null, t: tProp }) {
+  const t = tProp || createTranslator('en');
   const [expandedType, setExpandedType] = useState(null);
 
   const breakdown = useMemo(() => {
@@ -99,10 +101,10 @@ export default function EntityTypeBreakdown({ geometry = null }) {
     return (
       <div className="tool-panel">
         <div className="tool-panel-header">
-          <span className="tool-panel-title">📊 Entity Breakdown</span>
+          <span className="tool-panel-title">📊 {t('panels.entityBreakdownTitle')}</span>
         </div>
         <div className="tool-panel-body" style={{ color: "var(--text-muted)", fontSize: "0.78rem", padding: "0.75rem" }}>
-          Import a DXF or DWG file to see entity type statistics.
+          {t('panels.importCadForEntityStats')}
         </div>
       </div>
     );
@@ -111,8 +113,8 @@ export default function EntityTypeBreakdown({ geometry = null }) {
   return (
     <div className="tool-panel">
       <div className="tool-panel-header">
-        <span className="tool-panel-title">📊 Entity Breakdown</span>
-        <span className="tool-panel-badge">{total.toLocaleString()} entities</span>
+        <span className="tool-panel-title">📊 {t('panels.entityBreakdownTitle')}</span>
+        <span className="tool-panel-badge">{t('panels.entitiesCount', { count: total.toLocaleString() })}</span>
       </div>
 
       <div style={{ overflowY: "auto", maxHeight: "380px" }}>
@@ -172,7 +174,7 @@ export default function EntityTypeBreakdown({ geometry = null }) {
                     </div>
                   ))}
                   {entry.layers.length === 10 && (
-                    <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "2px" }}>+ more layers…</div>
+                    <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "2px" }}>{t('panels.moreLayers')}</div>
                   )}
                 </div>
               )}
@@ -180,7 +182,7 @@ export default function EntityTypeBreakdown({ geometry = null }) {
           );
         }) : (
           <div style={{ padding: "0.75rem", fontSize: "0.78rem", color: "var(--text-muted)" }}>
-            No entities found in loaded file.
+            {t('panels.noEntitiesFound')}
           </div>
         )}
       </div>

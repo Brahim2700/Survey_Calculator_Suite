@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { createTranslator } from '../utils/uiLanguage';
 
 /**
  * HatchAreaPanel
@@ -9,7 +10,8 @@ import React, { useMemo } from "react";
  *  - hatches: array of hatch records from geometry.hatches
  *  - areaUnit: 'sqm' | 'sqkm' | 'ha' — display unit for areas
  */
-export default function HatchAreaPanel({ hatches = [], areaUnit = 'sqm' }) {
+export default function HatchAreaPanel({ hatches = [], areaUnit = 'sqm', t: tProp }) {
+  const t = tProp || createTranslator('en');
   const sorted = useMemo(() => [...hatches].sort((a, b) => (b.area || 0) - (a.area || 0)), [hatches]);
 
   const formatArea = (sqm) => {
@@ -25,10 +27,10 @@ export default function HatchAreaPanel({ hatches = [], areaUnit = 'sqm' }) {
     return (
       <div className="tool-panel">
         <div className="tool-panel-header">
-          <span className="tool-panel-title">⬛ Hatch Areas</span>
+          <span className="tool-panel-title">⬛ {t('panels.hatchAreasTitle')}</span>
         </div>
         <div className="tool-panel-body" style={{ color: "var(--text-muted)", fontSize: "0.78rem", padding: "0.75rem" }}>
-          No HATCH entities found. Import a DXF file with hatched regions to compute boundary areas.
+          {t('panels.noHatches')}
         </div>
       </div>
     );
@@ -37,13 +39,13 @@ export default function HatchAreaPanel({ hatches = [], areaUnit = 'sqm' }) {
   return (
     <div className="tool-panel">
       <div className="tool-panel-header">
-        <span className="tool-panel-title">⬛ Hatch Areas</span>
-        <span className="tool-panel-badge">{hatches.length} region{hatches.length !== 1 ? "s" : ""}</span>
+        <span className="tool-panel-title">⬛ {t('panels.hatchAreasTitle')}</span>
+        <span className="tool-panel-badge">{t('panels.regionsCount', { count: hatches.length, suffix: hatches.length !== 1 ? 's' : '' })}</span>
       </div>
 
       {/* Total area summary */}
       <div style={{ padding: "0.5rem 0.75rem", borderBottom: "1px solid var(--border)", fontSize: "0.78rem" }}>
-        <span style={{ color: "var(--text-muted)" }}>Total enclosed area: </span>
+        <span style={{ color: "var(--text-muted)" }}>{t('panels.totalEnclosedArea')}: </span>
         <strong style={{ color: "var(--accent-primary, #818cf8)" }}>{formatArea(totalArea)}</strong>
       </div>
 
@@ -76,10 +78,10 @@ export default function HatchAreaPanel({ hatches = [], areaUnit = 'sqm' }) {
 
             {/* Pattern name */}
             <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-              title={`Layer: ${hatch.layerOriginal || hatch.layer}`}>
+              title={`${t('panels.layer')}: ${hatch.layerOriginal || hatch.layer}`}>
               {hatch.patternName}
               {hatch.isSolid && (
-                <span style={{ fontSize: "0.65rem", marginLeft: "4px", color: "var(--text-muted)" }}>SOLID</span>
+                <span style={{ fontSize: "0.65rem", marginLeft: "4px", color: "var(--text-muted)" }}>{t('panels.solid')}</span>
               )}
             </span>
 
