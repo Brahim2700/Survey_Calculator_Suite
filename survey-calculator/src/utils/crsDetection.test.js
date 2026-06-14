@@ -146,6 +146,24 @@ describe('detectCRS', () => {
     }
   });
 
+  it('keeps ETRS89 / LAEA Europe below French national candidates for France-like projected data', () => {
+    const coords = [
+      { x: 1702000, y: 5203000 },
+      { x: 1702600, y: 5203600 },
+      { x: 1701800, y: 5202800 },
+    ];
+
+    const results = detectCRS(coords);
+    const laea = results.find((r) => r.code === 'EPSG:3035');
+    const bestFrench = results.find((r) => /^EPSG:(2154|39(4[2-9]|50))$/.test(String(r.code || '')));
+
+    expect(bestFrench).toBeTruthy();
+    if (laea && bestFrench) {
+      expect(Number(bestFrench.confidence || 0)).toBeGreaterThan(Number(laea.confidence || 0));
+    }
+    expect(results[0].code).not.toBe('EPSG:3035');
+  });
+
   it('detects Belgian Lambert 72 from typical projected range', () => {
     // Belgian Lambert 72 (EPSG:31370) style coordinates near Brussels
     const coords = [

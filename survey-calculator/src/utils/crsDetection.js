@@ -66,7 +66,8 @@ export const detectCRS = (coordinates, metadata = {}) => {
   const uniqueSuggestions = deduplicateSuggestions(suggestions);
   const regionAwareSuggestions = applyRegionalPlausibility(uniqueSuggestions, bounds, metadata);
   const overlapAwareSuggestions = applyFrenchItalyOverlapGuard(regionAwareSuggestions, bounds, metadata);
-  const domainAwareSuggestions = applyCoordinateDomainPlausibility(overlapAwareSuggestions, profile);
+  const franceAwareSuggestions = applyFranceFirstPrioritization(overlapAwareSuggestions, bounds, metadata);
+  const domainAwareSuggestions = applyCoordinateDomainPlausibility(franceAwareSuggestions, profile);
 
   return domainAwareSuggestions.sort((a, b) => b.confidence - a.confidence).slice(0, 8);
 };
@@ -544,13 +545,13 @@ FR_LAMBERT_EXTENTS.push(
   { code: 'EPSG:23030', name: 'ED50 / UTM zone 30N (Spain legacy)', xmin: 166000, xmax: 834000, ymin: 3900000, ymax: 4900000, confidence: 0.8 },
   { code: 'EPSG:23031', name: 'ED50 / UTM zone 31N (Spain legacy)', xmin: 166000, xmax: 834000, ymin: 3900000, ymax: 4900000, confidence: 0.8 },
   { code: 'EPSG:2056', name: 'CH1903+ / LV95 (Switzerland)', xmin: 2400000, xmax: 2900000, ymin: 1050000, ymax: 1350000, confidence: 0.9 },
-  { code: 'EPSG:3003', name: 'Monte Mario / Italy zone 1', xmin: 1300000, xmax: 1900000, ymin: 4100000, ymax: 5300000, confidence: 0.86 },
-  { code: 'EPSG:3004', name: 'Monte Mario / Italy zone 2', xmin: 2100000, xmax: 2800000, ymin: 4100000, ymax: 5300000, confidence: 0.86 },
+  { code: 'EPSG:3003', name: 'Monte Mario / Italy zone 1', xmin: 1300000, xmax: 1900000, ymin: 4100000, ymax: 5300000, confidence: 0.72 },
+  { code: 'EPSG:3004', name: 'Monte Mario / Italy zone 2', xmin: 2100000, xmax: 2800000, ymin: 4100000, ymax: 5300000, confidence: 0.72 },
   { code: 'EPSG:31467', name: 'DHDN / 3-degree Gauss-Kruger zone 3 (Germany)', xmin: 3300000, xmax: 3900000, ymin: 5200000, ymax: 6200000, confidence: 0.88 },
   { code: 'EPSG:31468', name: 'DHDN / 3-degree Gauss-Kruger zone 4 (Germany)', xmin: 4200000, xmax: 4800000, ymin: 5200000, ymax: 6200000, confidence: 0.88 },
   { code: 'EPSG:31370', name: 'BD72 / Belgian Lambert 72 (Belgium)', xmin: 0, xmax: 350000, ymin: 0, ymax: 350000, confidence: 0.9 },
   { code: 'EPSG:3812', name: 'ETRS89 / Belgian Lambert 2008 (Belgium)', xmin: 500000, xmax: 850000, ymin: 500000, ymax: 850000, confidence: 0.9 },
-  { code: 'EPSG:3035', name: 'ETRS89 / LAEA Europe', xmin: -4000000, xmax: 9000000, ymin: -4000000, ymax: 9000000, confidence: 0.7 },
+  { code: 'EPSG:3035', name: 'ETRS89 / LAEA Europe', xmin: -4000000, xmax: 9000000, ymin: -4000000, ymax: 9000000, confidence: 0.5 },
   { code: 'EPSG:21781', name: 'CH1903 / LV03 (Switzerland)', xmin: 480000, xmax: 840000, ymin: 60000, ymax: 310000, confidence: 0.93 },
   { code: 'EPSG:28992', name: 'Amersfoort / RD New (Netherlands)', xmin: -250000, xmax: 850000, ymin: 250000, ymax: 625000, confidence: 0.84 },
   { code: 'EPSG:27700', name: 'OSGB 1936 / British National Grid', xmin: 0, xmax: 700000, ymin: 0, ymax: 1300000, confidence: 0.86 },
@@ -767,7 +768,7 @@ const adjustedExtentConfidence = (entry, bounds, swapped = false) => {
       }
       // Use coverage-band scoring for precise zone discrimination
       const coverageScore = getOldLambertCoverageScore(entry.code, lon, lat);
-      return Math.max(0.45, Math.min(0.93, base + 0.08 + coverageScore));
+      return Math.max(0.42, Math.min(0.82, base + 0.02 + coverageScore));
     }
 
     // CC zones are France-only; if reverse projection lands outside France bounds,
@@ -1083,6 +1084,101 @@ const applyFrenchItalyOverlapGuard = (suggestions, bounds, metadata = {}) => {
     }
 
     return entry;
+  });
+};
+
+const FRENCH_PRIORITY_CODES = new Set([
+  'EPSG:2154',
+  'EPSG:3942', 'EPSG:3943', 'EPSG:3944', 'EPSG:3945', 'EPSG:3946', 'EPSG:3947', 'EPSG:3948', 'EPSG:3949', 'EPSG:3950',
+  'EPSG:32630', 'EPSG:32631', 'EPSG:32632',
+  'EPSG:25830', 'EPSG:25831', 'EPSG:25832',
+]);
+
+const COUNTRY_SPECIFIC_NON_FRENCH_CODES = new Set([
+  'EPSG:3003', 'EPSG:3004',
+  'EPSG:31370', 'EPSG:3812',
+  'EPSG:2056', 'EPSG:21781',
+  'EPSG:31467', 'EPSG:31468',
+  'EPSG:27700', 'EPSG:2157',
+  'EPSG:28992',
+]);
+
+const applyFranceFirstPrioritization = (suggestions, bounds, metadata = {}) => {
+  if (!Array.isArray(suggestions) || suggestions.length === 0) return suggestions;
+  if (hasReferenceMetadata(metadata)) return suggestions;
+  if (!Number.isFinite(bounds?.avgX) || !Number.isFinite(bounds?.avgY)) return suggestions;
+
+  const frenchEvidence = suggestions
+    .filter((entry) => FRENCH_PRIORITY_CODES.has(String(entry?.code || '')))
+    .map((entry) => {
+      const lonLat = getReverseProjectedLonLat(entry.code, bounds.avgX, bounds.avgY);
+      const inFrance = Boolean(lonLat && isWithinBbox(lonLat[0], lonLat[1], FRANCE_BBOX));
+      return { entry, inFrance, confidence: Number(entry?.confidence) || 0 };
+    })
+    .filter((item) => item.inFrance);
+
+  const frenchHitCount = frenchEvidence.length;
+  const bestFrenchConfidence = frenchEvidence.reduce((max, item) => Math.max(max, item.confidence), 0);
+  if (!(frenchHitCount >= 2 && bestFrenchConfidence >= 0.52)) return suggestions;
+
+  const hasStrongForeignCountryEvidence = suggestions.some((entry) => {
+    const confidence = Number(entry?.confidence) || 0;
+    if (confidence < 0.75) return false;
+    const country = inferSuggestionCountry(entry);
+    if (!country || country === 'france' || country === 'europe' || country === 'global') return false;
+
+    const lonLat = getReverseProjectedLonLat(entry.code, bounds.avgX, bounds.avgY);
+    if (!lonLat) return false;
+    const [lon, lat] = lonLat;
+
+    const bbox = country === 'belgium'
+      ? BELGIUM_BBOX
+      : country === 'switzerland'
+        ? SWITZERLAND_BBOX
+        : country === 'italy'
+          ? ITALY_BBOX
+          : country === 'germany'
+            ? GERMANY_BBOX
+            : country === 'spain'
+              ? SPAIN_BBOX
+              : null;
+
+    return Boolean(bbox && isWithinBbox(lon, lat, bbox));
+  });
+
+  if (hasStrongForeignCountryEvidence) return suggestions;
+
+  return suggestions.map((entry) => {
+    const code = String(entry?.code || '');
+    const confidence = Number(entry?.confidence);
+    if (!Number.isFinite(confidence)) return entry;
+
+    let adjusted = confidence;
+    let note = '';
+
+    if (FRENCH_PRIORITY_CODES.has(code)) {
+      const lonLat = getReverseProjectedLonLat(code, bounds.avgX, bounds.avgY);
+      if (lonLat && isWithinBbox(lonLat[0], lonLat[1], FRANCE_BBOX)) {
+        adjusted += 0.12;
+        note = 'favored by France-focused plausibility';
+      }
+    }
+
+    if (COUNTRY_SPECIFIC_NON_FRENCH_CODES.has(code)) {
+      adjusted -= 0.22;
+      note = note || 'down-ranked for France-focused dataset';
+    }
+
+    if (code === 'EPSG:3035' && bestFrenchConfidence >= 0.55) {
+      adjusted -= 0.24;
+      note = note || 'down-ranked because national French CRS candidates are stronger';
+    }
+
+    return {
+      ...entry,
+      confidence: clampScore(adjusted, 0.2, 0.99),
+      reason: note ? `${entry.reason}; ${note}` : entry.reason,
+    };
   });
 };
 
@@ -1569,7 +1665,7 @@ const detectProjected = (bounds) => {
     suggestions.push({
       code: 'EPSG:3003',
       name: 'Monte Mario / Italy zone 1',
-      confidence: 0.84,
+      confidence: 0.68,
       reason: 'Projected ranges match Italy zone 1 national grid'
     });
   }
@@ -1577,7 +1673,7 @@ const detectProjected = (bounds) => {
     suggestions.push({
       code: 'EPSG:3004',
       name: 'Monte Mario / Italy zone 2',
-      confidence: 0.84,
+      confidence: 0.68,
       reason: 'Projected ranges match Italy zone 2 national grid'
     });
   }
