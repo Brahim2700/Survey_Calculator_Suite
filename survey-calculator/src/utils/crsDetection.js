@@ -557,7 +557,9 @@ FR_LAMBERT_EXTENTS.push(
 );
 
 for (let zone = 42; zone <= 50; zone += 1) {
-  const y0 = 1200000 + ((zone - 42) * 1000000);
+  // CC zones use a false northing starting around 2,200,000 for CC42,
+  // then +1,000,000 per zone. A lower base wrongly overlaps Italy/Germany grids.
+  const y0 = 2200000 + ((zone - 42) * 1000000);
   FR_LAMBERT_EXTENTS.push({
     code: `EPSG:${3900 + zone}`,
     name: `RGF93 / CC${zone}`,

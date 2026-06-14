@@ -104,6 +104,27 @@ describe('detectCRS', () => {
     expect(codes.some((c) => c === 'EPSG:2154')).toBe(true);
   });
 
+  it('keeps CC46 above Monte Mario zone 1 for CC46-like coordinates', () => {
+    // Typical RGF93 / CC46 magnitudes (northeast France)
+    const coords = [
+      { x: 1702000, y: 6203000 },
+      { x: 1702600, y: 6203600 },
+      { x: 1701800, y: 6202800 },
+    ];
+
+    const results = detectCRS(coords);
+    expect(results.length).toBeGreaterThan(0);
+
+    const cc46 = results.find((r) => r.code === 'EPSG:3946');
+    const italy1 = results.find((r) => r.code === 'EPSG:3003');
+
+    expect(cc46).toBeTruthy();
+    if (italy1 && cc46) {
+      expect(Number(cc46.confidence || 0)).toBeGreaterThan(Number(italy1.confidence || 0));
+    }
+    expect(results[0].code).not.toBe('EPSG:3003');
+  });
+
   it('detects Belgian Lambert 72 from typical projected range', () => {
     // Belgian Lambert 72 (EPSG:31370) style coordinates near Brussels
     const coords = [
