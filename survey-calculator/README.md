@@ -15,6 +15,11 @@ Architecture and stack details: see [ARCHITECTURE.md](ARCHITECTURE.md).
 - Build: `npm run build`
 - Preview: `npm run preview`
 
+## Security & Legal
+
+- **[SECURITY.md](SECURITY.md)**: Security policy, vulnerability reporting, and best practices
+- **[TERMS_OF_SERVICE.md](TERMS_OF_SERVICE.md)**: Terms of use and API restrictions
+
 ## Tech Stack Recap
 
 ### Languages
