@@ -1302,6 +1302,7 @@ function App() {
                     points={visibleConverterPoints}
                     onFilter={(filtered) => setFilteredPoints(filtered)}
                     onClearFilter={() => setFilteredPoints(null)}
+                    t={t}
                   />
                 )}
 
@@ -1310,6 +1311,7 @@ function App() {
                     points={visibleConverterPoints}
                     cadGeometry={visibleCadGeometry}
                     mapMetrics={mapMetrics}
+                    t={t}
                   />
                 )}
 
@@ -1319,16 +1321,18 @@ function App() {
                     onClearMeasurements={() => setMeasurePoints([])}
                     onUndoLastPoint={handleUndoLastMeasurePoint}
                     onClosePolygon={handleCloseMeasurePolygon}
+                    t={t}
                   />
                 )}
 
-                {panels.elevationProfile && <ElevationProfile measurePoints={measurePoints} />}
+                {panels.elevationProfile && <ElevationProfile measurePoints={measurePoints} t={t} />}
 
                 {panels.batchOps && (
                   <BatchOperations
                     points={visibleConverterPoints}
                     filteredPoints={filteredPoints}
                     onBatchOperation={handleBatchOperation}
+                    t={t}
                   />
                 )}
 
@@ -1343,6 +1347,7 @@ function App() {
                   <DxfLayerManager
                     layerSummary={cadGeometry?.layerSummary}
                     hiddenDxfLayers={hiddenDxfLayers}
+                    t={t}
                     onToggleLayer={(layerName) =>
                       setHiddenDxfLayers((prev) =>
                         prev.includes(layerName) ? prev.filter((n) => n !== layerName) : [...prev, layerName]

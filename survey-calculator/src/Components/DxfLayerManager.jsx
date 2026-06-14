@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
 import MapToolTip from "./MapToolTip";
+import { createTranslator } from '../utils/uiLanguage';
 
 /**
  * DxfLayerManager
@@ -12,7 +13,8 @@ import MapToolTip from "./MapToolTip";
  *  - onToggleLayer(layerStandardized): toggle one layer
  *  - onToggleAll(visible: boolean): show / hide all layers
  */
-export default function DxfLayerManager({ layerSummary, hiddenDxfLayers = [], onToggleLayer, onToggleAll }) {
+export default function DxfLayerManager({ layerSummary, hiddenDxfLayers = [], onToggleLayer, onToggleAll, t: tProp }) {
+  const t = tProp || createTranslator('en');
   const layers = useMemo(() => (Array.isArray(layerSummary?.layers) ? layerSummary.layers : []), [layerSummary]);
 
   const allVisible = layers.length > 0 && layers.every((l) => !hiddenDxfLayers.includes(l.standardizedName));
@@ -25,7 +27,7 @@ export default function DxfLayerManager({ layerSummary, hiddenDxfLayers = [], on
           <span className="tool-panel-title">🗂️ DXF Layers</span>
         </div>
         <div className="tool-panel-body" style={{ color: "var(--text-muted)", fontSize: "0.78rem", padding: "0.75rem" }}>
-          No DXF layer data available. Import a DXF or DWG file to see its layer tree.
+          {t('panels.noDxfLayerData')}
         </div>
       </div>
     );
@@ -34,46 +36,45 @@ export default function DxfLayerManager({ layerSummary, hiddenDxfLayers = [], on
   return (
     <div className="tool-panel">
       <div className="tool-panel-header">
-        <span className="tool-panel-title">🗂️ DXF Layers</span>
+        <span className="tool-panel-title">🗂️ {t('panels.dxfLayersTitle')}</span>
         <span className="tool-panel-badge">
-          {layers.length - hiddenDxfLayers.filter((k) => layers.some((l) => l.standardizedName === k)).length}
-          &nbsp;/&nbsp;{layers.length} visible
+          {t('panels.visibleFraction', { visible: layers.length - hiddenDxfLayers.filter((k) => layers.some((l) => l.standardizedName === k)).length, total: layers.length })}
         </span>
       </div>
 
       {/* Header stats */}
       <div style={{ display: "flex", gap: "0.5rem", padding: "0.5rem 0.75rem 0", flexWrap: "wrap", fontSize: "0.72rem", color: "var(--text-muted)" }}>
-        <span>Declared: <strong>{layerSummary.totalDeclaredLayers ?? layers.length}</strong></span>
-        <span>Standardized: <strong>{layerSummary.totalStandardizedLayers ?? layers.length}</strong></span>
+        <span>{t('panels.declared')}: <strong>{layerSummary.totalDeclaredLayers ?? layers.length}</strong></span>
+        <span>{t('panels.standardized')}: <strong>{layerSummary.totalStandardizedLayers ?? layers.length}</strong></span>
         {layerSummary.renamedLayers > 0 && (
-          <span style={{ color: "var(--accent-warning, #f59e0b)" }}>Renamed: <strong>{layerSummary.renamedLayers}</strong></span>
+          <span style={{ color: "var(--accent-warning, #f59e0b)" }}>{t('panels.renamed')}: <strong>{layerSummary.renamedLayers}</strong></span>
         )}
       </div>
 
       {/* Select all / none controls */}
       <div style={{ display: "flex", gap: "0.4rem", padding: "0.4rem 0.75rem", borderBottom: "1px solid var(--border)" }}>
         <MapToolTip
-          title="Show All Layers"
-          description="Makes all DXF layers visible on the map simultaneously. Use this to restore full visibility after selectively hiding individual layers."
+          title={t('panels.showAllLayers')}
+          description={t('panels.showAllLayersDescription')}
         >
           <button
             className="btn btn-xs btn-ghost"
             onClick={() => onToggleAll && onToggleAll(true)}
             disabled={allVisible}
           >
-            Show All
+            {t('panels.showAll')}
           </button>
         </MapToolTip>
         <MapToolTip
-          title="Hide All Layers"
-          description="Hides every DXF layer from the map at once. Useful as a starting point when you want to selectively reveal only specific layers from a complex multi-layer drawing."
+          title={t('panels.hideAllLayers')}
+          description={t('panels.hideAllLayersDescription')}
         >
           <button
             className="btn btn-xs btn-ghost"
             onClick={() => onToggleAll && onToggleAll(false)}
             disabled={!anyVisible}
           >
-            Hide All
+            {t('panels.hideAll')}
           </button>
         </MapToolTip>
       </div>
@@ -97,7 +98,7 @@ export default function DxfLayerManager({ layerSummary, hiddenDxfLayers = [], on
                 transition: "opacity 0.15s",
               }}
               onClick={() => onToggleLayer && onToggleLayer(layer.standardizedName)}
-              title={`Toggle layer: ${layer.displayName}\nOriginal names: ${(layer.originalNames || []).join(", ")}`}
+              title={t('panels.toggleLayerTitle', { name: layer.displayName, originalNames: (layer.originalNames || []).join(', ') })}
             >
               {/* Visibility checkbox */}
               <input
@@ -132,23 +133,23 @@ export default function DxfLayerManager({ layerSummary, hiddenDxfLayers = [], on
                   <span
                     className="tool-panel-badge"
                     style={{ fontSize: "0.65rem", padding: "1px 5px" }}
-                    title="Total entities"
+                    title={t('panels.totalEntities')}
                   >
                     {layer.entityCount}
                   </span>
                 )}
                 {layer.lineCount > 0 && (
-                  <span style={{ fontSize: "0.65rem", color: "var(--text-muted)", whiteSpace: "nowrap" }} title="Lines">
+                  <span style={{ fontSize: "0.65rem", color: "var(--text-muted)", whiteSpace: "nowrap" }} title={t('panels.lines')}>
                     {layer.lineCount}L
                   </span>
                 )}
                 {layer.polylineCount > 0 && (
-                  <span style={{ fontSize: "0.65rem", color: "var(--text-muted)", whiteSpace: "nowrap" }} title="Polylines">
+                  <span style={{ fontSize: "0.65rem", color: "var(--text-muted)", whiteSpace: "nowrap" }} title={t('panels.polylines')}>
                     {layer.polylineCount}P
                   </span>
                 )}
                 {layer.textCount > 0 && (
-                  <span style={{ fontSize: "0.65rem", color: "var(--text-muted)", whiteSpace: "nowrap" }} title="Text entities">
+                  <span style={{ fontSize: "0.65rem", color: "var(--text-muted)", whiteSpace: "nowrap" }} title={t('panels.textEntities')}>
                     {layer.textCount}T
                   </span>
                 )}

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { calculateGeodesicDistance, getUTMZone } from '../utils/calculations';
+import { createTranslator } from '../utils/uiLanguage';
 
 // Accurate polygon area (m²) using equirectangular local projection
 const geodesicPolygonArea = (pts) => {
@@ -30,7 +31,8 @@ const downloadCsv = (filename, rows) => {
   URL.revokeObjectURL(url);
 };
 
-const MultiPointMeasurements = ({ measurePoints = [], onUndoLastPoint, onClosePolygon }) => {
+const MultiPointMeasurements = ({ measurePoints = [], onUndoLastPoint, onClosePolygon, t: tProp }) => {
+  const t = tProp || createTranslator('en');
   const [measurementName, setMeasurementName] = useState('');
   const [savedMeasurements, setSavedMeasurements] = useState([]);
   const [showComparison, setShowComparison] = useState(false);
@@ -139,7 +141,7 @@ const MultiPointMeasurements = ({ measurePoints = [], onUndoLastPoint, onClosePo
   return (
     <div style={{ background: 'rgba(15,32,64,0.92)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: '12px', padding: '12px', color: '#cbd5e1', fontSize: '10px', lineHeight: 1.5 }}>
       <div style={{ fontWeight: 800, marginBottom: '8px', color: '#e0eaff', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-        Multi-Point Measurements
+        {t('panels.multiMeasurementsTitle')}
       </div>
 
       {measurements ? (
@@ -147,25 +149,25 @@ const MultiPointMeasurements = ({ measurePoints = [], onUndoLastPoint, onClosePo
           {/* Live stats */}
           <div style={{ background: 'rgba(37,99,235,0.15)', padding: '10px', borderRadius: '8px', borderLeft: '3px solid rgba(59,130,246,0.7)' }}>
             <div style={{ marginBottom: '6px', fontSize: '9px', color: '#93c5fd', fontWeight: 600 }}>
-              🔴 Live — {measurements.pointCount} pts · UTM zone {measurements.utmZone}
+              🔴 {t('panels.live')} - {measurements.pointCount} {t('panels.pointsShort')} · UTM zone {measurements.utmZone}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px', fontSize: '10px' }}>
-              <div><span style={{ color: '#94a3b8' }}>Distance:</span> <strong style={{ color: '#e0eaff' }}>{(measurements.totalDistance / 1000).toFixed(3)} km</strong></div>
-              <div><span style={{ color: '#94a3b8' }}>Avg elev:</span> <strong style={{ color: '#e0eaff' }}>{measurements.avgElevation.toFixed(2)} m</strong></div>
-              <div><span style={{ color: '#22c55e' }}>↑ Gain:</span> <strong style={{ color: '#22c55e' }}>{measurements.totalElevationGain.toFixed(1)} m</strong></div>
-              <div><span style={{ color: '#f87171' }}>↓ Loss:</span> <strong style={{ color: '#f87171' }}>{measurements.totalElevationLoss.toFixed(1)} m</strong></div>
-              <div><span style={{ color: '#94a3b8' }}>Min elev:</span> <strong style={{ color: '#e0eaff' }}>{measurements.minElevation.toFixed(2)} m</strong></div>
-              <div><span style={{ color: '#94a3b8' }}>Max elev:</span> <strong style={{ color: '#e0eaff' }}>{measurements.maxElevation.toFixed(2)} m</strong></div>
+              <div><span style={{ color: '#94a3b8' }}>{t('panels.distance')}:</span> <strong style={{ color: '#e0eaff' }}>{(measurements.totalDistance / 1000).toFixed(3)} km</strong></div>
+              <div><span style={{ color: '#94a3b8' }}>{t('panels.avgElevation')}:</span> <strong style={{ color: '#e0eaff' }}>{measurements.avgElevation.toFixed(2)} m</strong></div>
+              <div><span style={{ color: '#22c55e' }}>↑ {t('panels.gain')}:</span> <strong style={{ color: '#22c55e' }}>{measurements.totalElevationGain.toFixed(1)} m</strong></div>
+              <div><span style={{ color: '#f87171' }}>↓ {t('panels.loss')}:</span> <strong style={{ color: '#f87171' }}>{measurements.totalElevationLoss.toFixed(1)} m</strong></div>
+              <div><span style={{ color: '#94a3b8' }}>{t('panels.minElevation')}:</span> <strong style={{ color: '#e0eaff' }}>{measurements.minElevation.toFixed(2)} m</strong></div>
+              <div><span style={{ color: '#94a3b8' }}>{t('panels.maxElevation')}:</span> <strong style={{ color: '#e0eaff' }}>{measurements.maxElevation.toFixed(2)} m</strong></div>
               {measurements.isClosed && (
                 <>
                   <div style={{ gridColumn: '1 / -1' }}>
-                    <span style={{ color: '#94a3b8' }}>Area:</span>{' '}
+                    <span style={{ color: '#94a3b8' }}>{t('panels.area')}:</span>{' '}
                     <strong style={{ color: '#22c55e' }}>{measurements.polygonArea.toFixed(0)} m²</strong>
                     {' / '}<strong style={{ color: '#22c55e' }}>{(measurements.polygonArea / 10000).toFixed(4)} ha</strong>
                     {' / '}<strong style={{ color: '#22c55e' }}>{(measurements.polygonArea / 1000000).toFixed(6)} km²</strong>
                   </div>
                   <div style={{ gridColumn: '1 / -1' }}>
-                    <span style={{ color: '#94a3b8' }}>Perimeter:</span> <strong style={{ color: '#e0eaff' }}>{measurements.perimeter.toFixed(2)} m</strong>
+                    <span style={{ color: '#94a3b8' }}>{t('panels.perimeter')}:</span> <strong style={{ color: '#e0eaff' }}>{measurements.perimeter.toFixed(2)} m</strong>
                   </div>
                 </>
               )}
@@ -174,19 +176,19 @@ const MultiPointMeasurements = ({ measurePoints = [], onUndoLastPoint, onClosePo
             {/* Action buttons */}
             <div style={{ display: 'flex', gap: '5px', marginTop: '8px', flexWrap: 'wrap' }}>
               {typeof onUndoLastPoint === 'function' && (
-                <button type="button" onClick={onUndoLastPoint} style={{ border: '1px solid rgba(148,163,184,0.4)', background: 'rgba(107,114,128,0.25)', color: '#e2e8f0', borderRadius: '5px', fontSize: '9px', padding: '3px 8px', cursor: 'pointer' }}>↩ Undo</button>
+                <button type="button" onClick={onUndoLastPoint} style={{ border: '1px solid rgba(148,163,184,0.4)', background: 'rgba(107,114,128,0.25)', color: '#e2e8f0', borderRadius: '5px', fontSize: '9px', padding: '3px 8px', cursor: 'pointer' }}>↩ {t('converter.undoAction')}</button>
               )}
               {typeof onClosePolygon === 'function' && measurePoints.length >= 3 && !measurements.isClosed && (
-                <button type="button" onClick={onClosePolygon} style={{ border: '1px solid rgba(34,197,94,0.5)', background: 'rgba(34,197,94,0.15)', color: '#86efac', borderRadius: '5px', fontSize: '9px', padding: '3px 8px', cursor: 'pointer' }}>🔷 Close polygon</button>
+                <button type="button" onClick={onClosePolygon} style={{ border: '1px solid rgba(34,197,94,0.5)', background: 'rgba(34,197,94,0.15)', color: '#86efac', borderRadius: '5px', fontSize: '9px', padding: '3px 8px', cursor: 'pointer' }}>🔷 {t('panels.closePolygon')}</button>
               )}
-              <button type="button" onClick={handleExportElevationProfile} style={{ border: '1px solid rgba(148,163,184,0.4)', background: 'rgba(15,23,42,0.5)', color: '#e2e8f0', borderRadius: '5px', fontSize: '9px', padding: '3px 8px', cursor: 'pointer', marginLeft: 'auto' }}>📥 Export profile</button>
+              <button type="button" onClick={handleExportElevationProfile} style={{ border: '1px solid rgba(148,163,184,0.4)', background: 'rgba(15,23,42,0.5)', color: '#e2e8f0', borderRadius: '5px', fontSize: '9px', padding: '3px 8px', cursor: 'pointer', marginLeft: 'auto' }}>📥 {t('panels.exportProfile')}</button>
             </div>
 
             {/* Save */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '6px', marginTop: '8px' }}>
               <input
                 type="text"
-                placeholder="Name this measurement..."
+                placeholder={t('panels.measurementNamePlaceholder')}
                 value={measurementName}
                 onChange={(e) => setMeasurementName(e.target.value)}
                 style={{ border: '1px solid rgba(148,163,184,0.45)', background: 'rgba(15,23,42,0.65)', color: '#e2e8f0', borderRadius: '5px', fontSize: '9px', padding: '4px 6px' }}
@@ -196,7 +198,7 @@ const MultiPointMeasurements = ({ measurePoints = [], onUndoLastPoint, onClosePo
                 disabled={!measurementName.trim()}
                 style={{ border: '1px solid rgba(148,163,184,0.55)', background: measurementName.trim() ? 'rgba(34,197,94,0.65)' : 'rgba(107,114,128,0.3)', color: measurementName.trim() ? '#e2e8f0' : '#9ca3af', borderRadius: '5px', fontSize: '9px', padding: '4px 10px', cursor: measurementName.trim() ? 'pointer' : 'not-allowed', fontWeight: 600 }}
               >
-                Save
+                {t('panels.save')}
               </button>
             </div>
           </div>
@@ -205,9 +207,9 @@ const MultiPointMeasurements = ({ measurePoints = [], onUndoLastPoint, onClosePo
           {savedMeasurements.length > 0 && (
             <div style={{ borderTop: '1px solid rgba(148,163,184,0.2)', paddingTop: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <div style={{ fontSize: '9px', color: '#93c5fd', fontWeight: 600 }}>📋 Saved ({savedMeasurements.length})</div>
+                <div style={{ fontSize: '9px', color: '#93c5fd', fontWeight: 600 }}>📋 {t('panels.saved')} ({savedMeasurements.length})</div>
                 <button type="button" onClick={() => setShowComparison((v) => !v)} style={{ border: '1px solid rgba(148,163,184,0.35)', background: showComparison ? 'rgba(59,130,246,0.3)' : 'rgba(15,23,42,0.5)', color: '#93c5fd', borderRadius: '4px', fontSize: '8px', padding: '2px 7px', cursor: 'pointer' }}>
-                  {showComparison ? 'List view' : 'Compare table'}
+                  {showComparison ? t('panels.listView') : t('panels.compareTable')}
                 </button>
               </div>
 
@@ -259,14 +261,14 @@ const MultiPointMeasurements = ({ measurePoints = [], onUndoLastPoint, onClosePo
               )}
 
               <button onClick={handleExportMeasurements} style={{ width: '100%', marginTop: '8px', border: '1px solid rgba(148,163,184,0.55)', background: 'rgba(15,23,42,0.65)', color: '#e2e8f0', borderRadius: '6px', fontSize: '9px', padding: '5px 6px', cursor: 'pointer' }}>
-                📥 Export saved CSV
+                📥 {t('panels.exportSavedCsv')}
               </button>
             </div>
           )}
         </div>
       ) : (
         <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '10px' }}>
-          Enable measure mode and click 2+ map points to start measuring
+          {t('panels.enableMeasure')}
         </div>
       )}
     </div>

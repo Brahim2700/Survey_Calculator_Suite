@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
+import { createTranslator } from '../utils/uiLanguage';
 
-const PointSearchFilter = ({ points = [], onFilter, onClearFilter }) => {
+const PointSearchFilter = ({ points = [], onFilter, onClearFilter, t: tProp }) => {
+  const t = tProp || createTranslator('en');
   const [searchText, setSearchText] = useState('');
   const [filterCrs, setFilterCrs] = useState('all');
   const [filterSourceType, setFilterSourceType] = useState('all');
@@ -91,14 +93,14 @@ const PointSearchFilter = ({ points = [], onFilter, onClearFilter }) => {
       }}
     >
       <div style={{ fontWeight: 800, marginBottom: '8px', color: '#e0eaff', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-        Point Search & Filter
+        {t('panels.searchTitle')}
       </div>
 
       <div style={{ display: 'grid', gap: '8px' }}>
         {/* Search by name/label */}
         <input
           type="text"
-          placeholder="Search by name, ID..."
+          placeholder={t('panels.searchPlaceholder')}
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
           style={{
@@ -116,7 +118,7 @@ const PointSearchFilter = ({ points = [], onFilter, onClearFilter }) => {
         {/* Quick filters */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
           <label style={{ display: 'grid', gap: '2px', fontSize: '9px' }}>
-            CRS
+            {t('panels.crs')}
             <select
               value={filterCrs}
               onChange={(e) => setFilterCrs(e.target.value)}
@@ -129,7 +131,7 @@ const PointSearchFilter = ({ points = [], onFilter, onClearFilter }) => {
                 padding: '3px 5px',
               }}
             >
-              <option value="all">All CRS</option>
+              <option value="all">{t('panels.allCrs')}</option>
               {metadata.crsList.map((crs) => (
                 <option key={crs} value={crs}>
                   {crs}
@@ -139,7 +141,7 @@ const PointSearchFilter = ({ points = [], onFilter, onClearFilter }) => {
           </label>
 
           <label style={{ display: 'grid', gap: '2px', fontSize: '9px' }}>
-            Source Type
+            {t('panels.sourceType')}
             <select
               value={filterSourceType}
               onChange={(e) => setFilterSourceType(e.target.value)}
@@ -152,7 +154,7 @@ const PointSearchFilter = ({ points = [], onFilter, onClearFilter }) => {
                 padding: '3px 5px',
               }}
             >
-              <option value="all">All Types</option>
+              <option value="all">{t('panels.allTypes')}</option>
               {metadata.sourceTypeList.map((type) => (
                 <option key={type} value={type}>
                   {type}
@@ -175,16 +177,16 @@ const PointSearchFilter = ({ points = [], onFilter, onClearFilter }) => {
             cursor: 'pointer',
           }}
         >
-          {showAdvanced ? '▼ Hide Advanced' : '▶ Show Advanced'}
+          {showAdvanced ? `▼ ${t('panels.hideAdvanced')}` : `▶ ${t('panels.showAdvanced')}`}
         </button>
 
         {showAdvanced && (
           <div style={{ display: 'grid', gap: '6px', borderTop: '1px solid rgba(148,163,184,0.2)', paddingTop: '6px' }}>
             <label style={{ display: 'grid', gap: '2px', fontSize: '9px' }}>
-              Elevation Min (m)
+              {t('panels.elevationMin')}
               <input
                 type="number"
-                placeholder="Min"
+                placeholder={t('panels.min')}
                 value={elevationMin}
                 onChange={(e) => setElevationMin(e.target.value)}
                 style={{
@@ -199,10 +201,10 @@ const PointSearchFilter = ({ points = [], onFilter, onClearFilter }) => {
             </label>
 
             <label style={{ display: 'grid', gap: '2px', fontSize: '9px' }}>
-              Elevation Max (m)
+              {t('panels.elevationMax')}
               <input
                 type="number"
-                placeholder="Max"
+                placeholder={t('panels.max')}
                 value={elevationMax}
                 onChange={(e) => setElevationMax(e.target.value)}
                 style={{
@@ -220,7 +222,7 @@ const PointSearchFilter = ({ points = [], onFilter, onClearFilter }) => {
 
         {/* Filter results */}
         <div style={{ padding: '6px 8px', background: 'rgba(37,99,235,0.15)', borderRadius: '6px', fontSize: '9px', color: '#93c5fd' }}>
-          Matching: <strong>{matchCount}</strong> / {totalCount} points
+          {t('panels.matchingPoints', { count: matchCount, total: totalCount })}
         </div>
 
         {/* Action buttons */}
@@ -239,7 +241,7 @@ const PointSearchFilter = ({ points = [], onFilter, onClearFilter }) => {
               fontWeight: 600,
             }}
           >
-            Apply Filter
+            {t('panels.applyFilter')}
           </button>
 
           <button
@@ -254,7 +256,7 @@ const PointSearchFilter = ({ points = [], onFilter, onClearFilter }) => {
               cursor: 'pointer',
             }}
           >
-            Clear
+            {t('panels.clear')}
           </button>
         </div>
       </div>

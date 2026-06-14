@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { buildElevationProfileData, ELEVATION_PROVIDERS, fetchElevationProfile } from '../utils/elevationProfileApi';
+import { createTranslator } from '../utils/uiLanguage';
 
-const ElevationProfile = ({ measurePoints = [] }) => {
+const ElevationProfile = ({ measurePoints = [], t: tProp }) => {
+  const t = tProp || createTranslator('en');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [profileData, setProfileData] = useState(null);
@@ -34,7 +36,7 @@ const ElevationProfile = ({ measurePoints = [] }) => {
         label: point.label || point.sourceLabel || `P${index + 1}`,
       })),
       {
-        sourceLabel: 'Measured point heights',
+        sourceLabel: t('panels.measuredPointHeights'),
         sampled: false,
         selectedPointCount: pts.length,
       }
@@ -52,7 +54,7 @@ const ElevationProfile = ({ measurePoints = [] }) => {
       .catch((error) => {
         if (abortController.signal.aborted) return;
         setProfileData(fallbackProfile);
-        setErrorMessage(error?.message || 'Unable to fetch the online elevation profile.');
+        setErrorMessage(error?.message || t('panels.onlineProfileUnavailable'));
       })
       .finally(() => {
         if (!abortController.signal.aborted) {
@@ -63,7 +65,7 @@ const ElevationProfile = ({ measurePoints = [] }) => {
     return () => {
       abortController.abort();
     };
-  }, [measurePoints, providerId]);
+  }, [measurePoints, providerId, t]);
 
   const chartMetrics = useMemo(() => {
     if (!profileData || profileData.points.length < 2) return null;
@@ -154,9 +156,9 @@ const ElevationProfile = ({ measurePoints = [] }) => {
         }}
       >
         <div style={{ fontWeight: 800, marginBottom: '8px', color: '#e0eaff', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-          Elevation Profile
+          {t('panels.elevationProfileTitle')}
         </div>
-        <div style={{ color: '#94a3b8', fontSize: '9px', marginBottom: '10px' }}>Add 2+ measurement points to generate profile</div>
+        <div style={{ color: '#94a3b8', fontSize: '9px', marginBottom: '10px' }}>{t('panels.addMeasurementPoints')}</div>
         {/* Still show provider switcher in empty state so user can pre-select */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', justifyContent: 'center' }}>
           {ELEVATION_PROVIDERS.map((provider) => {
@@ -165,7 +167,7 @@ const ElevationProfile = ({ measurePoints = [] }) => {
               <button
                 key={provider.id}
                 type="button"
-                title={`${provider.description}\nCoverage: ${provider.coverage}`}
+                title={`${provider.description}\n${t('panels.coverage')}: ${provider.coverage}`}
                 onClick={() => setProviderId(provider.id)}
                 style={{
                   padding: '2px 8px',
@@ -201,7 +203,7 @@ const ElevationProfile = ({ measurePoints = [] }) => {
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', gap: '8px', flexWrap: 'wrap' }}>
         <span style={{ fontWeight: 800, color: '#e0eaff', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-          Elevation Profile
+          {t('panels.elevationProfileTitle')}
         </span>
         {/* Provider switcher */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
@@ -211,7 +213,7 @@ const ElevationProfile = ({ measurePoints = [] }) => {
               <button
                 key={provider.id}
                 type="button"
-                title={`${provider.description}\nCoverage: ${provider.coverage}`}
+                title={`${provider.description}\n${t('panels.coverage')}: ${provider.coverage}`}
                 onClick={() => setProviderId(provider.id)}
                 style={{
                   padding: '2px 8px',
@@ -236,10 +238,10 @@ const ElevationProfile = ({ measurePoints = [] }) => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '8px', color: '#cbd5e1', padding: '4px 8px', borderRadius: '999px', background: 'rgba(37,99,235,0.18)', border: '1px solid rgba(96,165,250,0.3)' }}>
           <span style={{ width: '6px', height: '6px', borderRadius: '999px', background: profileData.sampled ? '#22c55e' : '#f59e0b' }} />
-          {profileData.sampled ? 'IGN GeoPlateforme terrain profile' : 'Fallback: selected point heights only'}
+          {profileData.sampled ? t('panels.terrainProfile') : t('panels.fallbackHeights')}
         </span>
         <span style={{ fontSize: '8px', color: '#94a3b8' }}>
-          {profileData.sampled ? `${profileData.points.length} sampled elevations` : `${profileData.selectedPointCount} selected points`}
+          {profileData.sampled ? t('panels.sampledElevations', { count: profileData.points.length }) : t('panels.selectedPoints', { count: profileData.selectedPointCount })}
         </span>
       </div>
 
@@ -263,7 +265,7 @@ const ElevationProfile = ({ measurePoints = [] }) => {
       >
         {isLoading && (
           <div style={{ position: 'absolute', top: '10px', right: '10px', fontSize: '8px', color: '#93c5fd', zIndex: 2 }}>
-            Loading terrain samples...
+            {t('panels.loadingTerrain')}
           </div>
         )}
         {chartMetrics && (
@@ -329,7 +331,7 @@ const ElevationProfile = ({ measurePoints = [] }) => {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '8px', marginBottom: '10px' }}>
         <div style={{ background: 'rgba(15,23,42,0.6)', padding: '8px', borderRadius: '6px', borderLeft: '2px solid rgba(34,197,94,0.5)' }}>
           <div style={{ fontSize: '8px', color: '#86efac', marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            Elevation
+            {t('panels.elevation')}
           </div>
           <div style={{ fontSize: '9px' }}>
             Min: <strong style={{ color: '#e0eaff' }}>{profileData.minElev.toFixed(2)} m</strong>
@@ -347,22 +349,22 @@ const ElevationProfile = ({ measurePoints = [] }) => {
 
         <div style={{ background: 'rgba(15,23,42,0.6)', padding: '8px', borderRadius: '6px', borderLeft: '2px solid rgba(59,130,246,0.5)' }}>
           <div style={{ fontSize: '8px', color: '#93c5fd', marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            Distance
+            {t('panels.distance')}
           </div>
           <div style={{ fontSize: '9px' }}>
-            Total: <strong style={{ color: '#e0eaff' }}>{(profileData.totalDistance / 1000).toFixed(2)} km</strong>
+            {t('panels.total')}: <strong style={{ color: '#e0eaff' }}>{(profileData.totalDistance / 1000).toFixed(2)} km</strong>
           </div>
           <div style={{ fontSize: '9px' }}>
-            Samples: <strong style={{ color: '#e0eaff' }}>{profileData.points.length}</strong>
+            {t('panels.samples')}: <strong style={{ color: '#e0eaff' }}>{profileData.points.length}</strong>
           </div>
           <div style={{ fontSize: '9px' }}>
-            Selected: <strong style={{ color: '#e0eaff' }}>{profileData.selectedPointCount}</strong>
+            {t('panels.selected')}: <strong style={{ color: '#e0eaff' }}>{profileData.selectedPointCount}</strong>
           </div>
         </div>
 
         <div style={{ background: 'rgba(15,23,42,0.6)', padding: '8px', borderRadius: '6px', borderLeft: '2px solid rgba(245,158,11,0.5)' }}>
           <div style={{ fontSize: '8px', color: '#fbbf24', marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            Terrain Change
+            {t('panels.terrainChange')}
           </div>
           <div style={{ fontSize: '9px' }}>
             Gain: <strong style={{ color: '#e0eaff' }}>{profileData.positiveGain.toFixed(2)} m</strong>
@@ -371,7 +373,7 @@ const ElevationProfile = ({ measurePoints = [] }) => {
             Loss: <strong style={{ color: '#e0eaff' }}>{profileData.negativeGain.toFixed(2)} m</strong>
           </div>
           <div style={{ fontSize: '9px' }}>
-            Slope: <strong style={{ color: '#e0eaff' }}>{profileData.maxSlopePercent.toFixed(2)}%</strong> / <strong style={{ color: '#e0eaff' }}>{profileData.minSlopePercent.toFixed(2)}%</strong>
+            {t('panels.slope')}: <strong style={{ color: '#e0eaff' }}>{profileData.maxSlopePercent.toFixed(2)}%</strong> / <strong style={{ color: '#e0eaff' }}>{profileData.minSlopePercent.toFixed(2)}%</strong>
           </div>
         </div>
       </div>

@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
+import { createTranslator } from '../utils/uiLanguage';
 
-const BatchOperations = ({ points = [], filteredPoints = null, onBatchOperation }) => {
+const BatchOperations = ({ points = [], filteredPoints = null, onBatchOperation, t: tProp }) => {
+  const t = tProp || createTranslator('en');
   const [selectedOperation, setSelectedOperation] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [transformationElevationOffset, setTransformationElevationOffset] = useState('0');
@@ -52,7 +54,7 @@ const BatchOperations = ({ points = [], filteredPoints = null, onBatchOperation 
   const handleBatchTransform = () => {
     const offset = Number(transformationElevationOffset);
     if (!Number.isFinite(offset)) {
-      alert('Invalid elevation offset');
+      alert(t('panels.invalidElevationOffset'));
       return;
     }
 
@@ -92,18 +94,18 @@ const BatchOperations = ({ points = [], filteredPoints = null, onBatchOperation 
     });
 
     const stats = `
-=== Batch Statistics ===
-Points: ${activeCount} / ${totalPoints}
+=== ${t('panels.batchStatsTitle')} ===
+${t('panels.points')}: ${activeCount} / ${totalPoints}
 
-Elevations:
-  Min: ${(Number.isFinite(minElevation) ? minElevation : 0).toFixed(2)} m
-  Max: ${(Number.isFinite(maxElevation) ? maxElevation : 0).toFixed(2)} m
-  Avg: ${(elevations.length ? (sumElevation / elevations.length) : 0).toFixed(2)} m
+${t('panels.elevations')}:
+  ${t('panels.min')}: ${(Number.isFinite(minElevation) ? minElevation : 0).toFixed(2)} m
+  ${t('panels.max')}: ${(Number.isFinite(maxElevation) ? maxElevation : 0).toFixed(2)} m
+  ${t('panels.avg')}: ${(elevations.length ? (sumElevation / elevations.length) : 0).toFixed(2)} m
 
-CRS Distribution:
+${t('panels.crsDistribution')}:
 ${Object.entries(crsCounts).map(([crs, count]) => `  ${crs}: ${count}`).join('\n')}
 
-Source Types:
+${t('panels.sourceTypes')}:
 ${Object.entries(sourceTypeCounts).map(([type, count]) => `  ${type}: ${count}`).join('\n')}
     `;
 
@@ -123,17 +125,17 @@ ${Object.entries(sourceTypeCounts).map(([type, count]) => `  ${type}: ${count}`)
       }}
     >
       <div style={{ fontWeight: 800, marginBottom: '8px', color: '#e0eaff', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-        Batch Operations
+        {t('panels.batchOperationsTitle')}
       </div>
 
       <div style={{ fontSize: '9px', color: '#93c5fd', marginBottom: '8px', padding: '6px 8px', background: 'rgba(37,99,235,0.15)', borderRadius: '6px' }}>
         {filteredPoints !== null ? (
           <>
-            <strong>{activeCount}</strong> points selected from <strong>{totalPoints}</strong> total
+            {t('panels.pointsSelectedFromTotal', { count: activeCount, total: totalPoints })}
           </>
         ) : (
           <>
-            <strong>{totalPoints}</strong> points total
+            {t('panels.pointsTotal', { total: totalPoints })}
           </>
         )}
       </div>
@@ -141,7 +143,7 @@ ${Object.entries(sourceTypeCounts).map(([type, count]) => `  ${type}: ${count}`)
       {/* Operation selector */}
       <div style={{ display: 'grid', gap: '6px', marginBottom: '8px' }}>
         <label style={{ fontSize: '9px', color: '#cbd5e1' }}>
-          Operation:
+          {t('panels.operation')}:
           <select
             value={selectedOperation}
             onChange={(e) => {
@@ -160,11 +162,11 @@ ${Object.entries(sourceTypeCounts).map(([type, count]) => `  ${type}: ${count}`)
               boxSizing: 'border-box',
             }}
           >
-            <option value="">-- Select Operation --</option>
-            <option value="stats">📊 View Statistics</option>
-            <option value="export">📥 Export as CSV</option>
-            <option value="elevationOffset">📐 Add Elevation Offset</option>
-            <option value="delete">🗑️ Delete Selected</option>
+            <option value="">-- {t('panels.selectOperation')} --</option>
+            <option value="stats">📊 {t('panels.viewStatistics')}</option>
+            <option value="export">📥 {t('panels.exportCsv')}</option>
+            <option value="elevationOffset">📐 {t('panels.addElevationOffset')}</option>
+            <option value="delete">🗑️ {t('panels.deleteSelected')}</option>
           </select>
         </label>
       </div>
@@ -173,10 +175,10 @@ ${Object.entries(sourceTypeCounts).map(([type, count]) => `  ${type}: ${count}`)
       {selectedOperation === 'elevationOffset' && (
         <div style={{ display: 'grid', gap: '6px', marginBottom: '8px', padding: '8px', background: 'rgba(15,23,42,0.6)', borderRadius: '6px', borderLeft: '2px solid rgba(249,115,22,0.5)' }}>
           <label style={{ fontSize: '9px' }}>
-            Elevation Offset (m):
+            {t('panels.elevationOffset')}:
             <input
               type="number"
-              placeholder="e.g., 2.5 or -1.5"
+              placeholder={t('panels.elevationOffsetExample')}
               value={transformationElevationOffset}
               onChange={(e) => setTransformationElevationOffset(e.target.value)}
               step="0.1"
@@ -194,7 +196,7 @@ ${Object.entries(sourceTypeCounts).map(([type, count]) => `  ${type}: ${count}`)
             />
           </label>
           <div style={{ fontSize: '8px', color: '#94a3b8' }}>
-            Will add {transformationElevationOffset} m to all {activeCount} point elevation values
+            {t('panels.addOffsetToPoints', { offset: transformationElevationOffset, count: activeCount })}
           </div>
         </div>
       )}
@@ -202,7 +204,7 @@ ${Object.entries(sourceTypeCounts).map(([type, count]) => `  ${type}: ${count}`)
       {selectedOperation === 'delete' && (
         <div style={{ padding: '8px', background: 'rgba(239,68,68,0.15)', borderRadius: '6px', borderLeft: '2px solid rgba(239,68,68,0.5)', marginBottom: '8px' }}>
           <div style={{ fontSize: '9px', color: '#fca5a5', marginBottom: '6px' }}>
-            ⚠️ This will permanently delete <strong>{activeCount}</strong> point(s). This cannot be undone.
+            ⚠️ {t('panels.deleteWarning', { count: activeCount })}
           </div>
           {!confirmDelete ? (
             <button
@@ -218,7 +220,7 @@ ${Object.entries(sourceTypeCounts).map(([type, count]) => `  ${type}: ${count}`)
                 fontWeight: 600,
               }}
             >
-              Confirm Delete
+              {t('panels.confirmDelete')}
             </button>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
@@ -235,7 +237,7 @@ ${Object.entries(sourceTypeCounts).map(([type, count]) => `  ${type}: ${count}`)
                   fontWeight: 600,
                 }}
               >
-                Yes, Delete
+                {t('panels.yesDelete')}
               </button>
               <button
                 onClick={() => setConfirmDelete(false)}
@@ -249,7 +251,7 @@ ${Object.entries(sourceTypeCounts).map(([type, count]) => `  ${type}: ${count}`)
                   cursor: 'pointer',
                 }}
               >
-                Cancel
+                {t('panels.cancel')}
               </button>
             </div>
           )}
@@ -274,7 +276,7 @@ ${Object.entries(sourceTypeCounts).map(([type, count]) => `  ${type}: ${count}`)
               fontWeight: 600,
             }}
           >
-            View Statistics
+            {t('panels.viewStatistics')}
           </button>
         )}
 
@@ -294,7 +296,7 @@ ${Object.entries(sourceTypeCounts).map(([type, count]) => `  ${type}: ${count}`)
               fontWeight: 600,
             }}
           >
-            Export {activeCount} Points
+            {t('panels.exportPoints', { count: activeCount })}
           </button>
         )}
 
@@ -320,7 +322,7 @@ ${Object.entries(sourceTypeCounts).map(([type, count]) => `  ${type}: ${count}`)
               fontWeight: 600,
             }}
           >
-            Apply Offset to {activeCount} Points
+            {t('panels.applyOffset', { count: activeCount })}
           </button>
         )}
 
@@ -334,7 +336,7 @@ ${Object.entries(sourceTypeCounts).map(([type, count]) => `  ${type}: ${count}`)
             fontSize: '9px',
           }}
           >
-            Select an operation above
+            {t('panels.selectOperationAbove')}
           </div>
         )}
       </div>

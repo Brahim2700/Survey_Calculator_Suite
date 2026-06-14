@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createTranslator } from '../utils/uiLanguage';
 
-const PerformanceDiagnostics = ({ points = [], cadGeometry = {}, mapMetrics = {} }) => {
+const PerformanceDiagnostics = ({ points = [], cadGeometry = {}, mapMetrics = {}, t: tProp }) => {
+  const t = tProp || createTranslator('en');
   const [stats, setStats] = useState({
     pointCount: 0,
     lineCount: 0,
@@ -113,9 +115,9 @@ const PerformanceDiagnostics = ({ points = [], cadGeometry = {}, mapMetrics = {}
     const totalObjects = stats.pointCount + stats.lineCount + stats.polylineCount;
     const totalVerts = stats.totalVertices;
 
-    if (totalObjects > 15000 || totalVerts > 500000) return { status: 'ℹ LARGE', color: '#f59e0b' };
-    if (totalObjects > 8000 || totalVerts > 200000) return { status: '⚠ MODERATE', color: '#fbbf24' };
-    return { status: '✓ GOOD', color: '#22c55e' };
+    if (totalObjects > 15000 || totalVerts > 500000) return { status: `ℹ ${t('panels.healthLarge')}`, color: '#f59e0b' };
+    if (totalObjects > 8000 || totalVerts > 200000) return { status: `⚠ ${t('panels.healthModerate')}`, color: '#fbbf24' };
+    return { status: `✓ ${t('panels.healthGood')}`, color: '#22c55e' };
   };
 
   const health = getHealthStatus();
@@ -135,7 +137,7 @@ const PerformanceDiagnostics = ({ points = [], cadGeometry = {}, mapMetrics = {}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
         <div style={{ fontWeight: 800, color: '#e0eaff', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-          Performance Diagnostics
+          {t('panels.diagnosticsTitle')}
         </div>
         <div style={{ color: health.color, fontWeight: 700, fontSize: '9px' }}>{health.status}</div>
       </div>
@@ -144,47 +146,47 @@ const PerformanceDiagnostics = ({ points = [], cadGeometry = {}, mapMetrics = {}
         {/* Data Section */}
         <div style={{ background: 'rgba(15,23,42,0.6)', padding: '8px', borderRadius: '6px', borderLeft: '2px solid rgba(59,130,246,0.5)' }}>
           <div style={{ fontSize: '8px', color: '#93c5fd', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.05em' }}>
-            Data
+            {t('panels.data')}
           </div>
-          <div>Points: <strong style={{ color: '#e0eaff' }}>{stats.pointCount.toLocaleString()}</strong></div>
-          <div>Lines: <strong style={{ color: '#e0eaff' }}>{stats.lineCount.toLocaleString()}</strong></div>
-          <div>Polylines: <strong style={{ color: '#e0eaff' }}>{stats.polylineCount.toLocaleString()}</strong></div>
-          <div>Arcs: <strong style={{ color: '#e0eaff' }}>{stats.arcCount.toLocaleString()}</strong></div>
-          <div>Circles: <strong style={{ color: '#e0eaff' }}>{stats.circleCount.toLocaleString()}</strong></div>
-          <div>Ellipses: <strong style={{ color: '#e0eaff' }}>{stats.ellipseCount.toLocaleString()}</strong></div>
-          <div>Splines: <strong style={{ color: '#e0eaff' }}>{stats.splineCount.toLocaleString()}</strong></div>
-          <div>Bulge arcs: <strong style={{ color: '#e0eaff' }}>{stats.bulgeSegmentCount.toLocaleString()}</strong></div>
-          <div>Proxy curves: <strong style={{ color: '#e0eaff' }}>{stats.proxyCurveCount.toLocaleString()}</strong></div>
-          <div>Approx curves: <strong style={{ color: '#e0eaff' }}>{stats.approximatedCurveCount.toLocaleString()}</strong></div>
-          <div>Vertices: <strong style={{ color: '#e0eaff' }}>{stats.totalVertices.toLocaleString()}</strong></div>
+          <div>{t('panels.points')}: <strong style={{ color: '#e0eaff' }}>{stats.pointCount.toLocaleString()}</strong></div>
+          <div>{t('panels.lines')}: <strong style={{ color: '#e0eaff' }}>{stats.lineCount.toLocaleString()}</strong></div>
+          <div>{t('panels.polylines')}: <strong style={{ color: '#e0eaff' }}>{stats.polylineCount.toLocaleString()}</strong></div>
+          <div>{t('panels.arcs')}: <strong style={{ color: '#e0eaff' }}>{stats.arcCount.toLocaleString()}</strong></div>
+          <div>{t('panels.circles')}: <strong style={{ color: '#e0eaff' }}>{stats.circleCount.toLocaleString()}</strong></div>
+          <div>{t('panels.ellipses')}: <strong style={{ color: '#e0eaff' }}>{stats.ellipseCount.toLocaleString()}</strong></div>
+          <div>{t('panels.splines')}: <strong style={{ color: '#e0eaff' }}>{stats.splineCount.toLocaleString()}</strong></div>
+          <div>{t('panels.bulgeArcs')}: <strong style={{ color: '#e0eaff' }}>{stats.bulgeSegmentCount.toLocaleString()}</strong></div>
+          <div>{t('panels.proxyCurves')}: <strong style={{ color: '#e0eaff' }}>{stats.proxyCurveCount.toLocaleString()}</strong></div>
+          <div>{t('panels.approxCurves')}: <strong style={{ color: '#e0eaff' }}>{stats.approximatedCurveCount.toLocaleString()}</strong></div>
+          <div>{t('panels.vertices')}: <strong style={{ color: '#e0eaff' }}>{stats.totalVertices.toLocaleString()}</strong></div>
         </div>
 
         {/* Performance Section */}
         <div style={{ background: 'rgba(15,23,42,0.6)', padding: '8px', borderRadius: '6px', borderLeft: '2px solid rgba(34,197,94,0.5)' }}>
           <div style={{ fontSize: '8px', color: '#86efac', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.05em' }}>
-            Performance
+            {t('panels.performance')}
           </div>
-          <div>Memory: <strong style={{ color: '#e0eaff' }}>{stats.estimatedMemory} MB</strong></div>
-          <div>Render: <strong style={{ color: '#e0eaff' }}>{stats.renderTime}</strong></div>
-          <div>FPS: <strong style={{ color: stats.fps >= 50 ? '#22c55e' : stats.fps >= 30 ? '#f59e0b' : '#ef4444' }}>{stats.fps}</strong></div>
+          <div>{t('panels.memory')}: <strong style={{ color: '#e0eaff' }}>{stats.estimatedMemory} MB</strong></div>
+          <div>{t('panels.render')}: <strong style={{ color: '#e0eaff' }}>{stats.renderTime}</strong></div>
+          <div>{t('panels.fps')}: <strong style={{ color: stats.fps >= 50 ? '#22c55e' : stats.fps >= 30 ? '#f59e0b' : '#ef4444' }}>{stats.fps}</strong></div>
         </div>
       </div>
 
       {/* Health indicators */}
       <div style={{ fontSize: '8px', color: '#94a3b8', background: 'rgba(15,23,42,0.4)', padding: '6px 8px', borderRadius: '6px' }}>
-        <div style={{ marginBottom: '3px', fontWeight: 600 }}>💡 Optimization Tips:</div>
+        <div style={{ marginBottom: '3px', fontWeight: 600 }}>💡 {t('panels.optimizationTips')}:</div>
         <ul style={{ margin: '0', paddingLeft: '16px' }}>
           {stats.pointCount > 5000 && (
-            <li>Large point count: Enable Duplicate Remover or Filter points</li>
+            <li>{t('panels.tipsLargePointCount')}</li>
           )}
           {stats.totalVertices > 100000 && (
-            <li>Many vertices: CAD geometry is complex; zoom out for faster rendering</li>
+            <li>{t('panels.tipsManyVertices')}</li>
           )}
           {Number(stats.estimatedMemory) > 50 && (
-            <li>High memory usage: Consider splitting into smaller files</li>
+            <li>{t('panels.tipsHighMemory')}</li>
           )}
           {stats.fps < 50 && (
-            <li>Low FPS: Try disabling labels or zooming to specific area</li>
+            <li>{t('panels.tipsLowFps')}</li>
           )}
         </ul>
       </div>
