@@ -40,8 +40,6 @@ export default function AppFooter() {
         </div>
       </div>
 
-      <div className="footer-divider">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</div>
-      
       <div className="footer-credit">
         <span>Made by <strong>FRAH BRAHIM</strong></span>
       </div>
