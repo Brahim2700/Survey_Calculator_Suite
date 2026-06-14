@@ -1,18 +1,19 @@
 /* AppHeader Styles */
 
 .app-header {
-  background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
+  background: transparent;
   color: #fff;
-  padding: 1.5rem 2rem;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  border-bottom: 3px solid #0077aa;
+  padding: 1.1rem 1.5rem 0.6rem;
+  box-shadow: none;
+  border-bottom: none;
 }
 
 .header-container {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  max-width: 100%;
+  max-width: 1760px;
+  margin: 0 auto;
   gap: 2rem;
 }
 
@@ -56,7 +57,7 @@
 }
 
 .brand-title-accent {
-  color: #072a52;
+  color: #60a5fa;
 }
 
 .brand-subtitle {
@@ -77,19 +78,19 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(15, 23, 42, 0.42);
   padding: 0.5rem 1rem;
   border-radius: 20px;
   font-size: 0.85rem;
   font-weight: 600;
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  border: 1px solid rgba(147, 197, 253, 0.45);
   transition: all 0.3s ease;
 }
 
 .security-badge:hover {
-  background: rgba(255, 255, 255, 0.35);
-  border-color: rgba(255, 255, 255, 0.6);
+  background: rgba(15, 23, 42, 0.56);
+  border-color: rgba(147, 197, 253, 0.66);
   transform: translateY(-2px);
 }
 
@@ -117,7 +118,7 @@
 
 @media (max-width: 768px) {
   .app-header {
-    padding: 1rem 1.5rem;
+    padding: 1rem 1.25rem 0.5rem;
   }
 
   .header-container {
@@ -151,7 +152,7 @@
 
 @media (max-width: 480px) {
   .app-header {
-    padding: 0.75rem 1rem;
+    padding: 0.8rem 0.9rem 0.4rem;
   }
 
   .header-brand {
