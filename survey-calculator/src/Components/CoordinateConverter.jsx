@@ -95,9 +95,16 @@ const buildCrsDecisionSummary = (suggestions = []) => {
     points.push("Domain filter applied: geographic candidates were down-ranked because the input behaves like projected metric coordinates.");
   }
 
+  let secondChoiceComparison = "";
+  if (second) {
+    const secondReason = String(second.reason || "No additional reason available.");
+    secondChoiceComparison = `${top.code} was kept above ${second.code} by a ${Math.round(confidenceGap * 100)}-point margin. #2 signal: ${secondReason}`;
+  }
+
   return {
     topCode: top.code,
     points,
+    secondChoiceComparison,
     tone: topConfidence >= 0.75 ? "solid" : "careful",
   };
 };
@@ -5373,6 +5380,14 @@ const CoordinateConverter = () => {
                     <div key={`crs-summary-${idx}`}>{line}</div>
                   ))}
                 </div>
+                {summary.secondChoiceComparison && (
+                  <details style={{ marginTop: "0.4rem" }}>
+                    <summary style={{ cursor: "pointer", fontSize: "0.78rem", fontWeight: 600, color: "#0f172a" }}>Why not #2?</summary>
+                    <div style={{ marginTop: "0.3rem", fontSize: "0.78rem", color: "#475569" }}>
+                      {summary.secondChoiceComparison}
+                    </div>
+                  </details>
+                )}
               </div>
             );
           })()}
@@ -5874,6 +5889,14 @@ const CoordinateConverter = () => {
                     <div key={`detect-summary-${idx}`}>{line}</div>
                   ))}
                 </div>
+                {summary.secondChoiceComparison && (
+                  <details style={{ marginTop: '0.4rem' }}>
+                    <summary style={{ cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, color: '#0f172a' }}>Why not #2?</summary>
+                    <div style={{ marginTop: '0.3rem', fontSize: '0.78rem', color: '#475569' }}>
+                      {summary.secondChoiceComparison}
+                    </div>
+                  </details>
+                )}
               </div>
             );
           })()}
