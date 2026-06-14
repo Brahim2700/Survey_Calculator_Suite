@@ -407,12 +407,12 @@ const detectGeographic = (bounds) => {
 const FR_LAMBERT_EXTENTS = [
   { code: 'EPSG:2154', name: 'RGF93 / Lambert-93', xmin: 0, xmax: 1300000, ymin: 6000000, ymax: 7200000, confidence: 0.88 },
   // NTF Lambert zones (old French Lambert)
-  { code: 'EPSG:27561', name: 'Lambert I (France nord)', xmin: 0, xmax: 1200000, ymin: -200000, ymax: 400000, confidence: 0.82 },
-  { code: 'EPSG:27562', name: 'Lambert II (France centre)', xmin: 0, xmax: 1200000, ymin: 0, ymax: 500000, confidence: 0.82 },
-  { code: 'EPSG:27563', name: 'Lambert III (France sud)', xmin: 0, xmax: 1200000, ymin: 0, ymax: 600000, confidence: 0.82 },
-  { code: 'EPSG:27564', name: 'Lambert IV (Corse)', xmin: 400000, xmax: 700000, ymin: 50000, ymax: 400000, confidence: 0.82 },
+  { code: 'EPSG:27561', name: 'Lambert I (France nord)', xmin: 0, xmax: 1200000, ymin: -200000, ymax: 400000, confidence: 0.68 },
+  { code: 'EPSG:27562', name: 'Lambert II (France centre)', xmin: 0, xmax: 1200000, ymin: 0, ymax: 500000, confidence: 0.68 },
+  { code: 'EPSG:27563', name: 'Lambert III (France sud)', xmin: 0, xmax: 1200000, ymin: 0, ymax: 600000, confidence: 0.68 },
+  { code: 'EPSG:27564', name: 'Lambert IV (Corse)', xmin: 400000, xmax: 700000, ymin: 50000, ymax: 400000, confidence: 0.68 },
   // Lambert II étendu (covers all of France, y_0=2200000)
-  { code: 'EPSG:27572', name: 'Lambert II étendu', xmin: 0, xmax: 1200000, ymin: 1600000, ymax: 2800000, confidence: 0.88 },
+  { code: 'EPSG:27572', name: 'Lambert II étendu', xmin: 0, xmax: 1200000, ymin: 1600000, ymax: 2800000, confidence: 0.84 },
   // UTM zones covering France (proper easting range)
   { code: 'EPSG:32630', name: 'UTM 30N', xmin: 166000, xmax: 834000, ymin: 4600000, ymax: 5700000, confidence: 0.78 },
   { code: 'EPSG:32631', name: 'UTM 31N', xmin: 166000, xmax: 834000, ymin: 4600000, ymax: 5700000, confidence: 0.78 },
@@ -453,7 +453,7 @@ for (let zone = 42; zone <= 50; zone += 1) {
     xmax: 2700000,
     ymin: y0 - 800000,
     ymax: y0 + 800000,
-    confidence: 0.9,
+    confidence: 0.84,
   });
 }
 
@@ -575,6 +575,12 @@ const FOREIGN_GRID_COVERAGE = {
   'EPSG:3812':  { latMin: 49.3, latMax: 51.8, lonMin: 2.2, lonMax: 6.7 },
 };
 
+const COUNTRY_SPECIFIC_FOREIGN_CODES = new Set([
+  'EPSG:27700', 'EPSG:2056', 'EPSG:21781', 'EPSG:23029', 'EPSG:23030', 'EPSG:23031',
+  'EPSG:28992', 'EPSG:3003', 'EPSG:3004', 'EPSG:31467', 'EPSG:31468', 'EPSG:2157',
+  'EPSG:31370', 'EPSG:3812'
+]);
+
 const adjustedExtentConfidence = (entry, bounds, swapped = false) => {
   const base = extentConfidence(entry, swapped);
   if (!entry?.code || !Number.isFinite(bounds?.avgX) || !Number.isFinite(bounds?.avgY)) return base;
@@ -592,7 +598,11 @@ const adjustedExtentConfidence = (entry, bounds, swapped = false) => {
         return Math.max(0.35, base - 0.15);
       }
       if (lon >= foreignCov.lonMin && lon <= foreignCov.lonMax && lat >= foreignCov.latMin && lat <= foreignCov.latMax) {
-        return Math.min(0.94, base + 0.06);
+        if (entry.code === 'EPSG:3035') {
+          return Math.max(0.45, base - 0.08);
+        }
+        const boost = COUNTRY_SPECIFIC_FOREIGN_CODES.has(entry.code) ? 0.16 : 0.06;
+        return Math.min(0.96, base + boost);
       }
       return Math.max(0.50, base - 0.08);
     } catch {
@@ -638,11 +648,17 @@ const adjustedExtentConfidence = (entry, bounds, swapped = false) => {
 
     if (OLD_FRENCH_LAMBERT_LATITUDE[entry.code]) {
       if (!isWithinFranceLikeBounds(lon, lat, entry.code)) {
-        return Math.max(0.35, base - 0.18);
+        return Math.max(0.35, base - 0.32);
       }
       // Use coverage-band scoring for precise zone discrimination
       const coverageScore = getOldLambertCoverageScore(entry.code, lon, lat);
       return Math.max(0.45, Math.min(0.93, base + 0.08 + coverageScore));
+    }
+
+    // CC zones are France-only; if reverse projection lands outside France bounds,
+    // strongly penalize to avoid out-ranking country-specific foreign grids.
+    if (/^EPSG:39(4[2-9]|50)$/.test(entry.code) && !isWithinFranceLikeBounds(lon, lat, entry.code)) {
+      return Math.max(0.35, base - 0.34);
     }
 
     const penalty = getFrenchLatitudePenalty(entry.code, lat);
@@ -861,7 +877,7 @@ const inferSuggestionCountry = (entry) => {
   const text = `${String(entry?.name || '')} ${String(entry?.reason || '')}`.toLowerCase();
 
   if (isFrenchProjectedCandidate(code) || /^EPSG:(98\d\d|27(560|561|562|563|564|572))$/.test(code)) return 'france';
-  if (/\bfrance\b|\brgf93\b|\blambert\b|\bcc\d{2}\b/.test(text)) return 'france';
+  if (/\bfrance\b|\brgf93\b|\blambert-?93\b|\bcc\d{2}\b|\blambert\s*(?:i|ii|iii|iv)\b/.test(text)) return 'france';
 
   if (code === 'EPSG:3003' || code === 'EPSG:3004') return 'italy';
   if (/\bitaly\b|\bmonte mario\b/.test(text)) return 'italy';
@@ -875,7 +891,7 @@ const inferSuggestionCountry = (entry) => {
   if (code === 'EPSG:31467' || code === 'EPSG:31468') return 'germany';
   if (/\bgermany\b|\bgauss\b/.test(text)) return 'germany';
 
-  if (/^EPSG:(23029|23030|23031|25829|25830|25831)$/.test(code) || /\bspain\b|\biberia\b/.test(text)) return 'spain';
+  if (/^EPSG:(23029|23030|23031)$/.test(code) || /\bspain\b|\biberia\b/.test(text)) return 'spain';
 
   return null;
 };
@@ -897,8 +913,8 @@ const inferDominantCountryFromSuggestions = (suggestions) => {
   const sorted = [...weights.entries()].sort((a, b) => b[1] - a[1]);
   const [topCountry, topWeight] = sorted[0];
   const secondWeight = sorted[1]?.[1] || 0;
-  if (topWeight < 1.05) return null;
-  if (topWeight < (secondWeight * 1.2) && (topWeight - secondWeight) < 0.12) return null;
+  if (topWeight < 2.0) return null;
+  if (topWeight < (secondWeight * 1.35) && (topWeight - secondWeight) < 0.25) return null;
   return topCountry;
 };
 
@@ -1357,7 +1373,7 @@ const detectProjected = (bounds) => {
     suggestions.push({
       code: 'EPSG:31370',
       name: 'BD72 / Belgian Lambert 72',
-      confidence: 0.84,
+      confidence: 0.92,
       reason: `Projected ranges (E: ${Math.round(avgX / 1000)}km, N: ${Math.round(avgY / 1000)}km) match Belgian Lambert 72`
     });
   }
@@ -1377,7 +1393,7 @@ const detectProjected = (bounds) => {
     suggestions.push({
       code: 'EPSG:2056',
       name: 'CH1903+ / LV95',
-      confidence: 0.87,
+      confidence: 0.92,
       reason: `Projected ranges (E: ${Math.round(avgX / 1000)}km, N: ${Math.round(avgY / 1000)}km) match Swiss LV95`
     });
   }

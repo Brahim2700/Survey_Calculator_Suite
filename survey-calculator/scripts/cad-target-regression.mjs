@@ -12,7 +12,7 @@ const argValue = (name, fallback = '') => {
   return fallback;
 };
 
-const requiredFile = argValue('file', process.env.CAD_TARGET_FILE || '');
+const requiredFile = argValue('file', process.env.CAD_TARGET_FILE || './public/samples/sample_tin_surfaces.dxf');
 const minRows = Number(argValue('minRows', process.env.CAD_TARGET_MIN_ROWS || '1'));
 const allowGeomFallback = String(argValue('allowGeomFallback', process.env.CAD_TARGET_ALLOW_GEOM_FALLBACK || 'false')).toLowerCase() === 'true';
 

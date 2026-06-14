@@ -8,18 +8,6 @@ const EARTH_RADIUS_M = 6378137;
 const CAD_API_BASE_URL = import.meta.env.VITE_CAD_API_BASE_URL || '/api/cad';
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
-const WEB_MERCATOR_MAX_LAT = 85.05112878;
-
-const latLngToWebMercator = (lat, lng) => {
-  const safeLat = clamp(Number(lat) || 0, -WEB_MERCATOR_MAX_LAT, WEB_MERCATOR_MAX_LAT);
-  const safeLng = clamp(Number(lng) || 0, -180, 180);
-  const x = (safeLng * 20037508.34) / 180;
-  const y = Math.log(Math.tan(((90 + safeLat) * Math.PI) / 360)) / (Math.PI / 180);
-  return {
-    x,
-    y: (y * 20037508.34) / 180,
-  };
-};
 
 
 
@@ -629,25 +617,31 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
   const [visibleSurfaces, setVisibleSurfaces] = useState({});
   const [compactLayoutOverride, setCompactLayoutOverride] = useState(null);
   const isAutoCompactLayout = viewportSize.height > 0 && viewportSize.height < 820;
+  const prevAutoCompactRef = useRef(isAutoCompactLayout);
   const isCompactLayout = compactLayoutOverride ?? isAutoCompactLayout;
+
+  const closeFloatingPanels = useCallback(() => {
+    setShowLightingPanel(false);
+    setShowSurfacePanel(false);
+    setShowStats(false);
+    setShowExportPanel(false);
+  }, []);
 
   useEffect(() => {
     const onResize = () => {
-      setViewportSize({ width: window.innerWidth, height: window.innerHeight });
+      const nextHeight = window.innerHeight;
+      const nextAutoCompact = nextHeight > 0 && nextHeight < 820;
+      if (compactLayoutOverride === null && nextAutoCompact && !prevAutoCompactRef.current) {
+        closeFloatingPanels();
+      }
+      prevAutoCompactRef.current = nextAutoCompact;
+      setViewportSize({ width: window.innerWidth, height: nextHeight });
     };
 
     onResize();
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, []);
-
-  useEffect(() => {
-    if (!isCompactLayout) return;
-    setShowLightingPanel(false);
-    setShowSurfacePanel(false);
-    setShowStats(false);
-    setShowExportPanel(false);
-  }, [isCompactLayout]);
+  }, [compactLayoutOverride, closeFloatingPanels]);
 
   const toggleFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -712,7 +706,7 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
     return { minZ: min, maxZ: max };
   }, [allTriangles]);
 
-  const { transformedSurfaces, transformedTriangles, zExaggeration, autoExaggeration, fitLayerOptions, projectionMeta } = useMemo(() => {
+  const { transformedSurfaces, transformedTriangles, zExaggeration, autoExaggeration, fitLayerOptions } = useMemo(() => {
     if (allTriangles.length === 0) {
       return {
         transformedSurfaces: [],
@@ -777,16 +771,6 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
       transformedTriangles: nextSurfaces.flatMap((surface) => surface.triangles),
       zExaggeration: selectedExaggeration,
       autoExaggeration: computedAutoExaggeration,
-      projectionMeta: {
-        centerLat,
-        centerLng,
-        minLat,
-        maxLat,
-        minLng,
-        maxLng,
-        lonSpanM,
-        latSpanM,
-      },
       fitLayerOptions: nextSurfaces.map((surface) => ({
         layerKey: surface.layerKey,
         layerLabel: surface.layerLabel,
@@ -852,7 +836,7 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
       else totalElevationLoss += Math.abs(dh);
     }
 
-    pts.forEach((p, i) => {
+    pts.forEach((p) => {
       const h = Number(p?.height || 0);
       minElevation = Math.min(minElevation, h);
       maxElevation = Math.max(maxElevation, h);
@@ -897,7 +881,6 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
   useEffect(() => {
     const el = containerRef.current;
     if (!el || transformedTriangles.length === 0) return;
-    let isDisposed = false;
 
     const W = el.clientWidth || 800;
     const H = isFullscreen ? (el.clientHeight || window.innerHeight || 520) : 520;
@@ -1194,7 +1177,6 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
         object?.geometry?.dispose?.();
         object?.material?.dispose?.();
       });
-      isDisposed = true;
       renderer.dispose();
       if (el.contains(dom)) el.removeChild(dom);
     };
@@ -1300,7 +1282,13 @@ const CadSurface3DViewer = ({ surfaces = [], measurePoints = [] }) => {
             </div>
             <button
               type="button"
-              onClick={() => setCompactLayoutOverride((prev) => (prev === null ? true : !prev))}
+              onClick={() => {
+                setCompactLayoutOverride((prev) => {
+                  const nextValue = prev === null ? true : !prev;
+                  if (nextValue) closeFloatingPanels();
+                  return nextValue;
+                });
+              }}
               title={isCompactLayout ? 'Disable compact layout' : 'Enable compact layout'}
               style={{
                 background: isCompactLayout ? 'rgba(37,99,235,0.18)' : 'rgba(15,23,42,0.82)',

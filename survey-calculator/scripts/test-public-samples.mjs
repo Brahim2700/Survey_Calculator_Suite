@@ -12,6 +12,14 @@ const CAD_EXT = new Set(['.dwg', '.dxf']);
 
 const asMB = (bytes) => (bytes / (1024 * 1024)).toFixed(2);
 
+const isMissingDwgConverterError = (errorMessage = '') => {
+  const msg = String(errorMessage || '').toLowerCase();
+  return msg.includes('no dwg converter found')
+    || msg.includes('dwg backend is installed but no converter is configured')
+    || msg.includes('configure dwg2dxf_path')
+    || msg.includes('configure dwg_converter_command');
+};
+
 async function testCadFile(fileName) {
   const fullPath = path.join(samplesDir, fileName);
   const stat = await fs.stat(fullPath);
@@ -45,13 +53,27 @@ async function testCadFile(fileName) {
       warnings: Array.isArray(result?.warnings) ? result.warnings.length : 0,
     };
   } catch (err) {
+    const extension = path.extname(fileName).toLowerCase();
+    const errorMessage = err.message || String(err);
+    if (extension === '.dwg' && isMissingDwgConverterError(errorMessage)) {
+      return {
+        fileName,
+        sizeMB: asMB(stat.size),
+        ok: true,
+        skipped: true,
+        mode: pre.recommendedMode,
+        risk: pre.riskScore,
+        error: errorMessage,
+      };
+    }
+
     return {
       fileName,
       sizeMB: asMB(stat.size),
       ok: false,
       mode: pre.recommendedMode,
       risk: pre.riskScore,
-      error: err.message || String(err),
+      error: errorMessage,
     };
   }
 }
@@ -74,7 +96,11 @@ async function run() {
     results.push(result);
 
     if (result.ok) {
-      console.log(`OK  ${result.fileName} | ${result.sizeMB} MB | rows=${result.rows} | mode=${result.mode} | risk=${result.risk} | route=${result.route}`);
+      if (result.skipped) {
+        console.log(`SKIP ${result.fileName} | ${result.sizeMB} MB | mode=${result.mode} | risk=${result.risk} | ${result.error}`);
+      } else {
+        console.log(`OK  ${result.fileName} | ${result.sizeMB} MB | rows=${result.rows} | mode=${result.mode} | risk=${result.risk} | route=${result.route}`);
+      }
     } else {
       console.log(`ERR ${result.fileName} | ${result.sizeMB} MB | mode=${result.mode} | risk=${result.risk} | ${result.error}`);
     }
@@ -82,9 +108,11 @@ async function run() {
 
   const passed = results.filter((r) => r.ok).length;
   const failed = results.filter((r) => !r.ok).length;
+  const skipped = results.filter((r) => r.skipped).length;
 
   console.log('\nSummary');
   console.log(`Passed: ${passed}`);
+  console.log(`Skipped: ${skipped}`);
   console.log(`Failed: ${failed}`);
 
   if (failed > 0) {

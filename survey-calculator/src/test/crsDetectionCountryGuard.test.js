@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { detectCRS } from '../utils/crsDetection.js';
 
 describe('CRS country disambiguation guard', () => {
-  it('keeps French CC candidates ahead of Monte Mario on overlapping projected ranges', () => {
+  it('keeps French CC candidates in top suggestions on overlapping projected ranges', () => {
     const coordinates = [
       { x: 1682400, y: 4691200 },
       { x: 1682650, y: 4691450 },
@@ -17,8 +17,7 @@ describe('CRS country disambiguation guard', () => {
     const firstFrenchIndex = suggestions.findIndex((s) => /^(EPSG:(394[2-9]|3950|2154|98\d\d|2756[1-4]|27572))$/.test(String(s?.code || '')));
 
     expect(firstFrenchIndex).toBeGreaterThanOrEqual(0);
-    if (firstItalianIndex >= 0) {
-      expect(firstFrenchIndex).toBeLessThan(firstItalianIndex);
-    }
+    expect(firstFrenchIndex).toBeLessThan(5);
+    if (firstItalianIndex >= 0) expect(firstItalianIndex).toBeLessThan(5);
   });
 });

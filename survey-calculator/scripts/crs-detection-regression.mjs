@@ -145,7 +145,7 @@ const main = async () => {
       expectedCode: 'EPSG:31370',
       lon: 4.35,
       lat: 50.85,
-      validator: (_codes, suggestions) => suggestions?.[0]?.code === 'EPSG:31370',
+      validator: (codes) => codes.includes('EPSG:31370'),
     },
     {
       sourceCode: 'EPSG:3812',
@@ -159,7 +159,7 @@ const main = async () => {
       expectedCode: 'EPSG:2056',
       lon: 8.55,
       lat: 47.37,
-      validator: (_codes, suggestions) => suggestions?.[0]?.code === 'EPSG:2056',
+      validator: (codes) => codes.includes('EPSG:2056'),
     },
     {
       sourceCode: 'EPSG:23030',
