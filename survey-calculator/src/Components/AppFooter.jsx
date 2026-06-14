@@ -22,8 +22,8 @@ export default function AppFooter() {
             Security
           </a>
           <span className="link-separator">|</span>
-          <a href="https://github.com/Brahim2700" target="_blank" rel="noopener noreferrer" title="GitHub Profile">
-            GitHub
+          <a href="https://github.com/Brahim2700" target="_blank" rel="noopener noreferrer" title="GitHub Profile (Repository is private)">
+            GitHub (Profile)
           </a>
         </div>
 
