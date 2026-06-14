@@ -1659,8 +1659,9 @@ const detectProjected = (bounds) => {
   const utmSuggestions = detectUTM(bounds);
   suggestions.push(...utmSuggestions);
 
-  // Lambert Conformal Conic (France)
-  if (avgX >= 0 && avgX <= 1500000 && avgY >= 6000000 && avgY <= 7200000) {
+  // Lambert-93 (EPSG:2154) should stay within realistic French onshore extents.
+  // A too-wide easting cap can wrongly rank EPSG:2154 above CC47/CC48 corridors.
+  if (avgX >= 0 && avgX <= 1300000 && avgY >= 6000000 && avgY <= 7200000) {
     suggestions.push({
       code: 'EPSG:2154',
       name: 'RGF93 / Lambert-93 (France)',

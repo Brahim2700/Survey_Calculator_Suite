@@ -197,6 +197,21 @@ describe('detectCRS', () => {
     }
   });
 
+  it('ranks CC47 first for the reported point instead of Lambert-93', () => {
+    const coords = [{ x: 1420065, y: 6219491 }];
+
+    const results = detectCRS(coords, { fileName: 'VezinsCesbronBlaiteauPTF.dwg' });
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].code).toBe('EPSG:3947');
+
+    const lambert93 = results.find((r) => r.code === 'EPSG:2154');
+    const cc47 = results.find((r) => r.code === 'EPSG:3947');
+    expect(cc47).toBeTruthy();
+    if (lambert93 && cc47) {
+      expect(Number(cc47.confidence || 0)).toBeGreaterThan(Number(lambert93.confidence || 0));
+    }
+  });
+
   it('does not treat plain file names as authoritative CRS metadata', () => {
     const coords = [
       { x: 1702000, y: 5203000 },
