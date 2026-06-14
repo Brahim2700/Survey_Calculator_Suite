@@ -27,43 +27,34 @@
 .header-language-switch {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  background: rgba(15, 23, 42, 0.42);
-  border: 1px solid rgba(147, 197, 253, 0.45);
-  border-radius: 999px;
-  padding: 0.45rem 0.55rem 0.45rem 0.85rem;
-  backdrop-filter: blur(10px);
-}
-
-.header-language-label {
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: rgba(255, 255, 255, 0.82);
-}
-
-.header-language-buttons {
-  display: inline-flex;
-  border-radius: 999px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  gap: 0.5rem;
 }
 
 .header-language-btn {
-  border: none;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.78);
-  padding: 0.38rem 0.7rem;
-  font-size: 0.76rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
+  padding: 0.35rem 0.85rem;
+  font-size: 0.70rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  border-radius: 20px;
   cursor: pointer;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(10px);
+}
+
+.header-language-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .header-language-btn.active {
-  background: linear-gradient(135deg, #60a5fa, #2563eb);
-  color: #eff6ff;
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  color: #ffffff;
+  border-color: rgba(59, 130, 246, 0.5);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
 }
 
 .brand-text {
