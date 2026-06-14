@@ -1009,7 +1009,13 @@ export async function parseCadUpload({
   const data = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
   const resolvedFileHashSha256 = assembledHashSha256 || computeSha256Hex(Buffer.from(data));
   const resolvedFileHashFNV64 = assembledHashFNV64 || null;
-  const options = { pointsOnly, strictExistingPointsOnly, returnPayload: true, processingMode };
+  const options = {
+    pointsOnly,
+    strictExistingPointsOnly,
+    returnPayload: true,
+    processingMode,
+    fileName: originalName,
+  };
   let rows;
   let geometry = null;
   let diagnostics = null;

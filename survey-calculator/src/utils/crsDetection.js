@@ -190,7 +190,44 @@ const hasReferenceMetadata = (metadata = {}) => {
     || metadata?.proj4
     || metadata?.epsg
     || metadata?.srid
+    || metadata?.fileName
+    || metadata?.sourceName
   );
+};
+
+const detectFromFileNameHint = (metadata = {}) => {
+  const rawName = String(metadata?.fileName || metadata?.sourceName || '').trim();
+  if (!rawName) return null;
+
+  const upperName = rawName.toUpperCase();
+
+  const ccMatch = upperName.match(/(?:^|[^A-Z0-9])CC\s*([4][2-9]|50)(?:[^A-Z0-9]|$)/);
+  if (ccMatch) {
+    const zone = Number(ccMatch[1]);
+    if (Number.isFinite(zone) && zone >= 42 && zone <= 50) {
+      const code = `EPSG:${3900 + zone}`;
+      const crsInfo = CRS_LIST.find((c) => c.code === code);
+      return {
+        code,
+        name: crsInfo?.name || code,
+        confidence: 0.985,
+        reason: `Extracted from file name token CC${zone}`,
+      };
+    }
+  }
+
+  if (/\b(?:L93|LAMBERT[-_ ]?93|RGF93)\b/i.test(rawName)) {
+    const code = 'EPSG:2154';
+    const crsInfo = CRS_LIST.find((c) => c.code === code);
+    return {
+      code,
+      name: crsInfo?.name || code,
+      confidence: 0.97,
+      reason: 'Extracted from file name token (L93/Lambert93/RGF93)',
+    };
+  }
+
+  return null;
 };
 
 /**
@@ -283,6 +320,11 @@ export const assessReferenceSystem = (coordinates, metadata = {}, suggestionsInp
  */
 const detectFromMetadata = (metadata) => {
   const suggestions = [];
+
+  const fileNameHint = detectFromFileNameHint(metadata);
+  if (fileNameHint) {
+    suggestions.push(fileNameHint);
+  }
 
   const explicitEpsgRaw = metadata?.epsg ?? metadata?.srid;
   const explicitEpsg = Number(explicitEpsgRaw);
@@ -969,7 +1011,7 @@ const inferGeographicAnchor = (suggestions, bounds) => {
     })
     .filter(Boolean);
 
-  if (!samples.length) return null;
+  if (samples.length < 2) return null;
 
   const weightSum = samples.reduce((sum, item) => sum + item.weight, 0);
   if (!Number.isFinite(weightSum) || weightSum <= 0) return null;

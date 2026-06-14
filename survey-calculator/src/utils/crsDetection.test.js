@@ -164,6 +164,33 @@ describe('detectCRS', () => {
     expect(results[0].code).not.toBe('EPSG:3035');
   });
 
+  it('uses CC zone token from file name metadata to prioritize French CC45', () => {
+    const coords = [
+      { x: 1702000, y: 5203000 },
+      { x: 1702600, y: 5203600 },
+      { x: 1701800, y: 5202800 },
+    ];
+
+    const results = detectCRS(coords, { fileName: 'FDP-plan de RSD IND D MOTER-CC45.dwg' });
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].code).toBe('EPSG:3945');
+  });
+
+  it('does not lock inferred italy area from a single overlap candidate', () => {
+    const coords = [
+      { x: 1702000, y: 5203000 },
+      { x: 1702600, y: 5203600 },
+      { x: 1701800, y: 5202800 },
+    ];
+
+    const results = detectCRS(coords, {});
+    const monteMario = results.find((r) => r.code === 'EPSG:3003');
+    if (monteMario) {
+      expect(String(monteMario.reason || '')).not.toContain('outside inferred italy area');
+      expect(String(monteMario.reason || '')).not.toContain('country mismatch with inferred italy');
+    }
+  });
+
   it('detects Belgian Lambert 72 from typical projected range', () => {
     // Belgian Lambert 72 (EPSG:31370) style coordinates near Brussels
     const coords = [

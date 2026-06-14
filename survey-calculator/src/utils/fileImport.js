@@ -479,7 +479,12 @@ export async function parseDXFFile(file, options = {}) {
   assertFileSize(file, 'dxf');
   const text = await file.text();
   const strictExistingPointsOnly = options.strictExistingPointsOnly !== false;
-  const parsed = parseDxfTextContent(text, { ...options, strictExistingPointsOnly, returnPayload: true });
+  const parsed = parseDxfTextContent(text, {
+    ...options,
+    strictExistingPointsOnly,
+    returnPayload: true,
+    fileName: options.fileName || file?.name || null,
+  });
   const rows = parsed.rows;
   if (options.returnPayload) {
     return {
@@ -508,7 +513,12 @@ export async function parseDWGFile(file, options = {}) {
     throw new Error('Unsupported DWG content. Native DWG requires the CAD backend service, or you can export the drawing as DXF and retry.');
   }
 
-  const parsed = parseDxfTextContent(text, { ...options, strictExistingPointsOnly, returnPayload: true });
+  const parsed = parseDxfTextContent(text, {
+    ...options,
+    strictExistingPointsOnly,
+    returnPayload: true,
+    fileName: options.fileName || file?.name || null,
+  });
   const rows = parsed.rows;
   if (options.returnPayload) {
     return {

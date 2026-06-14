@@ -2257,7 +2257,10 @@ export const collectPointRowsFromDxf = (dxfData, options = {}) => {
 
   const coordinates = collectCrsDetectionCoordinates(rows, expandedEntities);
   const bounds = getBoundingBoxFromPoints(coordinates);
-  const metadata = { projection: detectedFromCrs || null };
+  const metadata = {
+    projection: detectedFromCrs || null,
+    fileName: options?.fileName || options?.sourceName || null,
+  };
   const crsSuggestions = detectCRS(coordinates, metadata);
   const referenceAssessment = assessReferenceSystem(coordinates, metadata, crsSuggestions);
 
