@@ -1,4 +1,5 @@
 import { calculateGeodesicDistance } from './calculations';
+import { translateUi } from './uiLanguage';
 
 const IGN_ALTI_API_BASE_URL = import.meta.env.VITE_IGN_ALTI_API_BASE_URL || 'https://data.geopf.fr/altimetrie/1.0/calcul/alti/rest';
 const IGN_ALTI_RESOURCE = import.meta.env.VITE_IGN_ALTI_RESOURCE || 'ign_rge_alti_wld';
@@ -22,44 +23,46 @@ const deriveElevationApiBaseUrl = (cadApiBaseUrl) => {
 const ELEVATION_API_BASE_URL = import.meta.env.VITE_ELEVATION_API_BASE_URL || deriveElevationApiBaseUrl(CAD_API_BASE_URL);
 const IGN_NO_DATA_VALUE = -99999;
 
-// Providers exposed for the switcher UI
-export const ELEVATION_PROVIDERS = [
+export const getElevationProviders = () => ([
   {
     id: 'ign',
-    label: 'IGN GeoPlateforme',
-    description: 'France — RGE ALTI® / BD ALTI®, 1–25 m resolution',
+    label: translateUi('providers.ignLabel'),
+    description: translateUi('providers.ignDescription'),
     flag: '🇫🇷',
-    coverage: 'France (best accuracy)',
+    coverage: translateUi('providers.ignCoverage'),
   },
   {
     id: 'opentopodata-srtm30m',
-    label: 'OpenTopoData · SRTM 30 m',
-    description: 'Global (~60°N–60°S), USGS SRTM, ~30 m resolution',
+    label: translateUi('providers.srtmLabel'),
+    description: translateUi('providers.srtmDescription'),
     flag: '🌍',
-    coverage: 'Global (lat −60 to +60)',
+    coverage: translateUi('providers.srtmCoverage'),
   },
   {
     id: 'opentopodata-aster30m',
-    label: 'OpenTopoData · ASTER 30 m',
-    description: 'Global, NASA ASTER, ~30 m resolution',
+    label: translateUi('providers.asterLabel'),
+    description: translateUi('providers.asterDescription'),
     flag: '🌏',
-    coverage: 'Global',
+    coverage: translateUi('providers.asterCoverage'),
   },
   {
     id: 'opentopodata-eudem25m',
-    label: 'OpenTopoData · EU-DEM 25 m',
-    description: 'Europe, EEA EU-DEM, ~25 m resolution',
+    label: translateUi('providers.eudemLabel'),
+    description: translateUi('providers.eudemDescription'),
     flag: '🇪🇺',
-    coverage: 'Europe',
+    coverage: translateUi('providers.eudemCoverage'),
   },
   {
     id: 'measured',
-    label: 'Measured heights only',
-    description: 'Use the ellipsoidal/orthometric heights of the selected points (no DEM)',
+    label: translateUi('providers.measuredLabel'),
+    description: translateUi('providers.measuredDescription'),
     flag: '📐',
-    coverage: 'Any — offline',
+    coverage: translateUi('providers.measuredCoverage'),
   },
-];
+]);
+
+// Providers exposed for the switcher UI
+export const ELEVATION_PROVIDERS = getElevationProviders();
 
 const clampNumber = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -106,7 +109,7 @@ export const buildElevationProfileData = (rawPoints, options = {}) => {
       lng: point.lng,
       elevation: point.elevation,
       distance: cumulativeDistance,
-      label: String(point.label || point.sourceLabel || `Point ${index + 1}`),
+      label: String(point.label || point.sourceLabel || translateUi('providers.pointLabel', { index: index + 1 })),
     });
   });
 
@@ -127,7 +130,7 @@ export const buildElevationProfileData = (rawPoints, options = {}) => {
     negativeGain,
     maxSlopePercent: Number.isFinite(maxSlopePercent) ? maxSlopePercent : 0,
     minSlopePercent: Number.isFinite(minSlopePercent) ? minSlopePercent : 0,
-    sourceLabel: options.sourceLabel || 'Measured point heights',
+    sourceLabel: options.sourceLabel || translateUi('providers.measuredSourceLabel'),
     sampled: Boolean(options.sampled),
     selectedPointCount: Number(options.selectedPointCount) || profilePoints.length,
   };
@@ -139,7 +142,7 @@ export async function fetchIgnElevationProfile(measurePoints, options = {}) {
     : [];
 
   if (points.length < 2) {
-    throw new Error('At least two measurement points are required to request an elevation profile.');
+    throw new Error(translateUi('errors.elevationNeedsTwoPoints'));
   }
 
   let selectedDistance = 0;
@@ -175,7 +178,7 @@ export async function fetchIgnElevationProfile(measurePoints, options = {}) {
   }
 
   if (!response.ok) {
-    throw new Error(payload?.message || `IGN elevation profile request failed (${response.status}).`);
+    throw new Error(payload?.message || translateUi('errors.ignRequestFailed', { status: response.status }));
   }
 
   const sampledPoints = Array.isArray(payload?.elevations)
@@ -185,23 +188,23 @@ export async function fetchIgnElevationProfile(measurePoints, options = {}) {
           lat: Number(item?.lat),
           lng: Number(item?.lon),
           elevation: toFiniteElevation(item?.z),
-          label: `Sample ${index + 1}`,
+          label: translateUi('providers.sampleLabel', { index: index + 1 }),
         }))
         .filter((point) => point.elevation !== null && point.elevation !== IGN_NO_DATA_VALUE)
     : [];
 
   if (sampledPoints.length < 2) {
-    throw new Error('IGN did not return enough elevation samples for this profile.');
+    throw new Error(translateUi('errors.ignNotEnoughSamples'));
   }
 
   const profileData = buildElevationProfileData(sampledPoints, {
-    sourceLabel: 'IGN GeoPlateforme profile',
+    sourceLabel: translateUi('providers.ignSourceLabel'),
     sampled: true,
     selectedPointCount: points.length,
   });
 
   if (!profileData) {
-    throw new Error('Unable to build profile data from IGN elevation samples.');
+    throw new Error(translateUi('errors.ignProfileBuildFailed'));
   }
 
   return {
@@ -228,11 +231,11 @@ export async function fetchOpenTopoDataProfile(measurePoints, providerId, option
     : [];
 
   if (points.length < 2) {
-    throw new Error('At least two measurement points are required.');
+    throw new Error(translateUi('errors.elevationNeedsTwoPointsShort'));
   }
 
   const dataset = OTD_DATASET_IDS[providerId];
-  if (!dataset) throw new Error(`Unknown OpenTopoData provider: ${providerId}`);
+  if (!dataset) throw new Error(translateUi('errors.unknownOpenTopoProvider', { providerId }));
 
   // Compute total distance to choose sampling density
   let selectedDistance = 0;
@@ -303,7 +306,7 @@ export async function fetchOpenTopoDataProfile(measurePoints, providerId, option
       try { payload = await response.json(); } catch { payload = null; }
 
       if (!response.ok || payload?.status !== 'OK') {
-        throw new Error(payload?.error || `OpenTopoData request failed (${response.status}).`);
+        throw new Error(payload?.error || translateUi('errors.openTopoRequestFailed', { status: response.status }));
       }
     } catch (error) {
       if (options.signal?.aborted) throw error;
@@ -314,7 +317,7 @@ export async function fetchOpenTopoDataProfile(measurePoints, providerId, option
       throw new Error(
         proxyError?.message
           || directError?.message
-          || 'Unable to fetch OpenTopoData elevation profile. Check backend elevation API routing/CORS configuration.'
+          || translateUi('errors.openTopoUnavailable')
       );
     }
   }
@@ -326,22 +329,22 @@ export async function fetchOpenTopoDataProfile(measurePoints, providerId, option
           lat: Number(item?.location?.lat),
           lng: Number(item?.location?.lng),
           elevation: toFiniteElevation(item?.elevation),
-          label: `Sample ${index + 1}`,
+          label: translateUi('providers.sampleLabel', { index: index + 1 }),
         }))
         .filter((p) => p.elevation !== null && p.elevation !== IGN_NO_DATA_VALUE)
     : [];
 
   if (sampledPoints.length < 2) {
-    throw new Error('OpenTopoData did not return enough elevation samples for this profile.');
+    throw new Error(translateUi('errors.openTopoNotEnoughSamples'));
   }
 
   const profileData = buildElevationProfileData(sampledPoints, {
-    sourceLabel: `OpenTopoData · ${dataset}`,
+    sourceLabel: translateUi('providers.openTopoSourceLabel', { dataset }),
     sampled: true,
     selectedPointCount: points.length,
   });
 
-  if (!profileData) throw new Error('Unable to build profile data from OpenTopoData samples.');
+  if (!profileData) throw new Error(translateUi('errors.openTopoProfileBuildFailed'));
 
   return { ...profileData, selectedDistance };
 }
@@ -360,15 +363,15 @@ export async function fetchElevationProfile(measurePoints, providerId, options =
         lat: p.lat,
         lng: p.lng,
         elevation: Number(p?.height || 0),
-        label: p.label || p.sourceLabel || `P${i + 1}`,
+        label: p.label || p.sourceLabel || translateUi('providers.pointLabel', { index: i + 1 }),
       })),
-      { sourceLabel: 'Measured point heights', sampled: false, selectedPointCount: pts.length }
+      { sourceLabel: translateUi('providers.measuredSourceLabel'), sampled: false, selectedPointCount: pts.length }
     );
-    if (!result) throw new Error('Not enough valid measurement points.');
+    if (!result) throw new Error(translateUi('errors.notEnoughValidMeasurementPoints'));
     return result;
   }
   if (providerId?.startsWith('opentopodata-')) {
     return fetchOpenTopoDataProfile(measurePoints, providerId, options);
   }
-  throw new Error(`Unknown elevation provider: ${providerId}`);
+  throw new Error(translateUi('errors.unknownElevationProvider', { providerId }));
 }

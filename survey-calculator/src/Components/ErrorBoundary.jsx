@@ -1,4 +1,5 @@
 import { Component } from 'react';
+import { translateUi } from '../utils/uiLanguage';
 
 export default class ErrorBoundary extends Component {
   constructor(props) {
@@ -18,7 +19,7 @@ export default class ErrorBoundary extends Component {
   _handleCopy() {
     const text = [
       this.props.label ? `Component: ${this.props.label}` : '',
-      `Error: ${this.state.error?.message || 'Unexpected rendering error.'}`,
+      `Error: ${this.state.error?.message || translateUi('errors.unexpectedRender')}`,
       this.state.error?.stack || '',
     ].filter(Boolean).join('\n');
 
@@ -50,7 +51,7 @@ export default class ErrorBoundary extends Component {
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.45rem' }}>
           <span style={{ fontSize: '1.1rem' }} aria-hidden="true">⚠️</span>
           <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#991b1b' }}>
-            {label} failed to render
+            {translateUi('errors.failedToRender', { label })}
           </span>
         </div>
 
@@ -65,7 +66,7 @@ export default class ErrorBoundary extends Component {
           fontFamily: 'monospace',
           wordBreak: 'break-word',
         }}>
-          {this.state.error?.message || 'Unexpected rendering error.'}
+          {this.state.error?.message || translateUi('errors.unexpectedRender')}
         </div>
 
         {/* Action buttons */}
@@ -84,7 +85,7 @@ export default class ErrorBoundary extends Component {
             }}
             onClick={() => this.setState({ hasError: false, error: null, copied: false })}
           >
-            ↩ Retry
+            ↩ {translateUi('errors.retry')}
           </button>
           {navigator.clipboard && (
             <button
@@ -102,7 +103,7 @@ export default class ErrorBoundary extends Component {
               }}
               onClick={this._handleCopy}
             >
-              {this.state.copied ? '✓ Copied' : '📋 Copy error'}
+              {this.state.copied ? `✓ ${translateUi('errors.copied')}` : `📋 ${translateUi('errors.copyError')}`}
             </button>
           )}
         </div>

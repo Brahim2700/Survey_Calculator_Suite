@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { buildElevationProfileData, ELEVATION_PROVIDERS, fetchElevationProfile } from '../utils/elevationProfileApi';
+import { buildElevationProfileData, getElevationProviders, fetchElevationProfile } from '../utils/elevationProfileApi';
 import { createTranslator } from '../utils/uiLanguage';
 
 const ElevationProfile = ({ measurePoints = [], t: tProp }) => {
@@ -9,6 +9,7 @@ const ElevationProfile = ({ measurePoints = [], t: tProp }) => {
   const [profileData, setProfileData] = useState(null);
   const [hoverIndex, setHoverIndex] = useState(null);
   const [providerId, setProviderId] = useState('ign');
+  const elevationProviders = getElevationProviders();
 
   const selectedPointSummary = useMemo(() => {
     const points = Array.isArray(measurePoints) ? measurePoints : [];
@@ -161,7 +162,7 @@ const ElevationProfile = ({ measurePoints = [], t: tProp }) => {
         <div style={{ color: '#94a3b8', fontSize: '9px', marginBottom: '10px' }}>{t('panels.addMeasurementPoints')}</div>
         {/* Still show provider switcher in empty state so user can pre-select */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', justifyContent: 'center' }}>
-          {ELEVATION_PROVIDERS.map((provider) => {
+          {elevationProviders.map((provider) => {
             const isActive = providerId === provider.id;
             return (
               <button
@@ -207,7 +208,7 @@ const ElevationProfile = ({ measurePoints = [], t: tProp }) => {
         </span>
         {/* Provider switcher */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-          {ELEVATION_PROVIDERS.map((provider) => {
+          {elevationProviders.map((provider) => {
             const isActive = providerId === provider.id;
             return (
               <button

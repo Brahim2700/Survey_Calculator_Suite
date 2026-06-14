@@ -4,6 +4,7 @@
 import { utils, write } from 'xlsx';
 import proj4 from 'proj4';
 import { Buffer } from 'buffer';
+import { translateUi } from './uiLanguage';
 
 // Polyfill Buffer for @mapbox/shp-write
 if (typeof window !== 'undefined') {
@@ -22,16 +23,16 @@ const _loadShpWrite = async () => {
 const buildMetadataRows = (metadata = {}) => {
   const rows = [];
   const keys = [
-    ['generatedAt', 'Generated At'],
-    ['fromCrs', 'Source CRS'],
-    ['toCrs', 'Target CRS'],
-    ['geoidMode', 'Geoid Mode'],
-    ['geoidName', 'Geoid Grid'],
-    ['transformationAccuracyCm', 'Estimated Accuracy (cm)'],
-    ['confidence', 'Confidence'],
-    ['totalRows', 'Total Rows'],
-    ['successRows', 'Success Rows'],
-    ['errorRows', 'Error Rows'],
+    ['generatedAt', translateUi('reports.metadataGeneratedAt')],
+    ['fromCrs', translateUi('reports.metadataFromCrs')],
+    ['toCrs', translateUi('reports.metadataToCrs')],
+    ['geoidMode', translateUi('reports.metadataGeoidMode')],
+    ['geoidName', translateUi('reports.metadataGeoidName')],
+    ['transformationAccuracyCm', translateUi('reports.metadataAccuracy')],
+    ['confidence', translateUi('reports.metadataConfidence')],
+    ['totalRows', translateUi('reports.metadataTotalRows')],
+    ['successRows', translateUi('reports.metadataSuccessRows')],
+    ['errorRows', translateUi('reports.metadataErrorRows')],
   ];
   keys.forEach(([key, label]) => {
     if (metadata[key] !== undefined && metadata[key] !== null && metadata[key] !== '') {
@@ -485,10 +486,10 @@ export const exportAsXLSX = (results, fromCrs, toCrs, includeGeoid = false, meta
 
   // Add metadata sheet
   const metadataRows = [
-    { key: 'Source CRS', value: fromCrs },
-    { key: 'Target CRS', value: toCrs },
-    { key: 'Total Points', value: results.length },
-    { key: 'Export Date', value: new Date().toISOString() },
+    { key: translateUi('reports.metadataFromCrs'), value: fromCrs },
+    { key: translateUi('reports.metadataToCrs'), value: toCrs },
+    { key: translateUi('panels.points'), value: results.length },
+    { key: translateUi('reports.metadataGeneratedAt'), value: new Date().toISOString() },
   ];
   if (metadata) {
     buildMetadataRows(metadata).forEach(([k, v]) => {

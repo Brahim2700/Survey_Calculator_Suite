@@ -26,7 +26,7 @@ import { exportMapAsPdf, exportMapAsPng } from "./utils/mapExport";
 import { EMPTY_CAD_GEOMETRY } from "./utils/cadShared";
 import useUndoable from "./utils/useUndoable";
 import { purgeAppClientData } from "./utils/appDataPurge";
-import { UI_LANGUAGE_STORAGE_KEY, createTranslator } from "./utils/uiLanguage";
+import { UI_LANGUAGE_STORAGE_KEY, createTranslator, setCurrentUiLanguage } from "./utils/uiLanguage";
 import "./App.css";
 import GeoidGridPreview from './Components/GeoidGridPreview/GeoidGridPreview';
 import AppHeader from './Components/AppHeader';
@@ -141,6 +141,7 @@ function App() {
     } catch {
       // ignore persistence failures
     }
+    setCurrentUiLanguage(uiLanguage);
   }, [uiLanguage]);
 
   const togglePanel = useCallback((name) => {
@@ -534,27 +535,27 @@ function App() {
     return {
       stamp: nowIso,
       details: [
-        { label: "Project", value: exportSettings.projectName.trim() || "Survey Plan" },
-        { label: "Surveyor", value: surveyorText || "-" },
-        { label: "Scale", value: scaleText || "Not specified" },
-        { label: "Notes", value: notesText || "-" },
-        { label: "Converted points", value: converterPoints.length },
-        { label: "CAD lines", value: cadGeometry.lines.length },
-        { label: "CAD polylines", value: cadGeometry.polylines.length },
-        { label: "CAD texts", value: cadGeometry.texts.length },
-        { label: "CAD surfaces", value: (Array.isArray(cadGeometry.surfaces) ? cadGeometry.surfaces.length : 0) },
-        { label: "TIN triangles", value: (Array.isArray(cadGeometry.surfaces) ? cadGeometry.surfaces.reduce((sum, s) => sum + (Array.isArray(s?.triangles) ? s.triangles.length : 0), 0) : 0) },
-        { label: "Measure mode", value: measureMode ? "ON" : "OFF" },
-        { label: "Measure points", value: measurePoints.length },
-        { label: "Total ground dist", value: `${totalGroundDistance.toFixed(3)} m` },
-        { label: "Total geodesic", value: `${totalGeodesicDistance.toFixed(3)} m` },
+        { label: t('app.projectName'), value: exportSettings.projectName.trim() || t('app.projectPlaceholder') },
+        { label: t('app.surveyor'), value: surveyorText || "-" },
+        { label: t('app.scale'), value: scaleText || "-" },
+        { label: t('app.notes'), value: notesText || "-" },
+        { label: t('panels.points'), value: converterPoints.length },
+        { label: t('panels.lines'), value: cadGeometry.lines.length },
+        { label: t('panels.polylines'), value: cadGeometry.polylines.length },
+        { label: t('panels.textEntities'), value: cadGeometry.texts.length },
+        { label: t('app.surfaceViewTitle3d'), value: (Array.isArray(cadGeometry.surfaces) ? cadGeometry.surfaces.length : 0) },
+        { label: 'TIN triangles', value: (Array.isArray(cadGeometry.surfaces) ? cadGeometry.surfaces.reduce((sum, s) => sum + (Array.isArray(s?.triangles) ? s.triangles.length : 0), 0) : 0) },
+        { label: t('app.measureToolTitle'), value: measureMode ? 'ON' : 'OFF' },
+        { label: t('panels.pointsChecked'), value: measurePoints.length },
+        { label: 'Total ground dist', value: `${totalGroundDistance.toFixed(3)} m` },
+        { label: 'Total geodesic', value: `${totalGeodesicDistance.toFixed(3)} m` },
       ],
     };
   };
 
   const handleMapExport = async (format) => {
     if (!mapExportRoot) {
-      alert("Map is not ready yet. Please try again in a second.");
+      alert(t('app.mapNotReady'));
       return;
     }
 
@@ -564,9 +565,9 @@ function App() {
       const selectedScale = exportSettings.scale.trim();
       const fallbackScale = suggestedPrintScale ? `1:${suggestedPrintScale.toLocaleString()}` : "";
       const exportInfo = {
-        title: exportSettings.projectName.trim() || "Survey Plan",
+        title: exportSettings.projectName.trim() || t('app.projectPlaceholder'),
         subtitle: exportSettings.surveyor.trim()
-          ? `Surveyor: ${exportSettings.surveyor.trim()}`
+          ? `${t('app.surveyor')}: ${exportSettings.surveyor.trim()}`
           : "SurveyCalc Geomatics Suite",
         details: info.details,
         mapScaleLabel: selectedScale || fallbackScale,
@@ -589,7 +590,7 @@ function App() {
       setShowExportPanel(false);
     } catch (err) {
       console.error("Map export failed:", err);
-      alert(`Map export failed: ${err.message || "Unknown error"}`);
+      alert(t('app.mapExportFailed', { message: err.message || t('common.unknown') }));
     } finally {
       setIsExportingMap(false);
     }
@@ -749,8 +750,8 @@ function App() {
 
                 {/* ── Point Search & Filter ── */}
                 <MapToolTip
-                  title="Point Search & Filter"
-                  description="Opens the search panel. Search points by label or coordinates, filter by attribute values, and isolate specific subsets for analysis. Active points are highlighted on the map."
+                  title={t('app.searchTooltipTitle')}
+                  description={t('app.searchTooltipDescription')}
                 >
                   <button
                     className={`btn btn-tool-toggle${panels.search ? " active" : ""}`}
@@ -762,8 +763,8 @@ function App() {
 
                 {/* ── Geoid Grid Preview ── */}
                 <MapToolTip
-                  title="Geoid Grid Preview"
-                  description="Visualize geoid grid coverage and accuracy. View the spatial extent of available geoid data, inspect height variations, and upload custom grids for your project area."
+                  title={t('app.geoidPreviewTitle')}
+                  description={t('app.geoidPreviewDescription')}
                 >
                   <button
                     className={`btn btn-tool-toggle${panels.geoidPreview ? " active" : ""}`}
@@ -778,8 +779,8 @@ function App() {
 
                 {/* ── Performance Diagnostics ── */}
                 <MapToolTip
-                  title="Performance Diagnostics"
-                  description="Opens the diagnostics panel. Displays rendering statistics, total point and entity counts, layer summaries, and memory usage. Helps identify bottlenecks when working with large datasets."
+                  title={t('app.diagnosticsTooltipTitle')}
+                  description={t('app.diagnosticsTooltipDescription')}
                 >
                   <button
                     className={`btn btn-tool-toggle${panels.diagnostics ? " active" : ""}`}
@@ -791,8 +792,8 @@ function App() {
 
                 {/* ── Multi-Point Measurements panel ── */}
                 <MapToolTip
-                  title="Multi-Point Measurements"
-                  description="Opens the measurements panel. Shows detailed surveying metrics for each measured leg — horizontal distance, geodesic distance, bearing, azimuth, and cumulative totals along the traverse."
+                  title={t('app.measurementsTooltipTitle')}
+                  description={t('app.measurementsTooltipDescription')}
                 >
                   <button
                     className={`btn btn-tool-toggle${panels.measurements ? " active" : ""}`}
@@ -804,8 +805,8 @@ function App() {
 
                 {/* ── Elevation Profile ── */}
                 <MapToolTip
-                  title="Elevation Profile"
-                  description="Opens the elevation profile panel. Visualises terrain height changes along a measured transect using external elevation data. Useful for slope analysis and cross-section studies."
+                  title={t('app.elevationTooltipTitle')}
+                  description={t('app.elevationTooltipDescription')}
                 >
                   <button
                     className={`btn btn-tool-toggle${panels.elevationProfile ? " active" : ""}`}
@@ -817,8 +818,8 @@ function App() {
 
                 {/* ── Batch Operations ── */}
                 <MapToolTip
-                  title="Batch Operations"
-                  description="Opens the batch operations panel. Apply bulk coordinate transformations, CRS reprojections, or data edits to all loaded points simultaneously, saving time on large datasets."
+                  title={t('app.batchTooltipTitle')}
+                  description={t('app.batchTooltipDescription')}
                 >
                   <button
                     className={`btn btn-tool-toggle${panels.batchOps ? " active" : ""}`}
@@ -830,8 +831,8 @@ function App() {
 
                 {/* ── Marker Style Manager ── */}
                 <MapToolTip
-                  title="Marker Style Manager"
-                  description="Opens the marker style panel. Customise how points are rendered on the map — change colours, icons, sizes, and cluster appearance per point type or layer."
+                  title={t('app.markerTooltipTitle')}
+                  description={t('app.markerTooltipDescription')}
                 >
                   <button
                     className={`btn btn-tool-toggle${panels.markerStyle ? " active" : ""}`}
@@ -843,8 +844,8 @@ function App() {
 
                 {/* ── Smart Conflict Detection ── */}
                 <MapToolTip
-                  title="Smart Conflict Detection"
-                  description="Opens the conflict detection panel. Automatically identifies duplicate points, overlapping geometries, and inconsistent coordinate systems across your loaded data, then highlights issues on the map."
+                  title={t('app.conflictTooltipTitle')}
+                  description={t('app.conflictTooltipDescription')}
                 >
                   <button
                     className={`btn btn-tool-toggle${panels.conflict ? " active" : ""}`}
@@ -856,8 +857,8 @@ function App() {
 
                 {/* ── DXF Layer Manager ── */}
                 <MapToolTip
-                  title="DXF Layer Manager"
-                  description="Opens the layer manager. Toggle individual DXF layers on or off to control map visibility. Essential when working with complex multi-layer CAD drawings that have many overlapping entities."
+                  title={t('app.dxfLayerTooltipTitle')}
+                  description={t('app.dxfLayerTooltipDescription')}
                 >
                   <button
                     className={`btn btn-tool-toggle${panels.dxfLayer ? " active" : ""}`}
@@ -869,8 +870,8 @@ function App() {
 
                 {/* ── Hatch Area Calculator ── */}
                 <MapToolTip
-                  title="Hatch Area Calculator"
-                  description="Opens the hatch area panel. Computes surface areas from DXF HATCH entities (filled polygon regions) and reports results in square metres or hectares. Ideal for land area computations from CAD plans."
+                  title={t('app.hatchTooltipTitle')}
+                  description={t('app.hatchTooltipDescription')}
                 >
                   <button
                     className={`btn btn-tool-toggle${panels.hatch ? " active" : ""}`}
@@ -882,8 +883,8 @@ function App() {
 
                 {/* ── DXF Diff ── */}
                 <MapToolTip
-                  title="DXF Diff — Compare Files"
-                  description="Opens the DXF comparison panel. Load two DXF files side-by-side and the tool highlights geometric differences: added entities, removed entities, and moved geometries between the two versions."
+                  title={t('app.dxfDiffTooltipTitle')}
+                  description={t('app.dxfDiffTooltipDescription')}
                 >
                   <button
                     className={`btn btn-tool-toggle${panels.dxfDiff ? " active" : ""}`}
@@ -895,8 +896,8 @@ function App() {
 
                 {/* ── Entity Type Breakdown ── */}
                 <MapToolTip
-                  title="Entity Type Breakdown"
-                  description="Opens the entity breakdown panel. Shows a statistical summary of all CAD entity types (lines, arcs, polylines, texts, hatches, blocks) found in the loaded DXF file, including counts per layer."
+                  title={t('app.entityBreakdownTooltipTitle')}
+                  description={t('app.entityBreakdownTooltipDescription')}
                 >
                   <button
                     className={`btn btn-tool-toggle${panels.entityBreakdown ? " active" : ""}`}
@@ -908,8 +909,8 @@ function App() {
 
                 {/* ── CAD Entity Picker ── */}
                 <MapToolTip
-                  title="CAD Entity Picker"
-                  description="Opens the entity picker. Click directly on any line or polyline rendered on the map to select it and view its full properties: layer name, colour, length, and exact vertex coordinates."
+                  title={t('app.entityPickerTooltipTitle')}
+                  description={t('app.entityPickerTooltipDescription')}
                 >
                   <button
                     className={`btn btn-tool-toggle${panels.entityPicker ? " active" : ""}`}
@@ -922,8 +923,8 @@ function App() {
                 {/* ── 3D Surface View ── */}
                 {visibleCadGeometry.surfaces.length > 0 && (
                   <MapToolTip
-                    title={mapViewMode === '3d' ? '2D Map' : '3D Surface View'}
-                    description="Switch between the 2D Leaflet map and a 3D Three.js surface viewer that renders 3DFACE / TIN triangles with elevation colour-coding. Drag to orbit, right-drag to pan, scroll to zoom."
+                    title={mapViewMode === '3d' ? t('app.surfaceViewTitle2d') : t('app.surfaceViewTitle3d')}
+                    description={t('app.surfaceViewDescription')}
                   >
                     <button
                       className={`btn btn-tool-toggle${mapViewMode === '3d' ? ' active' : ''}`}
@@ -948,7 +949,7 @@ function App() {
                           <text x="12" y="16" textAnchor="middle" fontSize="3.8" fontWeight="900" fill="#0b1736" stroke="none">3D</text>
                         </svg>
                       )}
-                        <span className="view-mode-label">{mapViewMode === '3d' ? '2D View' : '3D View'}</span>
+                        <span className="view-mode-label">{mapViewMode === '3d' ? t('app.view2d') : t('app.view3d')}</span>
                       </span>
                     </button>
                   </MapToolTip>
@@ -972,8 +973,8 @@ function App() {
 
                 {/* ── Export Plan ── */}
                 <MapToolTip
-                  title={showExportPanel ? "Close Export Panel" : "Export Plan"}
-                  description="Opens the export panel. Configure your map for output as a PDF or PNG image — add a project title, surveyor name, scale bar, north arrow, and select page size and orientation before downloading."
+                  title={showExportPanel ? t('app.closeExportTitle') : t('app.exportPlanTitle')}
+                  description={t('app.exportPlanDescription')}
                 >
                   <button
                     className="btn btn-ghost"
@@ -981,7 +982,7 @@ function App() {
                     disabled={isExportingMap}
                   >
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    {showExportPanel ? "Close Export" : "Export Plan"}
+                    {showExportPanel ? t('app.closeExport') : t('app.exportPlan')}
                   </button>
                 </MapToolTip>
 
@@ -992,46 +993,46 @@ function App() {
               <div className="export-panel fade-slide-in">
                 <div className="export-panel-grid">
                   <label className="export-field">
-                    Project Name
+                    {t('app.projectName')}
                     <input
                       type="text"
                       value={exportSettings.projectName}
                       onChange={(e) => updateExportSetting("projectName", e.target.value)}
-                      placeholder="Survey Plan"
+                      placeholder={t('app.projectPlaceholder')}
                     />
                   </label>
                   <label className="export-field">
-                    Surveyor
+                    {t('app.surveyor')}
                     <input
                       type="text"
                       value={exportSettings.surveyor}
                       onChange={(e) => updateExportSetting("surveyor", e.target.value)}
-                      placeholder="Name / team"
+                      placeholder={t('app.surveyorPlaceholder')}
                     />
                   </label>
                   <label className="export-field">
-                    Scale
+                    {t('app.scale')}
                     <input
                       type="text"
                       value={exportSettings.scale}
                       onChange={(e) => updateExportSetting("scale", e.target.value)}
-                      placeholder="Example: 1:500"
+                      placeholder={t('app.scalePlaceholder')}
                     />
                     {suggestedPrintScale && (
                       <div className="export-scale-suggestion">
-                        Suggested: <strong>1:{suggestedPrintScale.toLocaleString()}</strong>
+                        {t('app.suggested')}: <strong>1:{suggestedPrintScale.toLocaleString()}</strong>
                         <button
                           type="button"
                           className="export-scale-apply"
                           onClick={() => updateExportSetting("scale", `1:${suggestedPrintScale.toLocaleString()}`)}
                         >
-                          Apply
+                          {t('app.apply')}
                         </button>
                       </div>
                     )}
                   </label>
                   <label className="export-field">
-                    PDF Paper
+                    {t('app.pdfPaper')}
                     <select
                       value={exportSettings.pdfPageSize}
                       onChange={(e) => updateExportSetting("pdfPageSize", e.target.value)}
@@ -1041,22 +1042,22 @@ function App() {
                     </select>
                   </label>
                   <label className="export-field">
-                    PDF Orientation
+                    {t('app.pdfOrientation')}
                     <select
                       value={exportSettings.pdfOrientation}
                       onChange={(e) => updateExportSetting("pdfOrientation", e.target.value)}
                     >
-                      <option value="landscape">Landscape</option>
-                      <option value="portrait">Portrait</option>
+                      <option value="landscape">{t('app.landscape')}</option>
+                      <option value="portrait">{t('app.portrait')}</option>
                     </select>
                   </label>
                   <label className="export-field export-field-wide">
-                    Notes
+                    {t('app.notes')}
                     <textarea
                       rows={2}
                       value={exportSettings.notes}
                       onChange={(e) => updateExportSetting("notes", e.target.value)}
-                      placeholder="Site notes, datum remarks, quality controls..."
+                      placeholder={t('app.notesPlaceholder')}
                     />
                   </label>
                 </div>
@@ -1066,14 +1067,14 @@ function App() {
                     onClick={() => handleMapExport("png")}
                     disabled={isExportingMap}
                   >
-                    Export PNG
+                    {t('app.exportPng')}
                   </button>
                   <button
                     className="btn btn-ghost"
                     onClick={() => handleMapExport("pdf")}
                     disabled={isExportingMap}
                   >
-                    Export PDF
+                    {t('app.exportPdf')}
                   </button>
                 </div>
               </div>

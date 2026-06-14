@@ -9,6 +9,7 @@
 import { detectCRS } from './crsDetection';
 import { parseCadFileViaBackend } from './cadApi';
 import { isLikelyDxfText, isLikelyNativeDwgData, parseDxfTextContent } from './cadShared';
+import { translateUi } from './uiLanguage';
 
 const DESCRIPTION_KEYS = [
   'description', 'desc', 'comment', 'comments', 'note', 'notes',
@@ -45,11 +46,12 @@ function assertFileSize(file, type) {
   const limit = FILE_SIZE_LIMITS[type];
   if (!limit) return;
   if (file.size > limit) {
-    throw new Error(
-      `File "${file.name}" is too large (${FMT_MB(file.size)}). ` +
-      `The maximum supported size for ${type.toUpperCase()} files is ${FMT_MB(limit)}. ` +
-      `Please reduce the file size or split it into smaller parts.`
-    );
+    throw new Error(translateUi('errors.fileTooLargeGeneric', {
+      name: file.name,
+      size: FMT_MB(file.size),
+      type: type.toUpperCase(),
+      limit: FMT_MB(limit),
+    }));
   }
 }
 // ────────────────────────────────────────────────────────────────────────────
@@ -212,7 +214,7 @@ const parseKmlTextPayload = (text, sourceLabel = 'KML', options = {}) => {
   const doc = new DOMParser().parseFromString(text, 'application/xml');
   const parserError = doc.getElementsByTagName('parsererror')[0];
   if (parserError) {
-    throw new Error(`Invalid KML XML in ${sourceLabel}`);
+    throw new Error(translateUi('errors.invalidKmlXml', { source: sourceLabel }));
   }
 
   const placemarks = Array.from(doc.getElementsByTagName('Placemark'));
@@ -373,7 +375,7 @@ export async function parseKMZFile(file, options = {}) {
     });
 
   if (!kmlEntries.length) {
-    throw new Error('KMZ archive does not contain a KML document.');
+    throw new Error(translateUi('errors.kmzMissingKml'));
   }
 
   const merged = {
@@ -510,7 +512,7 @@ export async function parseDWGFile(file, options = {}) {
 
   const text = await file.text();
   if (!isLikelyDxfText(text)) {
-    throw new Error('Unsupported DWG content. Native DWG requires the CAD backend service, or you can export the drawing as DXF and retry.');
+    throw new Error(translateUi('errors.unsupportedDwg'));
   }
 
   const parsed = parseDxfTextContent(text, {

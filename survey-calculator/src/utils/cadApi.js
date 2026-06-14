@@ -1,3 +1,5 @@
+import { translateUi } from './uiLanguage';
+
 const CAD_API_BASE_URL = import.meta.env.VITE_CAD_API_BASE_URL || '/api/cad';
 
 // Maximum file size the client will attempt to upload (must be ≤ server limit).
@@ -19,7 +21,7 @@ const CAD_COMPLEX_REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_CAD_COMPLEX_T
 let cadUploadWorkerInstance = null;
 
 function buildBackendUnavailableMessage() {
-  return `Native DWG import requires the CAD backend service. Current CAD API target: ${CAD_API_BASE_URL}. Use the hosted CAD API or start "npm run dev:server" for local development.`;
+  return translateUi('errors.backendUnavailable', { target: CAD_API_BASE_URL });
 }
 
 async function parseJsonSafely(response) {
@@ -206,7 +208,7 @@ async function uploadCadFileInChunks(file, { signal, onProgress } = {}) {
   const chunks = Array.isArray(plan?.chunks) ? plan.chunks : [];
 
   if (totalChunks <= 0 || chunks.length === 0) {
-    throw new Error('Failed to build a valid CAD chunk upload plan.');
+    throw new Error(translateUi('errors.invalidChunkPlan'));
   }
 
   if (typeof onProgress === 'function' && plan.signatureHex) {
@@ -238,7 +240,7 @@ async function uploadCadFileInChunks(file, { signal, onProgress } = {}) {
 
         if (!response.ok) {
           const payload = await parseJsonSafely(response);
-          throw new Error(payload?.message || `Chunk ${chunkSpec.index + 1}/${totalChunks} upload failed.`);
+          throw new Error(payload?.message || translateUi('errors.chunkUploadFailed', { index: chunkSpec.index + 1, total: totalChunks }));
         }
 
         success = true;
@@ -250,7 +252,7 @@ async function uploadCadFileInChunks(file, { signal, onProgress } = {}) {
     }
 
     if (!success) {
-      throw new Error(`Chunk ${chunkSpec.index + 1}/${totalChunks} upload failed.`);
+      throw new Error(translateUi('errors.chunkUploadFailed', { index: chunkSpec.index + 1, total: totalChunks }));
     }
 
     if (typeof onProgress === 'function') {
@@ -282,7 +284,7 @@ async function uploadCadAndParseChunked(file, options = {}, signal) {
   } = await uploadCadFileInChunks(file, { signal, onProgress });
 
   if (typeof onProgress === 'function') {
-    onProgress('Upload complete. Finalizing and parsing CAD geometry...');
+    onProgress(translateUi('errors.uploadProgressComplete'));
   }
 
   const response = await fetch(`${CAD_API_BASE_URL}/upload/complete`, {
@@ -304,7 +306,7 @@ async function uploadCadAndParseChunked(file, options = {}, signal) {
 
   const payload = await parseJsonSafely(response);
   if (!response.ok) {
-    throw new Error(payload?.message || 'CAD chunk upload finalization failed.');
+    throw new Error(payload?.message || translateUi('errors.chunkFinalizeFailed'));
   }
   return normalizeCadBackendPayload(payload);
 }
@@ -337,9 +339,11 @@ async function uploadCadAndParseDirect(file, options = {}, signal) {
 export async function parseCadFileViaBackend(file, options = {}) {
   if (file.size > CAD_UPLOAD_MAX_BYTES) {
     throw new Error(
-      `File "${file.name}" is ${(file.size / (1024 * 1024)).toFixed(0)} MB, which exceeds the ` +
-      `${CAD_UPLOAD_MAX_BYTES / (1024 * 1024)} MB upload limit. ` +
-      `Please reduce the file size or split it into smaller drawings.`
+      translateUi('errors.fileTooLargeCad', {
+        name: file.name,
+        size: (file.size / (1024 * 1024)).toFixed(0),
+        limit: CAD_UPLOAD_MAX_BYTES / (1024 * 1024),
+      })
     );
   }
 
@@ -347,11 +351,11 @@ export async function parseCadFileViaBackend(file, options = {}) {
   const { onProgress } = options;
   const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1);
   const progressMessages = [
-    [0,    `Uploading ${fileSizeMB} MB to CAD backend…`],
-    [5000, 'Waiting for DWG-to-DXF conversion to start…'],
-    [15000,'Converting DWG file — this can take 20–60 s for large drawings…'],
-    [40000,'Still converting — complex drawings may take up to 2 minutes…'],
-    [90000,'Almost there — parsing the converted geometry…'],
+    [0, translateUi('errors.uploadProgressUploading', { size: fileSizeMB })],
+    [5000, translateUi('errors.uploadProgressWaiting')],
+    [15000, translateUi('errors.uploadProgressConverting')],
+    [40000, translateUi('errors.uploadProgressStillConverting')],
+    [90000, translateUi('errors.uploadProgressAlmostDone')],
   ];
   const progressTimers = [];
   if (typeof onProgress === 'function') {
@@ -386,13 +390,13 @@ export async function parseCadFileViaBackend(file, options = {}) {
 
     if (file.size >= CAD_CHUNK_MODE_MIN_BYTES) {
       if (typeof onProgress === 'function') {
-        onProgress(`Large CAD detected (${fileSizeMB} MB). Switching to chunked upload mode (${nextOptions.processingMode}).`);
+        onProgress(translateUi('errors.uploadProgressChunked', { size: fileSizeMB, mode: nextOptions.processingMode }));
       }
       try {
         return await uploadCadAndParseChunked(file, nextOptions, signal);
       } catch {
         if (typeof onProgress === 'function') {
-          onProgress('Chunked upload unavailable on current backend. Falling back to direct upload...');
+          onProgress(translateUi('errors.uploadProgressFallback'));
         }
         return uploadCadAndParseDirect(file, nextOptions, signal);
       }
@@ -409,8 +413,7 @@ export async function parseCadFileViaBackend(file, options = {}) {
   } catch (err) {
     if (err?.name === 'AbortError') {
       throw new Error(
-        `The CAD backend did not respond within ${Math.round(requestTimeoutMs / 1000)} seconds. ` +
-        `This can happen with very complex DWG files. Retry the import or enable points-only preview manually if needed.`
+        translateUi('errors.uploadTimeout', { seconds: Math.round(requestTimeoutMs / 1000) })
       );
     } else if (err?.message) {
       throw new Error(err.message);
@@ -423,13 +426,13 @@ export async function parseCadFileViaBackend(file, options = {}) {
   }
 
   if (!Array.isArray(payload?.rows)) {
-    throw new Error('CAD backend returned an invalid response.');
+    throw new Error(translateUi('errors.invalidCadResponse'));
   }
 
   const progressive = payload?.progressive;
   if (progressive?.jobId && !options.pointsOnly) {
     if (typeof onProgress === 'function') {
-      onProgress('Quick CAD preview ready. Refining full-fidelity geometry…');
+      onProgress(translateUi('errors.uploadProgressRefining'));
     }
 
     if (typeof options.onProgressiveUpdate === 'function') {
@@ -455,6 +458,6 @@ export async function parseCadFileViaBackend(file, options = {}) {
 
 export async function getCadBackendStatus() {
   const response = await fetch(`${CAD_API_BASE_URL}/health`);
-  if (!response.ok) throw new Error(`CAD backend health check failed for ${CAD_API_BASE_URL}.`);
+  if (!response.ok) throw new Error(translateUi('errors.cadHealthFailed', { target: CAD_API_BASE_URL }));
   return response.json();
 }

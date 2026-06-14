@@ -2,6 +2,7 @@
 // Efficient geoid sampling with automatic on-demand loading
 
 import { fromArrayBuffer, fromBlob } from 'geotiff';
+import { translateUi } from './uiLanguage';
 
 const gridCache = new Map();
 const loadingPromises = new Map(); // Prevent duplicate loads
@@ -37,7 +38,7 @@ async function loadGeoidIndex() {
     try {
       const indexUrl = resolveGeoidUrl('/geoid/index.json');
       const res = await fetch(indexUrl);
-      if (!res.ok) throw new Error(`Failed to fetch geoid index (${res.status})`);
+      if (!res.ok) throw new Error(translateUi('errors.geoidFetchIndexFailed', { status: res.status }));
       const data = await res.json();
       geoidIndexCache = Array.isArray(data) ? data : [];
       return geoidIndexCache;
@@ -74,12 +75,12 @@ export async function loadGeoidGrid(name, url) {
       response = await fetch(finalUrl, { cache: 'reload' });
     }
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      throw new Error(translateUi('errors.geoidHttpFailed', { status: response.status, statusText: response.statusText }));
     }
     const arrayBuffer = await response.arrayBuffer();
     const reportedLength = response.headers.get('content-length');
     if (arrayBuffer.byteLength === 0) {
-      throw new Error(`Empty response (content-length: ${reportedLength || 'unknown'})`);
+      throw new Error(translateUi('errors.geoidEmptyResponse', { length: reportedLength || translateUi('common.unknown') }));
     }
     return { arrayBuffer, reportedLength };
   };
@@ -106,7 +107,7 @@ export async function loadGeoidGrid(name, url) {
       loadingPromises.delete(name);
       const errorMsg = e.message || String(e);
       console.error(`Failed to load geoid grid ${name}:`, errorMsg);
-      throw new Error(`Failed to load ${name} from ${finalUrl}: ${errorMsg}`);
+      throw new Error(translateUi('errors.geoidLoadFailed', { name, url: finalUrl, message: errorMsg }));
     }
   })();
 
@@ -146,7 +147,7 @@ export async function ensureGeoidGrid(name, url) {
 
   finalUrl = resolveGeoidUrl(finalUrl);
 
-  if (!finalUrl) throw new Error(`No URL found for geoid grid ${name}`);
+  if (!finalUrl) throw new Error(translateUi('errors.geoidNoUrl', { name }));
   return loadGeoidGrid(name, finalUrl);
 }
 
@@ -160,7 +161,7 @@ export function isGeoidGridLoaded(name) {
 
 export async function getGeoidUndulation(name, lonDeg, latDeg) {
   const grid = gridCache.get(name);
-  if (!grid) throw new Error(`Grid ${name} not loaded`);
+  if (!grid) throw new Error(translateUi('errors.geoidGridNotLoaded', { name }));
 
   const { image, width, height, bbox } = grid;
   const [minX, minY, maxX, maxY] = bbox;
@@ -189,7 +190,7 @@ export async function getGeoidUndulation(name, lonDeg, latDeg) {
   });
 
   if (!arr || arr.length < 4) {
-    throw new Error(`Failed to read raster window for ${name} at (${lon}, ${lat})`);
+    throw new Error(translateUi('errors.geoidRasterReadFailed', { name, lon, lat }));
   }
 
   const n00 = arr[0];
@@ -268,7 +269,7 @@ export async function selectGeoidGrid(lonDeg, latDeg) {
     }
     return globalGrid;
   }
-  throw new Error(`Failed to load any global geoid grid. Make sure geoid files are accessible.`);
+  throw new Error(translateUi('errors.geoidGlobalFallbackFailed'));
 }
 
 function clamp(v, lo, hi) {
