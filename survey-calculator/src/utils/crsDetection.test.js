@@ -125,6 +125,27 @@ describe('detectCRS', () => {
     expect(results[0].code).not.toBe('EPSG:3003');
   });
 
+  it('downranks Monte Mario when French CC and Monte Mario overlap are both plausible', () => {
+    // This pattern can match both EPSG:3003 and French CC families by extents only.
+    // Guard should avoid legacy Monte Mario winning by default.
+    const coords = [
+      { x: 1702000, y: 5203000 },
+      { x: 1702600, y: 5203600 },
+      { x: 1701800, y: 5202800 },
+    ];
+
+    const results = detectCRS(coords);
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].code).not.toBe('EPSG:3003');
+
+    const bestFrenchCc = results.find((r) => /^EPSG:39(4[2-9]|50)$/.test(String(r.code || '')));
+    const monteMario = results.find((r) => r.code === 'EPSG:3003');
+    expect(bestFrenchCc).toBeTruthy();
+    if (bestFrenchCc && monteMario) {
+      expect(Number(bestFrenchCc.confidence || 0)).toBeGreaterThan(Number(monteMario.confidence || 0));
+    }
+  });
+
   it('detects Belgian Lambert 72 from typical projected range', () => {
     // Belgian Lambert 72 (EPSG:31370) style coordinates near Brussels
     const coords = [

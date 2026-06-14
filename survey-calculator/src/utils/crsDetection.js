@@ -65,7 +65,8 @@ export const detectCRS = (coordinates, metadata = {}) => {
   // 4. Remove duplicates and sort by confidence
   const uniqueSuggestions = deduplicateSuggestions(suggestions);
   const regionAwareSuggestions = applyRegionalPlausibility(uniqueSuggestions, bounds, metadata);
-  const domainAwareSuggestions = applyCoordinateDomainPlausibility(regionAwareSuggestions, profile);
+  const overlapAwareSuggestions = applyFrenchItalyOverlapGuard(regionAwareSuggestions, bounds, metadata);
+  const domainAwareSuggestions = applyCoordinateDomainPlausibility(overlapAwareSuggestions, profile);
 
   return domainAwareSuggestions.sort((a, b) => b.confidence - a.confidence).slice(0, 8);
 };
@@ -1030,6 +1031,59 @@ const inferDominantCountryFromSuggestions = (suggestions) => {
   if (topWeight < 2.0) return null;
   if (topWeight < (secondWeight * 1.35) && (topWeight - secondWeight) < 0.25) return null;
   return topCountry;
+};
+
+const isFrenchCcCode = (code) => /^EPSG:39(4[2-9]|50)$/.test(String(code || ''));
+const isMonteMarioCode = (code) => /^EPSG:300[34]$/.test(String(code || ''));
+
+const applyFrenchItalyOverlapGuard = (suggestions, bounds, metadata = {}) => {
+  if (!Array.isArray(suggestions) || suggestions.length === 0) return suggestions;
+  if (hasReferenceMetadata(metadata)) return suggestions;
+  if (!Number.isFinite(bounds?.avgX) || !Number.isFinite(bounds?.avgY)) return suggestions;
+
+  const ranked = [...suggestions].sort((a, b) => (Number(b?.confidence) || 0) - (Number(a?.confidence) || 0));
+  const bestMonteMario = ranked.find((entry) => isMonteMarioCode(entry?.code));
+  const bestFrenchCc = ranked.find((entry) => isFrenchCcCode(entry?.code));
+  if (!bestMonteMario || !bestFrenchCc) return suggestions;
+
+  const monteConfidence = Number(bestMonteMario.confidence) || 0;
+  const frenchConfidence = Number(bestFrenchCc.confidence) || 0;
+  if (monteConfidence < 0.7 || frenchConfidence < 0.45) return suggestions;
+
+  const frenchLonLat = getReverseProjectedLonLat(bestFrenchCc.code, bounds.avgX, bounds.avgY);
+  const monteLonLat = getReverseProjectedLonLat(bestMonteMario.code, bounds.avgX, bounds.avgY);
+  const frenchInFrance = frenchLonLat ? isWithinBbox(frenchLonLat[0], frenchLonLat[1], FRANCE_BBOX) : false;
+  const monteInItaly = monteLonLat ? isWithinBbox(monteLonLat[0], monteLonLat[1], ITALY_BBOX) : false;
+  if (!frenchInFrance || !monteInItaly) return suggestions;
+
+  // In known overlap corridors, coordinates can match both families by extent alone.
+  // Prefer modern French CC over legacy Monte Mario unless Monte Mario lead is overwhelming.
+  const gap = monteConfidence - frenchConfidence;
+  if (gap > 0.34) return suggestions;
+
+  return suggestions.map((entry) => {
+    const code = String(entry?.code || '');
+    const confidence = Number(entry?.confidence);
+    if (!Number.isFinite(confidence)) return entry;
+
+    if (isMonteMarioCode(code)) {
+      return {
+        ...entry,
+        confidence: clampScore(confidence - 0.22, 0.2, 0.99),
+        reason: `${entry.reason}; overlap with French CC family`,
+      };
+    }
+
+    if (isFrenchCcCode(code)) {
+      return {
+        ...entry,
+        confidence: clampScore(confidence + 0.12, 0.2, 0.99),
+        reason: `${entry.reason}; favored over overlapping Monte Mario hypothesis`,
+      };
+    }
+
+    return entry;
+  });
 };
 
 const applyRegionalPlausibility = (suggestions, bounds, metadata = {}) => {
