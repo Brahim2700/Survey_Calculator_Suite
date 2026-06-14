@@ -176,6 +176,24 @@ describe('detectCRS', () => {
     expect(results[0].code).toBe('EPSG:3945');
   });
 
+  it('does not treat plain file names as authoritative CRS metadata', () => {
+    const coords = [
+      { x: 1702000, y: 5203000 },
+      { x: 1702600, y: 5203600 },
+      { x: 1701800, y: 5202800 },
+    ];
+
+    const withPlainName = detectCRS(coords, { fileName: 'Fini-BassinBR10.dwg' });
+    const withoutName = detectCRS(coords, {});
+
+    expect(withPlainName.length).toBeGreaterThan(0);
+    expect(withoutName.length).toBeGreaterThan(0);
+
+    // Plain names should not disable France/overlap disambiguation.
+    expect(withPlainName[0].code).toBe(withoutName[0].code);
+    expect(withPlainName[0].code).not.toBe('EPSG:3003');
+  });
+
   it('does not lock inferred italy area from a single overlap candidate', () => {
     const coords = [
       { x: 1702000, y: 5203000 },

@@ -190,8 +190,6 @@ const hasReferenceMetadata = (metadata = {}) => {
     || metadata?.proj4
     || metadata?.epsg
     || metadata?.srid
-    || metadata?.fileName
-    || metadata?.sourceName
   );
 };
 
