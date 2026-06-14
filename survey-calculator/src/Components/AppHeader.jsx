@@ -10,7 +10,7 @@ export default function AppHeader() {
           <div className="brand-text">
             <p className="brand-kicker">Professional Geomatics Platform</p>
             <h1>Survey<span className="brand-title-accent">Calc</span> Geomatics Suite</h1>
-            <p className="brand-subtitle">Coordinate Conversion, Benchmarking, and Survey Computation Workspace</p>
+            <p className="brand-subtitle">Coordinate Conversion, CRS Detection, Benchmarking, and Survey Computation Workspace</p>
           </div>
         </div>
 
