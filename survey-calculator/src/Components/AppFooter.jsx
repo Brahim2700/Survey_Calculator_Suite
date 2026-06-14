@@ -14,15 +14,15 @@ export default function AppFooter() {
         </div>
 
         <div className="footer-section footer-links">
-          <a href="/TERMS_OF_SERVICE.md" target="_blank" rel="noopener noreferrer" title="Terms of Service">
+          <a href="/legal/terms-of-service.html" target="_blank" rel="noopener noreferrer" title="Terms of Service">
             Terms of Service
           </a>
           <span className="link-separator">|</span>
-          <a href="/SECURITY.md" target="_blank" rel="noopener noreferrer" title="Security Policy">
+          <a href="/legal/security.html" target="_blank" rel="noopener noreferrer" title="Security Policy">
             Security
           </a>
           <span className="link-separator">|</span>
-          <a href="https://github.com/Brahim2700/Survey_Calculator_Suite" target="_blank" rel="noopener noreferrer" title="GitHub Repository">
+          <a href="https://github.com/Brahim2700" target="_blank" rel="noopener noreferrer" title="GitHub Profile">
             GitHub
           </a>
         </div>
