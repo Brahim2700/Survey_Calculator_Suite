@@ -105,11 +105,11 @@ describe('detectCRS', () => {
   });
 
   it('keeps CC46 above Monte Mario zone 1 for CC46-like coordinates', () => {
-    // Typical RGF93 / CC46 magnitudes (northeast France)
+    // Typical RGF93 / CC46 magnitudes (France)
     const coords = [
-      { x: 1702000, y: 6203000 },
-      { x: 1702600, y: 6203600 },
-      { x: 1701800, y: 6202800 },
+      { x: 1702000, y: 5203000 },
+      { x: 1702600, y: 5203600 },
+      { x: 1701800, y: 5202800 },
     ];
 
     const results = detectCRS(coords);
@@ -174,6 +174,27 @@ describe('detectCRS', () => {
     const results = detectCRS(coords, { fileName: 'FDP-plan de RSD IND D MOTER-CC45.dwg' });
     expect(results.length).toBeGreaterThan(0);
     expect(results[0].code).toBe('EPSG:3945');
+  });
+
+  it('ranks CC46 first for the reported France sample point instead of Italy/WebMercator', () => {
+    // Reported real-world point from a French CC46 DWG upload.
+    const coords = [{ x: 1840998, y: 5164960 }];
+
+    const results = detectCRS(coords, { fileName: 'PMP 1910-461 TER IND-A Parking Boutan.dwg' });
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].code).toBe('EPSG:3946');
+
+    const italy1 = results.find((r) => r.code === 'EPSG:3003');
+    const webMercator = results.find((r) => r.code === 'EPSG:3857');
+    const cc46 = results.find((r) => r.code === 'EPSG:3946');
+    expect(cc46).toBeTruthy();
+
+    if (italy1 && cc46) {
+      expect(Number(cc46.confidence || 0)).toBeGreaterThan(Number(italy1.confidence || 0));
+    }
+    if (webMercator && cc46) {
+      expect(Number(cc46.confidence || 0)).toBeGreaterThan(Number(webMercator.confidence || 0));
+    }
   });
 
   it('does not treat plain file names as authoritative CRS metadata', () => {

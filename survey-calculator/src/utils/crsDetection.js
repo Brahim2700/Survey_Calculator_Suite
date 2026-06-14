@@ -599,9 +599,9 @@ FR_LAMBERT_EXTENTS.push(
 );
 
 for (let zone = 42; zone <= 50; zone += 1) {
-  // CC zones use a false northing starting around 2,200,000 for CC42,
-  // then +1,000,000 per zone. A lower base wrongly overlaps Italy/Germany grids.
-  const y0 = 2200000 + ((zone - 42) * 1000000);
+  // CC zones use false northing y_0 values 1,200,000 (CC42) then +1,000,000 per zone.
+  // Keep this aligned with official EPSG definitions to avoid off-by-one zone shifts.
+  const y0 = 1200000 + ((zone - 42) * 1000000);
   FR_LAMBERT_EXTENTS.push({
     code: `EPSG:${3900 + zone}`,
     name: `RGF93 / CC${zone}`,
@@ -1004,6 +1004,7 @@ const inferGeographicAnchor = (suggestions, bounds) => {
       return {
         lon,
         lat,
+        region: inferAnchorRegion(lon, lat),
         weight: Math.max(0.2, Number(entry.confidence) || 0),
       };
     })
@@ -1017,7 +1018,15 @@ const inferGeographicAnchor = (suggestions, bounds) => {
   const lon = samples.reduce((sum, item) => sum + (item.lon * item.weight), 0) / weightSum;
   const lat = samples.reduce((sum, item) => sum + (item.lat * item.weight), 0) / weightSum;
   const maxDeviation = samples.reduce((max, item) => Math.max(max, angularDistance(item.lon, item.lat, lon, lat)), 0);
-  const stable = maxDeviation <= 14;
+  const regionWeights = new Map();
+  samples.forEach((item) => {
+    const key = item.region || 'global';
+    regionWeights.set(key, (regionWeights.get(key) || 0) + item.weight);
+  });
+  const sortedRegionWeights = [...regionWeights.entries()].sort((a, b) => b[1] - a[1]);
+  const topRegionWeight = sortedRegionWeights[0]?.[1] || 0;
+  const regionConsensus = weightSum > 0 ? (topRegionWeight / weightSum) : 0;
+  const stable = maxDeviation <= 14 && regionConsensus >= 0.55;
   const region = inferAnchorRegion(lon, lat);
 
   return {
@@ -1244,6 +1253,12 @@ const applyRegionalPlausibility = (suggestions, bounds, metadata = {}) => {
   const adjustedSuggestions = suggestions.map((entry) => {
     const confidence = Number(entry?.confidence);
     if (!Number.isFinite(confidence)) return entry;
+
+    // Explicit filename CRS tokens (e.g., CC45, L93) are strong user/domain hints.
+    // Keep them intact and let later ranking stages compare against geometric evidence.
+    if (typeof entry?.reason === 'string' && entry.reason.startsWith('Extracted from file name token')) {
+      return entry;
+    }
 
     const projected = getReverseProjectedLonLat(entry.code, bounds.avgX, bounds.avgY);
     if (!projected) {
