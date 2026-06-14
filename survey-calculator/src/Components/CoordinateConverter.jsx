@@ -51,6 +51,57 @@ const getCrsConfidenceClass = (assessment) => {
   return { label: "Low Confidence", color: "#b91c1c" };
 };
 
+const buildCrsDecisionSummary = (suggestions = []) => {
+  if (!Array.isArray(suggestions) || suggestions.length === 0) return null;
+
+  const ranked = [...suggestions]
+    .filter((item) => item && item.code)
+    .sort((a, b) => (Number(b.confidence) || 0) - (Number(a.confidence) || 0));
+  if (ranked.length === 0) return null;
+
+  const top = ranked[0];
+  const second = ranked[1] || null;
+  const topConfidence = Number(top.confidence) || 0;
+  const secondConfidence = Number(second?.confidence) || 0;
+  const confidenceGap = Math.max(0, topConfidence - secondConfidence);
+
+  const profileGeoPenalty = ranked.some((item) => String(item?.reason || "").includes("penalized by geographic coordinate profile"));
+  const profileProjectedPenalty = ranked.some((item) => String(item?.reason || "").includes("penalized by projected coordinate profile"));
+  const topReason = String(top.reason || "Heuristic ranking of coordinate extents.");
+
+  let confidenceLabel = "Low confidence";
+  if (topConfidence >= 0.9) confidenceLabel = "High confidence";
+  else if (topConfidence >= 0.75) confidenceLabel = "Good confidence";
+  else if (topConfidence >= 0.6) confidenceLabel = "Moderate confidence";
+
+  const points = [
+    `Primary signal: ${topReason}`,
+    `Ranking strength: ${confidenceLabel} (${Math.round(topConfidence * 100)}%).`,
+  ];
+
+  if (second) {
+    if (confidenceGap >= 0.15) {
+      points.push(`Top-vs-next gap: ${Math.round(confidenceGap * 100)} points. This is a clear winner.`);
+    } else if (confidenceGap >= 0.08) {
+      points.push(`Top-vs-next gap: ${Math.round(confidenceGap * 100)} points. Selection is reasonable but still worth a quick review.`);
+    } else {
+      points.push(`Top-vs-next gap: ${Math.round(confidenceGap * 100)} points. The top candidates are close, so manual confirmation is recommended.`);
+    }
+  }
+
+  if (profileGeoPenalty) {
+    points.push("Domain filter applied: projected candidates were down-ranked because the input behaves like geographic lon/lat degrees.");
+  } else if (profileProjectedPenalty) {
+    points.push("Domain filter applied: geographic candidates were down-ranked because the input behaves like projected metric coordinates.");
+  }
+
+  return {
+    topCode: top.code,
+    points,
+    tone: topConfidence >= 0.75 ? "solid" : "careful",
+  };
+};
+
 const buildCadDiagnosticReportPayload = (cadInspection, importCrsNotice) => ({
   generatedAt: new Date().toISOString(),
   handlingMode: "permissive-expert-auto",
@@ -5309,6 +5360,22 @@ const CoordinateConverter = () => {
           <p style={{ margin: "0 0 0.75rem 0", fontSize: "0.9rem", color: "#555" }}>
             We detected these top {Math.min(TOP_DETECTION_LIMIT, crsSuggestions.length)} coordinate systems. Click any option below to choose it:
           </p>
+          {(() => {
+            const summary = buildCrsDecisionSummary(crsSuggestions.slice(0, TOP_DETECTION_LIMIT));
+            if (!summary) return null;
+            return (
+              <div style={{ marginBottom: "0.75rem", padding: "0.65rem 0.75rem", borderRadius: "6px", background: summary.tone === "solid" ? "#ecfeff" : "#fffbeb", border: `1px solid ${summary.tone === "solid" ? "#67e8f9" : "#fcd34d"}` }}>
+                <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "#0f172a", marginBottom: "0.35rem" }}>
+                  Why {summary.topCode} is ranked first
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem", fontSize: "0.8rem", color: "#334155" }}>
+                  {summary.points.map((line, idx) => (
+                    <div key={`crs-summary-${idx}`}>{line}</div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             {crsSuggestions.slice(0, TOP_DETECTION_LIMIT).map((suggestion) => {
               const isSelected = fromCrs === suggestion.code;
@@ -5796,6 +5863,20 @@ const CoordinateConverter = () => {
               Low confidence detection. Review the top 3 suggestions and plot points on map before applying.
             </div>
           )}
+          {(() => {
+            const summary = buildCrsDecisionSummary(suggestionsForView);
+            if (!summary) return null;
+            return (
+              <div style={{ marginBottom: '0.5rem', padding: '0.5rem 0.6rem', border: `1px solid ${summary.tone === 'solid' ? '#86efac' : '#fcd34d'}`, borderRadius: 6, background: summary.tone === 'solid' ? '#f0fdf4' : '#fffbeb', color: '#334155', fontSize: '0.82rem' }}>
+                <div style={{ fontWeight: 700, marginBottom: '0.3rem', color: '#0f172a' }}>Why {summary.topCode} is ranked first</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.18rem' }}>
+                  {summary.points.map((line, idx) => (
+                    <div key={`detect-summary-${idx}`}>{line}</div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: detectSuggestionsCompact ? '220px' : '360px', overflowY: 'auto', paddingRight: '2px' }}>
             {visibleRows.map((s) => (
               <div key={s.code} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', borderRadius: 6, background: '#f8fafc' }}>
