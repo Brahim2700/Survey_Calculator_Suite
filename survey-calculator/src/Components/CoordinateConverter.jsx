@@ -1794,7 +1794,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
   // ---- Export Handlers ----
   const handleExportCSV = useCallback(() => {
     if (bulkResults.length === 0) {
-      alert("No results to export");
+      alert(t('converter.noResultsToExport'));
       return;
     }
     try {
@@ -1803,13 +1803,13 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       downloadFile(data, filename, 'csv');
     } catch (err) {
       console.error('Export CSV failed:', err);
-      alert('Export failed: ' + err.message);
+      alert(t('converter.exportFailed', { message: err.message }));
     }
-  }, [bulkResults, fromCrs, toCrs, geoidMode, buildExportMetadata]);
+  }, [bulkResults, fromCrs, toCrs, geoidMode, buildExportMetadata, t]);
 
   const handleExportGeoJSON = useCallback(() => {
     if (bulkResults.length === 0) {
-      alert("No results to export");
+      alert(t('converter.noResultsToExport'));
       return;
     }
     try {
@@ -1818,13 +1818,13 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       downloadFile(data, filename, 'geojson');
     } catch (err) {
       console.error('Export GeoJSON failed:', err);
-      alert('Export failed: ' + err.message);
+      alert(t('converter.exportFailed', { message: err.message }));
     }
-  }, [bulkResults, toCrs, geoidMode, buildExportMetadata]);
+  }, [bulkResults, toCrs, geoidMode, buildExportMetadata, t]);
 
   const handleExportKML = useCallback(() => {
     if (bulkResults.length === 0) {
-      alert("No results to export");
+      alert(t('converter.noResultsToExport'));
       return;
     }
     try {
@@ -1833,13 +1833,13 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       downloadFile(data, filename, 'kml');
     } catch (err) {
       console.error('Export KML failed:', err);
-      alert('Export failed: ' + err.message);
+      alert(t('converter.exportFailed', { message: err.message }));
     }
-  }, [bulkResults, toCrs, buildExportMetadata]);
+  }, [bulkResults, toCrs, buildExportMetadata, t]);
 
   const handleExportGPX = useCallback(() => {
     if (bulkResults.length === 0) {
-      alert("No results to export");
+      alert(t('converter.noResultsToExport'));
       return;
     }
     try {
@@ -1848,13 +1848,13 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       downloadFile(data, filename, 'gpx');
     } catch (err) {
       console.error('Export GPX failed:', err);
-      alert('Export failed: ' + err.message);
+      alert(t('converter.exportFailed', { message: err.message }));
     }
-  }, [bulkResults, toCrs, buildExportMetadata]);
+  }, [bulkResults, toCrs, buildExportMetadata, t]);
 
   const handleExportXLSX = useCallback(() => {
     if (bulkResults.length === 0) {
-      alert("No results to export");
+      alert(t('converter.noResultsToExport'));
       return;
     }
     try {
@@ -1863,13 +1863,13 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       downloadFile(workbook, filename, 'xlsx');
     } catch (err) {
       console.error('Export XLSX failed:', err);
-      alert('Export failed: ' + err.message);
+      alert(t('converter.exportFailed', { message: err.message }));
     }
-  }, [bulkResults, fromCrs, toCrs, geoidMode, buildExportMetadata]);
+  }, [bulkResults, fromCrs, toCrs, geoidMode, buildExportMetadata, t]);
 
   const handleExportWKT = useCallback(() => {
     if (bulkResults.length === 0) {
-      alert("No results to export");
+      alert(t('converter.noResultsToExport'));
       return;
     }
     try {
@@ -1878,9 +1878,9 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       downloadFile(data, filename, 'txt');
     } catch (err) {
       console.error('Export WKT failed:', err);
-      alert('Export failed: ' + err.message);
+      alert(t('converter.exportFailed', { message: err.message }));
     }
-  }, [bulkResults, buildExportMetadata]);
+  }, [bulkResults, buildExportMetadata, t]);
 
   const buildCadGeometryDxfBundle = useCallback(() => {
     const hasCadGeometry = Boolean(
@@ -1974,7 +1974,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
 
   const handleExportDXF = useCallback(() => {
     if (bulkResults.length === 0) {
-      alert("No results to export");
+      alert(t('converter.noResultsToExport'));
       return;
     }
     try {
@@ -1986,13 +1986,13 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       downloadFile(data, filename, 'dxf');
     } catch (err) {
       console.error('Export DXF failed:', err);
-      alert('Export failed: ' + err.message);
+      alert(t('converter.exportFailed', { message: err.message }));
     }
-  }, [bulkResults, buildCadGeometryDxfBundle, buildExportMetadata]);
+  }, [bulkResults, buildCadGeometryDxfBundle, buildExportMetadata, t]);
 
   const handleExportAll = useCallback(async () => {
     if (bulkResults.length === 0) {
-      alert("No results to export");
+      alert(t('converter.noResultsToExport'));
       return;
     }
     try {
@@ -2007,13 +2007,13 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       );
     } catch (err) {
       console.error('Export All failed:', err);
-      alert('Export failed: ' + err.message);
+      alert(t('converter.exportFailed', { message: err.message }));
     }
-  }, [bulkResults, fromCrs, toCrs, geoidMode, buildCadGeometryDxfBundle, buildExportMetadata]);
+  }, [bulkResults, fromCrs, toCrs, geoidMode, buildCadGeometryDxfBundle, buildExportMetadata, t]);
 
   const handleExportBenchmarkReport = useCallback(() => {
     if (!benchmarkSummary || benchmarkRows.length === 0) {
-      alert("Run Benchmark / Reference Validation first.");
+      alert(t('converter.benchmarkRunFirst'));
       return;
     }
 
@@ -2090,7 +2090,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     const csv = [...summaryBlock, detailHeader, ...detailRows].join("\n");
     const filename = `benchmark_report_${new Date().toISOString().split('T')[0]}.csv`;
     downloadFile(csv, filename, "csv");
-  }, [benchmarkSummary, benchmarkRows, benchmarkTolerance, fromCrs, toCrs]);
+  }, [benchmarkSummary, benchmarkRows, benchmarkTolerance, fromCrs, toCrs, t]);
 
   // Register CRS once
   useEffect(() => {
@@ -5061,7 +5061,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       const parsed = JSON.parse(text);
       const imported = Array.isArray(parsed?.presets) ? parsed.presets : (Array.isArray(parsed) ? parsed : []);
       if (imported.length === 0) {
-        alert("No presets found in imported file.");
+        alert(t('converter.presetImportEmpty'));
         return;
       }
       const normalized = imported
@@ -5072,7 +5072,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       setSelectedPresetId(next[0]?.id || "");
       safeSetJSON(getPresetStorageKey(), next);
     } catch (err) {
-      alert(`Preset import failed: ${err.message}`);
+      alert(t('converter.presetImportFailed', { message: err.message }));
     }
   };
 
@@ -5179,7 +5179,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       const eyIdx = header.findIndex((h) => ['expectedy', 'expected_y', 'yexpected', 'y_expected'].includes(h));
       const ezIdx = header.findIndex((h) => ['expectedz', 'expected_z', 'zexpected', 'z_expected', 'expectedh', 'expected_h', 'expectedheight', 'expected_height'].includes(h));
       if (idIdx < 0 || exIdx < 0 || eyIdx < 0) {
-        alert("Benchmark file requires columns: id, expectedX, expectedY");
+        alert(t('converter.benchmarkColumnsRequired'));
         return;
       }
 
@@ -5285,12 +5285,12 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
         }
         rows = ordered;
         if (rows.length > 0) {
-          alert("Benchmark note: IDs did not match exactly, compared by row order.");
+          alert(t('converter.benchmarkIdsFallback'));
         }
       }
 
       if (rows.length === 0) {
-        alert("No matching IDs between benchmark file and current bulk results.");
+        alert(t('converter.benchmarkNoMatchingIds'));
         return;
       }
       const maxResidual = Math.max(...rows.map((r) => r.dist));
@@ -5312,7 +5312,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
         failCount,
       });
     } catch (err) {
-      alert(`Benchmark validation failed: ${err.message}`);
+      alert(t('converter.benchmarkValidationFailed', { message: err.message }));
     }
   };
 
@@ -5510,12 +5510,12 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
         <button onClick={handleRedo} aria-label={t('converter.redoAction')} style={{ padding: "0.4rem 0.65rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 600 }}>{t('converter.redoAction')}</button>
         <select value={presetScope} onChange={(e) => setPresetScope(e.target.value)} aria-label="Preset scope" style={{ padding: "0.42rem", borderRadius: "6px", border: "1px solid #cbd5e1" }}>
           <option value="project">{t('converter.projectPresets')}</option>
-          <option value="global">Global Presets</option>
+          <option value="global">{t('converter.globalPresets')}</option>
         </select>
-        <button onClick={savePreset} aria-label="Save converter preset" style={{ padding: "0.4rem 0.65rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 600 }}>Save Preset</button>
-        <button onClick={exportPresetsJson} aria-label="Export presets" style={{ padding: "0.4rem 0.65rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 600 }}>Export Presets</button>
+        <button onClick={savePreset} aria-label="Save converter preset" style={{ padding: "0.4rem 0.65rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 600 }}>{t('converter.savePreset')}</button>
+        <button onClick={exportPresetsJson} aria-label="Export presets" style={{ padding: "0.4rem 0.65rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 600 }}>{t('converter.exportPresets')}</button>
         <label className="button-like-label" style={{ padding: "0.4rem 0.65rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 600 }}>
-          Import Presets
+          {t('converter.importPresets')}
           <input type="file" accept=".json" style={{ display: "none" }} onChange={(e) => importPresetsJson(e.target.files?.[0])} />
         </label>
         {presets.length > 0 && (
@@ -5526,41 +5526,41 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
               onChange={(e) => setSelectedPresetId(e.target.value)}
               style={{ padding: "0.42rem", borderRadius: "6px", border: "1px solid #cbd5e1" }}
             >
-              <option value="" disabled>Select preset...</option>
-              {presets.map((p) => (<option key={p.id} value={p.id}>{p.name}{defaultPresetId === p.id ? " (default)" : ""} ({p.fromCrs} to {p.toCrs})</option>))}
+              <option value="" disabled>{t('converter.selectPreset')}</option>
+              {presets.map((p) => (<option key={p.id} value={p.id}>{p.name}{defaultPresetId === p.id ? ` (${t('converter.defaultSuffix')})` : ""} ({p.fromCrs} to {p.toCrs})</option>))}
             </select>
-            <button onClick={() => selectedPresetId && loadPreset(selectedPresetId)} aria-label="Load selected preset" style={{ padding: "0.4rem 0.65rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 600 }}>Load</button>
-            <button onClick={() => selectedPresetId && duplicatePreset(selectedPresetId)} aria-label="Duplicate selected preset" style={{ padding: "0.4rem 0.65rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 600 }}>Duplicate</button>
-            <button onClick={() => selectedPresetId && renamePreset(selectedPresetId)} aria-label="Rename selected preset" style={{ padding: "0.4rem 0.65rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 600 }}>Rename</button>
-            <button onClick={() => selectedPresetId && setAsDefaultPreset(selectedPresetId)} aria-label="Set selected as default preset" style={{ padding: "0.4rem 0.65rem", borderRadius: "6px", border: "1px solid #bbf7d0", background: "#ecfdf5", color: "#166534", cursor: "pointer", fontWeight: 600 }}>Set Default</button>
-            <button onClick={() => selectedPresetId && deletePreset(selectedPresetId)} aria-label="Delete selected preset" style={{ padding: "0.4rem 0.65rem", borderRadius: "6px", border: "1px solid #fecaca", background: "#fff1f2", color: "#9f1239", cursor: "pointer", fontWeight: 600 }}>Delete</button>
+            <button onClick={() => selectedPresetId && loadPreset(selectedPresetId)} aria-label="Load selected preset" style={{ padding: "0.4rem 0.65rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 600 }}>{t('converter.load')}</button>
+            <button onClick={() => selectedPresetId && duplicatePreset(selectedPresetId)} aria-label="Duplicate selected preset" style={{ padding: "0.4rem 0.65rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 600 }}>{t('converter.duplicate')}</button>
+            <button onClick={() => selectedPresetId && renamePreset(selectedPresetId)} aria-label="Rename selected preset" style={{ padding: "0.4rem 0.65rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 600 }}>{t('converter.rename')}</button>
+            <button onClick={() => selectedPresetId && setAsDefaultPreset(selectedPresetId)} aria-label="Set selected as default preset" style={{ padding: "0.4rem 0.65rem", borderRadius: "6px", border: "1px solid #bbf7d0", background: "#ecfdf5", color: "#166534", cursor: "pointer", fontWeight: 600 }}>{t('converter.setDefault')}</button>
+            <button onClick={() => selectedPresetId && deletePreset(selectedPresetId)} aria-label="Delete selected preset" style={{ padding: "0.4rem 0.65rem", borderRadius: "6px", border: "1px solid #fecaca", background: "#fff1f2", color: "#9f1239", cursor: "pointer", fontWeight: 600 }}>{t('converter.delete')}</button>
           </>
         )}
       </div>
 
       {(cadInspection?.axisNormalizationNotice || singleAxisNormalizationNotice) && (
         <div style={{ marginTop: "0.75rem", color: "#0f3d63", background: "#eff6ff", border: "1px solid #93c5fd", borderRadius: "6px", padding: "0.6rem 0.75rem", fontSize: "0.84rem" }}>
-          <strong>Axis normalization:</strong> {cadInspection?.axisNormalizationNotice || singleAxisNormalizationNotice}
+          <strong>{t('converter.axisNormalization')}</strong> {cadInspection?.axisNormalizationNotice || singleAxisNormalizationNotice}
         </div>
       )}
 
       <div style={{ marginTop: "0.6rem", padding: "0.65rem", borderRadius: "8px", background: "#f8fafc", border: "1px solid #e2e8f0" }}>
-          <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "var(--c-text, #0f172a)" }}>Vertical Datum Panel</div>
+          <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "var(--c-text, #0f172a)" }}>{t('converter.verticalDatumPanel')}</div>
         <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.35rem" }}>
           <label style={{ fontSize: "0.82rem" }}>
-            Input vertical datum
+            {t('converter.inputVerticalDatum')}
             <select value={inputVerticalDatum} onChange={(e) => setInputVerticalDatum(e.target.value)} style={{ marginLeft: "0.35rem", padding: "0.3rem", borderRadius: "6px", border: "1px solid #cbd5e1" }}>
-              <option value="auto">Auto</option>
-              <option value="ellipsoidal">Ellipsoidal (h)</option>
-              <option value="orthometric">Orthometric (H)</option>
+              <option value="auto">{t('converter.auto')}</option>
+              <option value="ellipsoidal">{t('converter.ellipsoidal')}</option>
+              <option value="orthometric">{t('converter.orthometric')}</option>
             </select>
           </label>
           <label style={{ fontSize: "0.82rem" }}>
-            Output vertical datum
+            {t('converter.outputVerticalDatum')}
             <select value={outputVerticalDatum} onChange={(e) => setOutputVerticalDatum(e.target.value)} style={{ marginLeft: "0.35rem", padding: "0.3rem", borderRadius: "6px", border: "1px solid #cbd5e1" }}>
-              <option value="auto">Auto</option>
-              <option value="ellipsoidal">Ellipsoidal (h)</option>
-              <option value="orthometric">Orthometric (H)</option>
+              <option value="auto">{t('converter.auto')}</option>
+              <option value="ellipsoidal">{t('converter.ellipsoidal')}</option>
+              <option value="orthometric">{t('converter.orthometric')}</option>
             </select>
           </label>
         </div>
@@ -6221,7 +6221,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
         {bulkUploadError && <div role="alert" style={{ color: "#b91c1c" }}>{bulkUploadError}</div>}
         {importCrsNotice && (
           <div role="status" style={{ color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "6px", padding: "0.55rem 0.7rem", fontSize: "0.84rem" }}>
-            <strong>CRS Notice:</strong> {importCrsNotice}
+            <strong>{t('converter.crsNotice')}</strong> {importCrsNotice}
           </div>
         )}
 
@@ -6241,12 +6241,12 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       <>
         <div style={{ display: "grid", gap: "0.55rem", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
           <div style={{ border: "1px solid #dbeafe", borderRadius: "8px", background: "#f8fbff", padding: "0.75rem" }}>
-            <div style={{ fontWeight: 700, color: "#1d4ed8", fontSize: "0.76rem", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.35rem" }}>CAD Backend</div>
+            <div style={{ fontWeight: 700, color: "#1d4ed8", fontSize: "0.76rem", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.35rem" }}>{t('converter.cadBackend')}</div>
             <div style={{ fontSize: "0.84rem", color: "#334155" }}>
-              Mode: <strong>{cadBackendStatus?.converterMode || "offline"}</strong>
+              {t('converter.mode')} <strong>{cadBackendStatus?.converterMode || t('converter.offline')}</strong>
             </div>
             <div style={{ fontSize: "0.84rem", color: cadBackendStatus?.dwgEnabled ? "#166534" : "#92400e" }}>
-              {cadBackendStatus?.dwgEnabled ? "Native DWG conversion ready" : (cadBackendStatusError || cadBackendStatus?.setupHint || "Native DWG converter not available")}
+              {cadBackendStatus?.dwgEnabled ? t('converter.nativeDwgReady') : (cadBackendStatusError || cadBackendStatus?.setupHint || t('converter.nativeDwgUnavailable'))}
             </div>
             {cadBackendStatus?.converterPath && (
               <div style={{ fontSize: "0.78rem", color: "#475569", marginTop: "0.35rem", wordBreak: "break-all" }}>
@@ -6255,23 +6255,23 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
             )}
           </div>
           <div style={{ border: "1px solid #e2e8f0", borderRadius: "8px", background: "#ffffff", padding: "0.75rem" }}>
-            <div style={{ fontWeight: 700, color: "#0f172a", fontSize: "0.76rem", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.35rem" }}>CAD Inspection</div>
+            <div style={{ fontWeight: 700, color: "#0f172a", fontSize: "0.76rem", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.35rem" }}>{t('converter.cadInspection')}</div>
             {!cadInspection && <div style={{ fontSize: "0.84rem", color: "#64748b" }}>{t('converter.selectCadFileHint')}</div>}
             {cadInspection && (
               <div style={{ display: "grid", gap: "0.18rem", fontSize: "0.84rem", color: "#334155" }}>
                 <div><strong>{cadInspection.fileName}</strong> {cadInspection.extension ? `(${cadInspection.extension})` : ""}</div>
-                <div>Size: {formatBytes(cadInspection.fileSizeBytes)}</div>
-                <div>Route: {cadInspection.processingRoute || "pending"}</div>
+                <div>{t('converter.size')} {formatBytes(cadInspection.fileSizeBytes)}</div>
+                <div>{t('converter.route')} {cadInspection.processingRoute || t('converter.pending')}</div>
                 {cadInspection.pointExtractionMode && (
                   <div>
-                    Point extraction:
+                    {t('converter.pointExtraction')}
                     <span style={{ marginLeft: "0.4rem", display: "inline-flex", alignItems: "center", padding: "0.12rem 0.5rem", borderRadius: "999px", fontSize: "0.76rem", fontWeight: 700, background: cadInspection.pointExtractionMode === "Existing points only" ? "#dcfce7" : "#fff7ed", color: cadInspection.pointExtractionMode === "Existing points only" ? "#166534" : "#9a3412", border: cadInspection.pointExtractionMode === "Existing points only" ? "1px solid #86efac" : "1px solid #fed7aa" }}>
                       {cadInspection.pointExtractionMode}
                     </span>
                   </div>
                 )}
-                <div>Rows: {cadInspection.rowCount ?? "pending"}</div>
-                <div>Detected CRS: {cadInspection.detectedFromCrs || "pending"}</div>
+                <div>{t('converter.rows')} {cadInspection.rowCount ?? t('converter.pending')}</div>
+                <div>{t('converter.detectedCrsLabel')} {cadInspection.detectedFromCrs || t('converter.pending')}</div>
                 {cadInspection.axisNormalizationApplied && cadInspection.axisNormalizationNotice && (
                   <div style={{ color: "#0f3d63", fontWeight: 600 }}>{cadInspection.axisNormalizationNotice}</div>
                 )}
@@ -6493,7 +6493,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       <div style={{ marginTop: "0.15rem", padding: "0.7rem", border: "1px solid #dbeafe", borderRadius: "8px", background: "#f8fbff" }}>
         <div style={{ fontWeight: 700, color: "var(--c-primary, #1d4ed8)", marginBottom: "0.4rem", fontSize: "0.73rem", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t('converter.benchmarkReferenceValidation')}</div>
         <div style={{ fontSize: "0.82rem", color: "#334155", marginBottom: "0.45rem" }}>
-          Upload CSV with columns: id, expectedX, expectedY and optional expectedZ to compare against current bulk outputs.
+          {t('converter.benchmarkUploadHint')}
         </div>
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
           <input
@@ -6512,10 +6512,10 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
             onClick={() => benchmarkFileInputRef.current?.click()}
             style={{ padding: "0.45rem 0.9rem", background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", borderRadius: "6px", cursor: "pointer", fontWeight: 600 }}
           >
-            Choose benchmark file
+            {t('converter.chooseBenchmarkFile')}
           </button>
           <label style={{ fontSize: "0.8rem", color: "#334155" }}>
-            Tolerance
+            {t('converter.tolerance')}
             <input
               type="number"
               min="0"
@@ -6539,18 +6539,18 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
               fontSize: "0.82rem"
             }}
           >
-            Compare
+            {t('converter.compare')}
           </button>
-          {benchmarkFile && <span style={{ fontSize: "0.8rem", color: "#475569" }}>Selected: {benchmarkFile.name}</span>}
+          {benchmarkFile && <span style={{ fontSize: "0.8rem", color: "#475569" }}>{t('converter.selectedFile', { name: benchmarkFile.name })}</span>}
         </div>
         {benchmarkSummary && (
           <div style={{ marginTop: "0.45rem", fontSize: "0.82rem", color: "#1e3a8a" }}>
-            Compared rows: {benchmarkSummary.compared}
-            {" | "}Mean residual 2D: {benchmarkSummary.meanResidual.toFixed(4)}
-            {" | "}Max residual 2D: {benchmarkSummary.maxResidual.toFixed(4)}
+            {t('converter.comparedRows', { count: benchmarkSummary.compared })}
+            {" | "}{t('converter.meanResidual2d', { value: benchmarkSummary.meanResidual.toFixed(4) })}
+            {" | "}{t('converter.maxResidual2d', { value: benchmarkSummary.maxResidual.toFixed(4) })}
             {benchmarkSummary.compared3d > 0 ? ` | Mean residual 3D: ${benchmarkSummary.meanResidual3d.toFixed(4)} | Max residual 3D: ${benchmarkSummary.maxResidual3d.toFixed(4)}` : ""}
-            {" | "}Pass: {benchmarkSummary.passCount}
-            {" | "}Fail: {benchmarkSummary.failCount}
+            {" | "}{t('converter.pass', { count: benchmarkSummary.passCount })}
+            {" | "}{t('converter.fail', { count: benchmarkSummary.failCount })}
           </div>
         )}
 
