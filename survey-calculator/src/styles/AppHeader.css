@@ -46,6 +46,19 @@
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
+.brand-kicker {
+  margin: 0 0 0.2rem 0;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.brand-title-accent {
+  color: #072a52;
+}
+
 .brand-subtitle {
   margin: 0.25rem 0 0 0;
   font-size: 0.85rem;
@@ -121,6 +134,10 @@
     font-size: 0.75rem;
   }
 
+  .brand-kicker {
+    font-size: 0.62rem;
+  }
+
   .header-security {
     width: 100%;
     justify-content: flex-start;
@@ -150,6 +167,10 @@
   }
 
   .brand-subtitle {
+    display: none;
+  }
+
+  .brand-kicker {
     display: none;
   }
 

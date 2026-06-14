@@ -8,8 +8,9 @@ export default function AppHeader() {
         <div className="header-brand">
           <div className="brand-icon">📐</div>
           <div className="brand-text">
-            <h1>Survey Calculator</h1>
-            <p className="brand-subtitle">CRS Conversion & Geospatial Analysis</p>
+            <p className="brand-kicker">Professional Geomatics Platform</p>
+            <h1>Survey<span className="brand-title-accent">Calc</span> Geomatics Suite</h1>
+            <p className="brand-subtitle">Coordinate Conversion, Benchmarking, and Survey Computation Workspace</p>
           </div>
         </div>
 
