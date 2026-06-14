@@ -15,6 +15,57 @@ Architecture and stack details: see [ARCHITECTURE.md](ARCHITECTURE.md).
 - Build: `npm run build`
 - Preview: `npm run preview`
 
+## Tech Stack Recap
+
+### Languages
+
+- JavaScript (frontend and backend)
+- HTML (application shell)
+- CSS (application styling)
+- JSON (project and deployment configuration)
+- Dockerfile syntax (containerized CAD backend build)
+
+### Frontend
+
+- React 19 + React DOM
+- Vite 7 (`@vitejs/plugin-react`)
+- `vite-plugin-pwa` + Workbox (`workbox-window`)
+- Leaflet + `react-leaflet` for 2D maps
+- Cesium + Three.js + `react-globe.gl` for 3D visualization
+- `proj4` for CRS transformation
+- `geotiff` for geoid/grid raster access
+- `dxf-parser` for browser-side DXF parsing
+- `xlsx`, `shpjs`, `@mapbox/shp-write` for tabular/shapefile workflows
+- `jsPDF`, `html2canvas`, `jszip` for reporting/export packaging
+- `mathjs` for computational utilities
+
+### Backend (Optional CAD API)
+
+- Node.js runtime
+- Express 5 web API
+- `multer` for multipart and chunked upload handling
+- `cors`, `helmet`, `express-rate-limit` for API security and controls
+- Native Node stream/fs/crypto modules for chunk assembly and hashing
+
+### CAD Conversion and Parsing
+
+- LibreDWG (`dwg2dxf`) as primary DWG to DXF converter
+- Server-side CAD normalization and pre-scan services (`server/`)
+- Shared CAD parsing utilities between frontend and backend (`src/utils/`)
+
+### Testing and Quality
+
+- ESLint 9
+- Vitest
+- Testing Library (`@testing-library/react`, `user-event`, `jest-dom`)
+- `jsdom` test environment
+
+### Build and Deployment
+
+- Docker (`Dockerfile.cad-api`) for CAD backend image
+- Vercel for frontend hosting
+- Railway as the target platform for the CAD backend deployment
+
 ## Features
 
 - Geoid height conversions in Auto mode (h↔H) with appropriate grid selection.
@@ -106,6 +157,10 @@ Download ready-made samples from `public/samples/`:
 - `sample_shapefile.zip`: Shapefile (Points) in WGS84 (`EPSG:4326`).
 
 To regenerate XLSX and Shapefile samples: `npm run generate:samples`.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE) — you are free to use, modify, and distribute it, provided you include the original license and copyright notice.
 
 ## Notes
 
