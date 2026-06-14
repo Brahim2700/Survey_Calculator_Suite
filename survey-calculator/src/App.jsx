@@ -26,6 +26,7 @@ import { exportMapAsPdf, exportMapAsPng } from "./utils/mapExport";
 import { EMPTY_CAD_GEOMETRY } from "./utils/cadShared";
 import useUndoable from "./utils/useUndoable";
 import { purgeAppClientData } from "./utils/appDataPurge";
+import { UI_LANGUAGE_STORAGE_KEY, createTranslator } from "./utils/uiLanguage";
 import "./App.css";
 import GeoidGridPreview from './Components/GeoidGridPreview/GeoidGridPreview';
 import AppHeader from './Components/AppHeader';
@@ -44,8 +45,8 @@ const STANDARD_PRINT_SCALES = [
 ];
 const BASE_LAYER_KEY = "__base__";
 const getLayerKey = (sourceFileKey) => sourceFileKey || BASE_LAYER_KEY;
-const getLayerLabel = (sourceFileKey) => {
-  if (!sourceFileKey) return "Current Session";
+const getLayerLabel = (sourceFileKey, currentSessionLabel = "Current Session") => {
+  if (!sourceFileKey) return currentSessionLabel;
   const m = String(sourceFileKey).match(/^(.*)-\d{13}$/);
   return (m?.[1] || sourceFileKey).trim();
 };
@@ -59,6 +60,15 @@ const pickNiceScale = (requiredDenominator) => {
 };
 
 function App() {
+  const [uiLanguage, setUiLanguage] = useState(() => {
+    if (typeof window === 'undefined') return 'en';
+    try {
+      const saved = window.localStorage.getItem(UI_LANGUAGE_STORAGE_KEY);
+      return saved === 'fr' || saved === 'en' ? saved : 'en';
+    } catch {
+      return 'en';
+    }
+  });
   const [converterPoints, setConverterPoints] = useState(
     () => []
   );
@@ -122,6 +132,16 @@ function App() {
   const [mapViewMode, setMapViewMode] = useState('2d'); // '2d' | '3d'
   const [markerStyleConfig, setMarkerStyleConfig] = useState({ elevationRules: [], pointSizeScale: 1.0, customIcons: {}, showLegend: true });
   const [geoidGridData] = useState(null);
+  const t = useMemo(() => createTranslator(uiLanguage), [uiLanguage]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, uiLanguage);
+    } catch {
+      // ignore persistence failures
+    }
+  }, [uiLanguage]);
 
   const togglePanel = useCallback((name) => {
     setPanels((prev) => ({ ...prev, [name]: !prev[name] }));
@@ -352,7 +372,7 @@ function App() {
       if (!stats.has(key)) {
         stats.set(key, {
           key,
-          label: getLayerLabel(sourceFileKey),
+          label: getLayerLabel(sourceFileKey, t('app.currentSession')),
           sourceFileKey: sourceFileKey || null,
           pointCount: 0,
           lineCount: 0,
@@ -416,7 +436,7 @@ function App() {
       surfaceCount: Number(entry.surfaceCount || 0),
       triangleCount: Number(entry.triangleCount || 0),
     }));
-  }, [cadGeometry, converterPoints, hiddenLayerKeys]);
+  }, [cadGeometry, converterPoints, hiddenLayerKeys, t]);
 
   const visibleConverterPoints = useMemo(
     () => converterPoints.filter((point) => !hiddenLayerKeys.includes(getLayerKey(point?.sourceFileKey))),
@@ -607,14 +627,14 @@ function App() {
   return (
     <div className="app-shell">
       {/* ── Header with Branding ── */}
-      <AppHeader />
+      <AppHeader uiLanguage={uiLanguage} onLanguageChange={setUiLanguage} t={t} />
 
       {/* ── Two-column layout ── */}
       <div className={`app-columns${mapFocusMode ? " map-focus" : ""}`}>
 
         {/* Left column: tools */}
         <div className="app-col-left">
-          <CoordinateConverter key={converterSessionKey} />
+          <CoordinateConverter key={converterSessionKey} uiLanguage={uiLanguage} t={t} />
         </div>
 
         {/* Right column: sticky map + measure panel */}
@@ -629,21 +649,21 @@ function App() {
                   <line x1="9" y1="3" x2="9" y2="18"/>
                   <line x1="15" y1="6" x2="15" y2="21"/>
                 </svg>
-                Interactive Map
+                {t('app.interactiveMap')}
               </span>
               <div className="map-toolbar-actions">
 
                 {/* ── New Operation ── */}
                 <MapToolTip
-                  title="New Operation"
-                  description="Resets the entire workspace for a fresh session. Clears all loaded points, CAD geometry, measurements, and panel states. Use this when starting a brand-new survey project."
+                  title={t('app.newOperationTitle')}
+                  description={t('app.newOperationDescription')}
                 >
                   <button
                     className="btn btn-ghost"
                     onClick={() => resetAppWorkspace({ remountConverter: true })}
                   >
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 3-6.708"/><path d="M3 3v6h6"/></svg>
-                    New Operation
+                    {t('app.newOperation')}
                   </button>
 
                 </MapToolTip>
@@ -651,8 +671,8 @@ function App() {
                 {/* ── Clear measure points ── */}
                 {measurePoints.length > 0 && (
                   <MapToolTip
-                    title="Clear Measurements"
-                    description="Removes all currently placed measurement points from the map. Use this to start a fresh distance or area measurement from scratch."
+                    title={t('app.clearMeasurementsTitle')}
+                    description={t('app.clearMeasurementsDescription')}
                   >
                     <button
                       className="btn btn-danger"
@@ -660,7 +680,7 @@ function App() {
                     >
 
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
-                      Clear
+                      {t('app.clear')}
                     </button>
                   </MapToolTip>
                 )}
@@ -668,14 +688,14 @@ function App() {
                 {/* ── Undo last measure point ── */}
                 {canUndoMeasure && (
                   <MapToolTip
-                    title="Undo Last Point (Ctrl+Z)"
-                    description="Removes the most recently placed measurement point. Step back through your clicks one at a time to correct mistakes without losing all measurements."
+                    title={t('app.undoTitle')}
+                    description={t('app.undoDescription')}
                   >
                     <button
                       className="btn btn-ghost"
                       onClick={handleUndoLastMeasurePoint}
                     >
-                      ↩ Undo
+                      ↩ {t('app.undo')}
                     </button>
                   </MapToolTip>
                 )}
@@ -683,14 +703,14 @@ function App() {
                 {/* ── Redo measure point ── */}
                 {canRedoMeasure && (
                   <MapToolTip
-                    title="Redo Point (Ctrl+Y)"
-                    description="Re-applies a previously undone measurement point. Use after Undo if you removed a point by mistake."
+                    title={t('app.redoTitle')}
+                    description={t('app.redoDescription')}
                   >
                     <button
                       className="btn btn-ghost"
                       onClick={redoMeasurePoint}
                     >
-                      ↪ Redo
+                      ↪ {t('app.redo')}
                     </button>
                   </MapToolTip>
                 )}
@@ -698,32 +718,32 @@ function App() {
                 {/* ── Close measurement polygon ── */}
                 {measurePoints.length >= 3 && (
                   <MapToolTip
-                    title="Close Polygon"
-                    description="Connects the last measurement point back to the first to close the polygon. Once closed, the tool calculates total perimeter and enclosed area automatically."
+                    title={t('app.closePolygonTitle')}
+                    description={t('app.closePolygonDescription')}
                   >
                     <button
                       className="btn btn-ghost"
                       onClick={handleCloseMeasurePolygon}
                     >
 
-                      🔷 Close
+                      🔷 {t('app.close')}
                     </button>
                   </MapToolTip>
                 )}
 
                 {/* ── Measure mode toggle ── */}
                 <MapToolTip
-                  title={measureMode ? "Measuring — Click to Stop" : "Measure Tool"}
+                  title={measureMode ? t('app.measuringTitle') : t('app.measureToolTitle')}
                   description={measureMode
-                    ? "Measurement mode is active. Click converted points on the map to drop pins. The tool computes distance, bearing, and cumulative length for each leg. Click again to deactivate."
-                    : "Activates measurement mode. Once active, click any converted point on the map to start placing measurement pins. Distances, bearings, and running totals are calculated in real time."}
+                    ? t('app.measureActiveDescription')
+                    : t('app.measureInactiveDescription')}
                 >
                   <button
                     className={`btn btn-measure${measureMode ? " active" : ""}`}
                     onClick={() => setMeasureMode(m => !m)}
                   >
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 6H3"/><path d="M21 12H3"/><path d="M21 18H3"/></svg>
-                    {measureMode ? "Measuring…" : "Measure"}
+                    {measureMode ? t('app.measuring') : t('app.measure')}
                   </button>
                 </MapToolTip>
 
@@ -936,17 +956,17 @@ function App() {
 
                 {/* ── Map Focus / Balanced View ── */}
                 <MapToolTip
-                  title={mapFocusMode ? "Balanced View" : "Map Focus"}
+                  title={mapFocusMode ? t('app.balancedView') : t('app.mapFocus')}
                   description={mapFocusMode
-                    ? "Restores the balanced split layout where the coordinate converter panel and the map share equal screen space."
-                    : "Expands the map to occupy most of the screen, hiding side panels for an unobstructed view of your survey data. Click again to restore the balanced layout."}
+                    ? t('app.balancedViewDescription')
+                    : t('app.mapFocusDescription')}
                 >
                   <button
                     className={`btn btn-ghost${mapFocusMode ? " btn-mapfocus-active" : ""}`}
                     onClick={() => setMapFocusMode((v) => !v)}
                   >
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
-                    {mapFocusMode ? "Balanced View" : "Map Focus"}
+                    {mapFocusMode ? t('app.balancedView') : t('app.mapFocus')}
                   </button>
                 </MapToolTip>
 
@@ -1094,21 +1114,21 @@ function App() {
             {layerEntries.length > 0 && (
               <div className="map-layers-panel fade-slide-in">
                 <div className="map-layers-header">
-                  <span className="map-layers-title">Project Layers</span>
+                  <span className="map-layers-title">{t('app.projectLayers')}</span>
                   <div style={{ display: "flex", gap: "0.4rem" }}>
                     <button
                       type="button"
                       className="map-layers-action"
                       onClick={() => setHiddenLayerKeys([])}
                     >
-                      Show all
+                      {t('app.showAll')}
                     </button>
                     <button
                       type="button"
                       className="map-layers-action"
                       onClick={() => setHiddenLayerKeys(layerEntries.map((entry) => entry.key))}
                     >
-                      Hide all
+                      {t('app.hideAll')}
                     </button>
                   </div>
                 </div>
@@ -1134,31 +1154,31 @@ function App() {
             {(measureMode || measurePoints.length > 0) && (
               <div className="measure-panel fade-slide-in">
                 <div className="measure-panel-header">
-                  <span className="measure-panel-title">Measure Results</span>
+                  <span className="measure-panel-title">{t('app.measureResults')}</span>
                   <div className="measure-unit-controls">
                     <label className="measure-unit-label">
-                      Distance
+                      {t('app.distance')}
                       <select
                         value={distanceDisplayUnit}
                         onChange={(e) => setDistanceDisplayUnit(e.target.value)}
                       >
-                        <option value="m">meters</option>
-                        <option value="km">kilometers</option>
+                        <option value="m">{t('app.meters')}</option>
+                        <option value="km">{t('app.kilometers')}</option>
                       </select>
                     </label>
                     <label className="measure-unit-label">
-                      Angle
+                      {t('app.angle')}
                       <select
                         value={angleDisplayUnit}
                         onChange={(e) => setAngleDisplayUnit(e.target.value)}
                       >
-                        <option value="deg">degree (°)</option>
+                        <option value="deg">{t('app.degree')}</option>
                         <option value="gon">gon</option>
                       </select>
                     </label>
                     {measureMode && (
                       <span className="measure-hint">
-                        ↑ Click converted map points to add measure points (3+ for polygon area)
+                        ↑ {t('app.measureHint')}
                       </span>
                     )}
                   </div>
@@ -1166,15 +1186,15 @@ function App() {
 
                 {measurePoints.length === 0 && (
                   <p className="measure-empty">
-                    Turn on Measure, then click two converted points on the map.
+                    {t('app.measureEmpty')}
                   </p>
                 )}
 
                 {measurePoints.length === 1 && (
                   <p className="measure-p1-info">
-                    <strong>P1</strong> — {measurePoints[0].sourceLabel || "Converted point"}&nbsp;
+                    <strong>P1</strong> — {measurePoints[0].sourceLabel || t('app.convertedPoint')}&nbsp;
                     ({measurePoints[0].lat.toFixed(5)}°, {measurePoints[0].lng.toFixed(5)}°)
-                    &nbsp;· Click a second converted point for P2
+                    &nbsp;· {t('app.clickSecondPoint')}
                   </p>
                 )}
 
@@ -1366,7 +1386,7 @@ function App() {
       </div>
 
       {/* ── Professional Footer ── */}
-      <AppFooter />
+      <AppFooter t={t} />
       <Analytics />
     </div>
   );

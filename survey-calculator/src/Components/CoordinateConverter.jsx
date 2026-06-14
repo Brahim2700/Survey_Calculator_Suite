@@ -20,6 +20,7 @@ import { purgeAppClientData } from "../utils/appDataPurge";
 import { escapeHtml } from "../utils/escapeHtml";
 import { CAD_DIAGNOSTIC_CODES, collectCadXYBounds, decideCadRouting, isValidLatLng } from "../utils/cadCrsRouting";
 import { tessellateArcSegment, tessellateCircle } from "../lib/cad/curveMath.js";
+import { createTranslator } from "../utils/uiLanguage";
 
 // Lazy-load geoid utilities only when requested so the main bundle stays small
 let geoidModulePromise = null;
@@ -51,7 +52,7 @@ const getCrsConfidenceClass = (assessment) => {
   return { label: "Low Confidence", color: "#b91c1c" };
 };
 
-const buildCrsDecisionSummary = (suggestions = []) => {
+const buildCrsDecisionSummary = (suggestions = [], t = (key) => key) => {
   if (!Array.isArray(suggestions) || suggestions.length === 0) return null;
 
   const ranked = [...suggestions]
@@ -69,36 +70,41 @@ const buildCrsDecisionSummary = (suggestions = []) => {
   const profileProjectedPenalty = ranked.some((item) => String(item?.reason || "").includes("penalized by projected coordinate profile"));
   const topReason = String(top.reason || "Heuristic ranking of coordinate extents.");
 
-  let confidenceLabel = "Low confidence";
-  if (topConfidence >= 0.9) confidenceLabel = "High confidence";
-  else if (topConfidence >= 0.75) confidenceLabel = "Good confidence";
-  else if (topConfidence >= 0.6) confidenceLabel = "Moderate confidence";
+  let confidenceLabel = t('converter.summary.low');
+  if (topConfidence >= 0.9) confidenceLabel = t('converter.summary.high');
+  else if (topConfidence >= 0.75) confidenceLabel = t('converter.summary.good');
+  else if (topConfidence >= 0.6) confidenceLabel = t('converter.summary.moderate');
 
   const points = [
-    `Primary signal: ${topReason}`,
-    `Ranking strength: ${confidenceLabel} (${Math.round(topConfidence * 100)}%).`,
+    t('converter.summary.primarySignal', { reason: topReason }),
+    t('converter.summary.rankingStrength', { label: confidenceLabel, percent: Math.round(topConfidence * 100) }),
   ];
 
   if (second) {
     if (confidenceGap >= 0.15) {
-      points.push(`Top-vs-next gap: ${Math.round(confidenceGap * 100)} points. This is a clear winner.`);
+      points.push(t('converter.summary.gapClear', { points: Math.round(confidenceGap * 100) }));
     } else if (confidenceGap >= 0.08) {
-      points.push(`Top-vs-next gap: ${Math.round(confidenceGap * 100)} points. Selection is reasonable but still worth a quick review.`);
+      points.push(t('converter.summary.gapReview', { points: Math.round(confidenceGap * 100) }));
     } else {
-      points.push(`Top-vs-next gap: ${Math.round(confidenceGap * 100)} points. The top candidates are close, so manual confirmation is recommended.`);
+      points.push(t('converter.summary.gapManual', { points: Math.round(confidenceGap * 100) }));
     }
   }
 
   if (profileGeoPenalty) {
-    points.push("Domain filter applied: projected candidates were down-ranked because the input behaves like geographic lon/lat degrees.");
+    points.push(t('converter.summary.geographicPenalty'));
   } else if (profileProjectedPenalty) {
-    points.push("Domain filter applied: geographic candidates were down-ranked because the input behaves like projected metric coordinates.");
+    points.push(t('converter.summary.projectedPenalty'));
   }
 
   let secondChoiceComparison = "";
   if (second) {
     const secondReason = String(second.reason || "No additional reason available.");
-    secondChoiceComparison = `${top.code} was kept above ${second.code} by a ${Math.round(confidenceGap * 100)}-point margin. #2 signal: ${secondReason}`;
+    secondChoiceComparison = t('converter.summary.comparison', {
+      top: top.code,
+      second: second.code,
+      points: Math.round(confidenceGap * 100),
+      reason: secondReason,
+    });
   }
 
   return {
@@ -1222,7 +1228,8 @@ const ddToDMS = (value, kind) => {
   return `${degrees}°${minutes}'${secStr}"${hemi}`;
 };
 
-const CoordinateConverter = () => {
+const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
+  const t = tFromProps || createTranslator(uiLanguage);
   const TOP_DETECTION_LIMIT = 5;
   const [fromCrs, setFromCrs] = useState("EPSG:4326");
   const [toCrs, setToCrs] = useState("EPSG:2154");
@@ -5313,26 +5320,26 @@ const CoordinateConverter = () => {
     <div style={{ width: "100%", maxWidth: "1100px", background: "var(--c-surface, #fff)", borderRadius: "var(--r-lg, 14px)", padding: "1.5rem", boxShadow: "var(--shadow-xl, 0 20px 60px rgba(0,0,0,.22))", display: "flex", flexDirection: "column", border: "1px solid rgba(255,255,255,.08)" }}>
       <div style={{ position: "sticky", top: "0.35rem", zIndex: 25, marginBottom: "0.9rem", padding: "0.55rem", borderRadius: "10px", border: "1px solid #1e3a8a", background: "rgba(15, 23, 42, 0.94)", display: "flex", flexWrap: "wrap", gap: "0.45rem", alignItems: "center" }}>
         <span style={{ color: "#bfdbfe", fontSize: "0.77rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginRight: "0.3rem" }}>
-          Quick Actions
+          {t('converter.quickActions')}
         </span>
         <button
           onClick={() => scrollToSection(bulkSectionRef)}
           style={{ padding: "0.35rem 0.7rem", borderRadius: "999px", border: "1px solid #7dd3fc", background: "#0f172a", color: "#e0f2fe", cursor: "pointer", fontWeight: 700, fontSize: "0.78rem" }}
         >
-          Go to Bulk
+          {t('converter.goToBulk')}
         </button>
         <button
           onClick={() => scrollToSection(exportSectionRef)}
           disabled={bulkResults.length === 0}
           style={{ padding: "0.35rem 0.7rem", borderRadius: "999px", border: "1px solid #93c5fd", background: bulkResults.length > 0 ? "#1d4ed8" : "#334155", color: "#eff6ff", cursor: bulkResults.length > 0 ? "pointer" : "not-allowed", fontWeight: 700, fontSize: "0.78rem", opacity: bulkResults.length > 0 ? 1 : 0.65 }}
         >
-          Go to Exports
+          {t('converter.goToExports')}
         </button>
         <button
           onClick={handleBulkResetAll}
           style={{ padding: "0.35rem 0.7rem", borderRadius: "999px", border: "1px solid #fecaca", background: "#7f1d1d", color: "#fff1f2", cursor: "pointer", fontWeight: 700, fontSize: "0.78rem" }}
         >
-          Reset Bulk
+          {t('converter.resetBulk')}
         </button>
       </div>
       
@@ -5362,18 +5369,18 @@ const CoordinateConverter = () => {
             ×
           </button>
           <h3 style={{ margin: "0 0 0.75rem 0", color: "#0369a1", fontSize: "1rem", fontWeight: 600 }}>
-            🎯 CRS Auto-Detected
+            🎯 {t('converter.autoDetected')}
           </h3>
           <p style={{ margin: "0 0 0.75rem 0", fontSize: "0.9rem", color: "#555" }}>
-            We detected these top {Math.min(TOP_DETECTION_LIMIT, crsSuggestions.length)} coordinate systems. Click any option below to choose it:
+            {t('converter.detectedTop', { count: Math.min(TOP_DETECTION_LIMIT, crsSuggestions.length) })}
           </p>
           {(() => {
-            const summary = buildCrsDecisionSummary(crsSuggestions.slice(0, TOP_DETECTION_LIMIT));
+            const summary = buildCrsDecisionSummary(crsSuggestions.slice(0, TOP_DETECTION_LIMIT), t);
             if (!summary) return null;
             return (
               <div style={{ marginBottom: "0.75rem", padding: "0.65rem 0.75rem", borderRadius: "6px", background: summary.tone === "solid" ? "#ecfeff" : "#fffbeb", border: `1px solid ${summary.tone === "solid" ? "#67e8f9" : "#fcd34d"}` }}>
                 <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "#0f172a", marginBottom: "0.35rem" }}>
-                  Why {summary.topCode} is ranked first
+                  {t('converter.whyRankedFirst', { code: summary.topCode })}
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem", fontSize: "0.8rem", color: "#334155" }}>
                   {summary.points.map((line, idx) => (
@@ -5382,7 +5389,7 @@ const CoordinateConverter = () => {
                 </div>
                 {summary.secondChoiceComparison && (
                   <details style={{ marginTop: "0.4rem" }}>
-                    <summary style={{ cursor: "pointer", fontSize: "0.78rem", fontWeight: 600, color: "#0f172a" }}>Why not #2?</summary>
+                    <summary style={{ cursor: "pointer", fontSize: "0.78rem", fontWeight: 600, color: "#0f172a" }}>{t('converter.whyNotSecond')}</summary>
                     <div style={{ marginTop: "0.3rem", fontSize: "0.78rem", color: "#475569" }}>
                       {summary.secondChoiceComparison}
                     </div>
@@ -5437,7 +5444,7 @@ const CoordinateConverter = () => {
                           fontSize: "0.75rem",
                           fontWeight: 600
                         }}>
-                          SELECTED
+                            {t('converter.selected')}
                         </span>
                       )}
                     </div>
@@ -5449,7 +5456,7 @@ const CoordinateConverter = () => {
                       fontSize: "0.75rem",
                       fontWeight: 600
                     }}>
-                      {Math.round(suggestion.confidence * 100)}% match
+                      {t('converter.match', { count: Math.round(suggestion.confidence * 100) })}
                     </div>
                   </div>
                   <div style={{ marginTop: "0.35rem", fontSize: "0.85rem", color: "#64748b" }}>
@@ -5464,16 +5471,16 @@ const CoordinateConverter = () => {
       
       <div style={{ display: "flex", gap: "0.8rem", alignItems: "flex-end", flexWrap: "wrap" }}>
         <div style={{ flex: "1 1 260px", minWidth: "260px" }}>
-          <CrsSearchSelector label="From CRS" value={fromCrs} onChange={setFromCrsManually} />
+          <CrsSearchSelector label={t('converter.fromCrs')} value={fromCrs} onChange={setFromCrsManually} />
         </div>
         <MapToolTip
-          title="Swap From / To CRS"
-          description="Swaps the source (From) and target (To) coordinate reference systems. Useful when you need to reverse a conversion — for example switching from RGF93 → WGS84 to WGS84 → RGF93 in one click."
+          title={t('converter.swapCrsTitle')}
+          description={t('converter.swapCrsDescription')}
         >
           <button
             className="crs-swap-btn"
             onClick={handleSwapCrs}
-            aria-label="Swap From and To CRS"
+            aria-label={t('converter.swapCrsAria')}
             style={{
               alignSelf: "center",
               marginBottom: "0.1rem",
@@ -5494,15 +5501,15 @@ const CoordinateConverter = () => {
           </button>
         </MapToolTip>
         <div style={{ flex: "1 1 260px", minWidth: "260px" }}>
-          <CrsSearchSelector label="To CRS" value={toCrs} onChange={setToCrsManually} />
+          <CrsSearchSelector label={t('converter.toCrs')} value={toCrs} onChange={setToCrsManually} />
         </div>
       </div>
 
       <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginTop: "0.45rem" }}>
-        <button onClick={handleUndo} aria-label="Undo last converter action" style={{ padding: "0.4rem 0.65rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 600 }}>Undo</button>
-        <button onClick={handleRedo} aria-label="Redo last converter action" style={{ padding: "0.4rem 0.65rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 600 }}>Redo</button>
+        <button onClick={handleUndo} aria-label={t('converter.undoAction')} style={{ padding: "0.4rem 0.65rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 600 }}>{t('converter.undoAction')}</button>
+        <button onClick={handleRedo} aria-label={t('converter.redoAction')} style={{ padding: "0.4rem 0.65rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 600 }}>{t('converter.redoAction')}</button>
         <select value={presetScope} onChange={(e) => setPresetScope(e.target.value)} aria-label="Preset scope" style={{ padding: "0.42rem", borderRadius: "6px", border: "1px solid #cbd5e1" }}>
-          <option value="project">Project Presets</option>
+          <option value="project">{t('converter.projectPresets')}</option>
           <option value="global">Global Presets</option>
         </select>
         <button onClick={savePreset} aria-label="Save converter preset" style={{ padding: "0.4rem 0.65rem", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 600 }}>Save Preset</button>
