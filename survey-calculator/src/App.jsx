@@ -28,6 +28,8 @@ import useUndoable from "./utils/useUndoable";
 import { purgeAppClientData } from "./utils/appDataPurge";
 import "./App.css";
 import GeoidGridPreview from './Components/GeoidGridPreview/GeoidGridPreview';
+import AppHeader from './Components/AppHeader';
+import AppFooter from './Components/AppFooter';
 
 const PDF_MARGIN_MM = 8;
 const EXPORT_PANEL_WIDTH_PX = 350;
@@ -604,14 +606,8 @@ function App() {
 
   return (
     <div className="app-shell">
-      {/* ── Header ── */}
-      <header className="app-header">
-        <p className="app-kicker">Professional Geomatics Platform</p>
-        <h1 className="app-title">
-          Survey<span className="app-title-accent">Calc</span> Geomatics Suite
-        </h1>
-        <p className="app-subtitle">Coordinate Conversion, Benchmarking, and Survey Computation Workspace</p>
-      </header>
+      {/* ── Header with Branding ── */}
+      <AppHeader />
 
       {/* ── Two-column layout ── */}
       <div className={`app-columns${mapFocusMode ? " map-focus" : ""}`}>
@@ -1369,7 +1365,8 @@ function App() {
         </div>
       </div>
 
-      <footer className="app-signature">by FRAH Brahim</footer>
+      {/* ── Professional Footer ── */}
+      <AppFooter />
       <Analytics />
     </div>
   );

@@ -1,0 +1,145 @@
+/* AppFooter Styles */
+
+.app-footer {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  color: #e0e0e0;
+  border-top: 2px solid #00d4ff;
+  padding: 1.5rem 2rem;
+  margin-top: auto;
+  font-family: 'Inconsolata', monospace;
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.footer-divider {
+  text-align: center;
+  color: #00d4ff;
+  font-size: 0.9rem;
+  letter-spacing: 1px;
+  margin: 0.5rem 0;
+  opacity: 0.6;
+}
+
+.footer-content {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 2rem;
+  align-items: center;
+  padding: 1rem 0;
+  text-align: center;
+}
+
+.footer-section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.footer-copyright {
+  font-size: 0.9rem;
+  color: #b0b0b0;
+  grid-column: 1;
+  justify-content: flex-start;
+}
+
+.footer-links {
+  grid-column: 2;
+  font-size: 0.85rem;
+}
+
+.footer-links a {
+  color: #00d4ff;
+  text-decoration: none;
+  transition: all 0.3s ease;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.footer-links a:hover {
+  color: #fff;
+  background: rgba(0, 212, 255, 0.2);
+  text-decoration: underline;
+}
+
+.link-separator {
+  color: #666;
+  margin: 0 0.25rem;
+}
+
+.footer-version {
+  grid-column: 3;
+  justify-content: flex-end;
+  font-size: 0.85rem;
+  color: #888;
+}
+
+.footer-credit {
+  text-align: center;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(0, 212, 255, 0.2);
+  font-size: 0.85rem;
+  color: #00d4ff;
+  letter-spacing: 0.5px;
+}
+
+.footer-credit strong {
+  color: #fff;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+/* Responsive Footer */
+
+@media (max-width: 768px) {
+  .footer-content {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    padding: 0.75rem 0;
+  }
+
+  .footer-copyright {
+    grid-column: 1;
+    justify-content: center;
+    order: 1;
+  }
+
+  .footer-links {
+    grid-column: 1;
+    order: 2;
+  }
+
+  .footer-version {
+    grid-column: 1;
+    justify-content: center;
+    order: 3;
+  }
+
+  .app-footer {
+    padding: 1rem 1.5rem;
+  }
+
+  .footer-divider {
+    font-size: 0.8rem;
+    letter-spacing: 0.5px;
+  }
+}
+
+@media (max-width: 480px) {
+  .footer-links a {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.3rem;
+  }
+
+  .link-separator {
+    margin: 0 0.15rem;
+  }
+
+  .footer-divider {
+    display: none;
+  }
+
+  .app-footer {
+    padding: 0.75rem 1rem;
+  }
+}
