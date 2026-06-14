@@ -25,6 +25,26 @@ describe('detectCRS', () => {
     // Should suggest WGS84 or a geographic CRS
     const hasGeographic = codes.some((c) => c === 'EPSG:4326' || c?.includes('4326'));
     expect(hasGeographic).toBe(true);
+    expect(results[0].code).toBe('EPSG:4326');
+  });
+
+  it('keeps projected UTM candidates ahead of EPSG:4326 for UTM-metric coordinates', () => {
+    // Typical UTM zone 31N metric coordinates (meters)
+    const coords = [
+      { x: 500000, y: 4649776 },
+      { x: 500120, y: 4649901 },
+      { x: 499880, y: 4649651 },
+    ];
+
+    const results = detectCRS(coords);
+    expect(results.length).toBeGreaterThan(0);
+    const topCode = String(results[0].code || '');
+    expect(/^EPSG:(326|327)\d{2}$/.test(topCode) || /^EPSG:258(2\d|3[0-2])$/.test(topCode)).toBe(true);
+
+    const wgs84 = results.find((entry) => entry.code === 'EPSG:4326');
+    if (wgs84) {
+      expect(Number(wgs84.confidence || 0)).toBeLessThan(Number(results[0].confidence || 1));
+    }
   });
 
   it('prioritizes EPSG:4326 for swapped geographic coordinates with high longitudes', () => {

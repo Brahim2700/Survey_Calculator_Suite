@@ -45,6 +45,7 @@ export const detectCRS = (coordinates, metadata = {}) => {
 
   // 2. Analyze coordinate ranges
   const bounds = calculateBounds(coordinates);
+  const profile = buildCoordinateProfile(coordinates, bounds);
   const rangeSuggestions = detectFromRanges(bounds);
   suggestions.push(...rangeSuggestions);
 
@@ -64,8 +65,119 @@ export const detectCRS = (coordinates, metadata = {}) => {
   // 4. Remove duplicates and sort by confidence
   const uniqueSuggestions = deduplicateSuggestions(suggestions);
   const regionAwareSuggestions = applyRegionalPlausibility(uniqueSuggestions, bounds, metadata);
+  const domainAwareSuggestions = applyCoordinateDomainPlausibility(regionAwareSuggestions, profile);
 
-  return regionAwareSuggestions.sort((a, b) => b.confidence - a.confidence).slice(0, 8);
+  return domainAwareSuggestions.sort((a, b) => b.confidence - a.confidence).slice(0, 8);
+};
+
+const buildCoordinateProfile = (coordinates, bounds) => {
+  const total = Array.isArray(coordinates) ? coordinates.length : 0;
+  if (!total || !Number.isFinite(bounds?.avgX) || !Number.isFinite(bounds?.avgY)) {
+    return {
+      strictGeographic: false,
+      strictProjected: false,
+      likelyUtmMetric: false,
+    };
+  }
+
+  const sampleSize = Math.min(total, 5000);
+  const step = Math.max(1, Math.floor(total / sampleSize));
+  let sampled = 0;
+  let geoLike = 0;
+  let utmLike = 0;
+
+  for (let idx = 0; idx < total; idx += step) {
+    const c = coordinates[idx];
+    const x = Number(c?.x);
+    const y = Number(c?.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    sampled += 1;
+
+    const looksGeographic = x >= -180 && x <= 180 && y >= -90 && y <= 90;
+    if (looksGeographic) geoLike += 1;
+
+    const looksUtm = x >= UTM_X_RANGE[0] && x <= UTM_X_RANGE[1] && y >= UTM_Y_RANGE[0] && y <= UTM_Y_RANGE[1];
+    if (looksUtm) utmLike += 1;
+  }
+
+  const geoRatio = sampled > 0 ? geoLike / sampled : 0;
+  const utmRatio = sampled > 0 ? utmLike / sampled : 0;
+  const maxAbs = Math.max(
+    Math.abs(Number(bounds.minX) || 0),
+    Math.abs(Number(bounds.maxX) || 0),
+    Math.abs(Number(bounds.minY) || 0),
+    Math.abs(Number(bounds.maxY) || 0)
+  );
+
+  const strictGeographic = geoRatio >= 0.9 && maxAbs <= 180;
+  const strictProjected = maxAbs >= 1000 && geoRatio < 0.15;
+  const likelyUtmMetric = strictProjected && utmRatio >= 0.75;
+
+  return {
+    strictGeographic,
+    strictProjected,
+    likelyUtmMetric,
+  };
+};
+
+const GEOGRAPHIC_CODE_SET = new Set(['EPSG:4326', 'EPSG:4258', 'EPSG:4269', 'EPSG:4171']);
+
+const isGeographicCode = (code) => {
+  if (!code) return false;
+  if (GEOGRAPHIC_CODE_SET.has(code)) return true;
+  const entry = CRS_BY_CODE.get(code);
+  return entry?.type === 'geographic';
+};
+
+const isProjectedCode = (code) => {
+  if (!code) return false;
+  const entry = CRS_BY_CODE.get(code);
+  if (entry?.type) return entry.type === 'projected';
+  return /^EPSG:\d+$/.test(code) && !isGeographicCode(code);
+};
+
+const isUtmFamilyCode = (code) => (
+  /^EPSG:(326|327)\d{2}$/.test(String(code || ''))
+  || /^EPSG:258(2\d|3[0-2])$/.test(String(code || ''))
+  || /^EPSG:230(2[9]|3[0-1])$/.test(String(code || ''))
+);
+
+const applyCoordinateDomainPlausibility = (suggestions, profile) => {
+  if (!Array.isArray(suggestions) || suggestions.length === 0) return suggestions;
+  if (!profile) return suggestions;
+
+  return suggestions.map((entry) => {
+    const confidence = Number(entry?.confidence);
+    if (!Number.isFinite(confidence)) return entry;
+
+    let adjusted = confidence;
+    let note = '';
+    const code = String(entry?.code || '');
+
+    if (profile.strictGeographic) {
+      if (isGeographicCode(code)) {
+        adjusted += code === 'EPSG:4326' ? 0.18 : 0.08;
+      } else if (isProjectedCode(code)) {
+        adjusted -= 0.24;
+        note = 'penalized by geographic coordinate profile';
+      }
+    }
+
+    if (profile.strictProjected && isGeographicCode(code)) {
+      adjusted -= 0.22;
+      note = note || 'penalized by projected coordinate profile';
+    }
+
+    if (profile.likelyUtmMetric && isUtmFamilyCode(code)) {
+      adjusted += 0.08;
+    }
+
+    return {
+      ...entry,
+      confidence: clampScore(adjusted, 0.2, 0.99),
+      reason: note ? `${entry.reason}; ${note}` : entry.reason,
+    };
+  });
 };
 
 const hasReferenceMetadata = (metadata = {}) => {
@@ -438,7 +550,7 @@ FR_LAMBERT_EXTENTS.push(
   { code: 'EPSG:31370', name: 'BD72 / Belgian Lambert 72 (Belgium)', xmin: 0, xmax: 350000, ymin: 0, ymax: 350000, confidence: 0.9 },
   { code: 'EPSG:3812', name: 'ETRS89 / Belgian Lambert 2008 (Belgium)', xmin: 500000, xmax: 850000, ymin: 500000, ymax: 850000, confidence: 0.9 },
   { code: 'EPSG:3035', name: 'ETRS89 / LAEA Europe', xmin: -4000000, xmax: 9000000, ymin: -4000000, ymax: 9000000, confidence: 0.7 },
-  { code: 'EPSG:21781', name: 'CH1903 / LV03 (Switzerland)', xmin: 480000, xmax: 840000, ymin: 60000, ymax: 310000, confidence: 0.87 },
+  { code: 'EPSG:21781', name: 'CH1903 / LV03 (Switzerland)', xmin: 480000, xmax: 840000, ymin: 60000, ymax: 310000, confidence: 0.93 },
   { code: 'EPSG:28992', name: 'Amersfoort / RD New (Netherlands)', xmin: -250000, xmax: 850000, ymin: 250000, ymax: 625000, confidence: 0.84 },
   { code: 'EPSG:27700', name: 'OSGB 1936 / British National Grid', xmin: 0, xmax: 700000, ymin: 0, ymax: 1300000, confidence: 0.86 },
   { code: 'EPSG:2157', name: 'IRENET95 / Irish Transverse Mercator', xmin: 350000, xmax: 900000, ymin: 550000, ymax: 1000000, confidence: 0.86 }
@@ -927,25 +1039,7 @@ const applyRegionalPlausibility = (suggestions, bounds, metadata = {}) => {
   const dominantCountry = inferDominantCountryFromSuggestions(suggestions);
   const anchor = inferGeographicAnchor(suggestions, bounds);
   if (!anchor?.stable || !Number.isFinite(anchor.lon) || !Number.isFinite(anchor.lat)) {
-    if (!dominantCountry) return suggestions;
-    return suggestions.map((entry) => {
-      const confidence = Number(entry?.confidence);
-      if (!Number.isFinite(confidence)) return entry;
-      const country = inferSuggestionCountry(entry);
-      if (!country) return entry;
-      if (country === dominantCountry) {
-        return {
-          ...entry,
-          confidence: clampScore(confidence + 0.1, 0.2, 0.99),
-          reason: `${entry.reason}; favored by country consensus`,
-        };
-      }
-      return {
-        ...entry,
-        confidence: clampScore(confidence - 0.2, 0.2, 0.99),
-        reason: `${entry.reason}; penalized by country mismatch`,
-      };
-    });
+    return suggestions;
   }
 
   const effectiveRegion = (() => {
@@ -1309,7 +1403,7 @@ const tryInferUtmFromBounds = (coordinates, bounds) => {
         // Score based on closeness to central meridian and reasonable latitude
         if (lat <= 90 && lat >= -90 && lonDiff < 6) {
           // Within the zone's 6° band — strong match; boost for closeness to center
-          const confidence = Math.max(0.60, 0.82 - lonDiff / 12);
+          const confidence = Math.max(0.56, 0.72 - lonDiff / 14);
           suggestions.push({ code, name: `WGS 84 / UTM zone ${zone}${hemi}`, confidence, reason: 'Trial transform plausibility' });
         }
       } catch {

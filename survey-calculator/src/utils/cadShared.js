@@ -1996,6 +1996,29 @@ const collectCrsDetectionCoordinates = (rows = [], expandedEntities = []) => {
         return;
       }
 
+      if (type === 'CIRCLE' || type === 'ARC') {
+        pushPoint(entity?.center?.x, entity?.center?.y, entity?.center?.z ?? 0);
+        return;
+      }
+
+      if (type === 'ELLIPSE') {
+        pushPoint(entity?.center?.x, entity?.center?.y, entity?.center?.z ?? 0);
+        pushPoint(entity?.majorAxisEndPoint?.x, entity?.majorAxisEndPoint?.y, entity?.majorAxisEndPoint?.z ?? 0);
+        return;
+      }
+
+      if (type === 'INSERT') {
+        pushPoint(entity?.position?.x, entity?.position?.y, entity?.position?.z ?? 0);
+        return;
+      }
+
+      if (type === 'TEXT' || type === 'MTEXT') {
+        pushPoint(entity?.startPoint?.x, entity?.startPoint?.y, entity?.startPoint?.z ?? 0);
+        pushPoint(entity?.position?.x, entity?.position?.y, entity?.position?.z ?? 0);
+        pushPoint(entity?.insertionPoint?.x, entity?.insertionPoint?.y, entity?.insertionPoint?.z ?? 0);
+        return;
+      }
+
       if (['LWPOLYLINE', 'POLYLINE', '3DLINE', '3DFACE', 'FACE3D', 'MESH', 'PLANESURFACE'].includes(type)) {
         pushVertexList(entity?.vertices);
         if (type === '3DFACE' || type === 'FACE3D') {
