@@ -5374,30 +5374,6 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
           <p style={{ margin: "0 0 0.75rem 0", fontSize: "0.9rem", color: "#555" }}>
             {t('converter.detectedTop', { count: Math.min(TOP_DETECTION_LIMIT, crsSuggestions.length) })}
           </p>
-          {(() => {
-            const summary = buildCrsDecisionSummary(crsSuggestions.slice(0, TOP_DETECTION_LIMIT), t);
-            if (!summary) return null;
-            return (
-              <div style={{ marginBottom: "0.75rem", padding: "0.65rem 0.75rem", borderRadius: "6px", background: summary.tone === "solid" ? "#ecfeff" : "#fffbeb", border: `1px solid ${summary.tone === "solid" ? "#67e8f9" : "#fcd34d"}` }}>
-                <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "#0f172a", marginBottom: "0.35rem" }}>
-                  {t('converter.whyRankedFirst', { code: summary.topCode })}
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem", fontSize: "0.8rem", color: "#334155" }}>
-                  {summary.points.map((line, idx) => (
-                    <div key={`crs-summary-${idx}`}>{line}</div>
-                  ))}
-                </div>
-                {summary.secondChoiceComparison && (
-                  <details style={{ marginTop: "0.4rem" }}>
-                    <summary style={{ cursor: "pointer", fontSize: "0.78rem", fontWeight: 600, color: "#0f172a" }}>{t('converter.whyNotSecond')}</summary>
-                    <div style={{ marginTop: "0.3rem", fontSize: "0.78rem", color: "#475569" }}>
-                      {summary.secondChoiceComparison}
-                    </div>
-                  </details>
-                )}
-              </div>
-            );
-          })()}
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             {crsSuggestions.slice(0, TOP_DETECTION_LIMIT).map((suggestion) => {
               const isSelected = fromCrs === suggestion.code;
