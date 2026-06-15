@@ -5885,28 +5885,6 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
               {t('converter.lowConfidenceWarning')}
             </div>
           )}
-          {(() => {
-            const summary = buildCrsDecisionSummary(suggestionsForView);
-            if (!summary) return null;
-            return (
-              <div style={{ marginBottom: '0.5rem', padding: '0.5rem 0.6rem', border: `1px solid ${summary.tone === 'solid' ? '#86efac' : '#fcd34d'}`, borderRadius: 6, background: summary.tone === 'solid' ? '#f0fdf4' : '#fffbeb', color: '#334155', fontSize: '0.82rem' }}>
-                <div style={{ fontWeight: 700, marginBottom: '0.3rem', color: '#0f172a' }}>Why {summary.topCode} is ranked first</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.18rem' }}>
-                  {summary.points.map((line, idx) => (
-                    <div key={`detect-summary-${idx}`}>{line}</div>
-                  ))}
-                </div>
-                {summary.secondChoiceComparison && (
-                  <details style={{ marginTop: '0.4rem' }}>
-                    <summary style={{ cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, color: '#0f172a' }}>Why not #2?</summary>
-                    <div style={{ marginTop: '0.3rem', fontSize: '0.78rem', color: '#475569' }}>
-                      {summary.secondChoiceComparison}
-                    </div>
-                  </details>
-                )}
-              </div>
-            );
-          })()}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: detectSuggestionsCompact ? '220px' : '360px', overflowY: 'auto', paddingRight: '2px' }}>
             {visibleRows.map((s) => (
               <div key={s.code} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', borderRadius: 6, background: '#f8fafc' }}>
