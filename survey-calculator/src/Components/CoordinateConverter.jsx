@@ -10,7 +10,7 @@ import CrsSearchSelector from "./CrsSearchSelector";
 import GeoidLoader from "./GeoidLoader";
 import MapToolTip from "./MapToolTip";
 import { tryParseWKT, tryParseUTM, parseHemisphericNumber, parseGeoJSONFile, parseGPXFile, parseKMLFile, parseKMZFile, parseShapefileZip, parseXLSXFile, parseDXFFile, parseDWGFile } from "../utils/fileImport";
-import { getCadBackendStatus } from "../utils/cadApi";
+import { getCadBackendStatus, getCadPurgeAudit } from "../utils/cadApi";
 import { exportAsCSV, exportAsGeoJSON, exportAsKML, exportAsGPX, exportAsXLSX, exportAsWKT, exportAsDXF, exportAsDXFGeometry, exportAllFormats, downloadFile } from "../utils/exportData";
 // Import the map visualization component
 import MapVisualization from "./MapVisualization";
@@ -42,6 +42,17 @@ const formatBytes = (value) => {
   }
   return `${size.toFixed(unitIndex === 0 ? 0 : 2)} ${units[unitIndex]}`;
 };
+
+const CAD_PURGE_AUDIT_SECTIONS = [
+  { key: "layers", label: "Layers" },
+  { key: "linetypes", label: "Linetypes" },
+  { key: "textStyles", label: "Text Styles" },
+  { key: "dimensionStyles", label: "Dimension Styles" },
+  { key: "mleaderStyles", label: "MLeader Styles" },
+  { key: "regapps", label: "Regapps" },
+  { key: "blocks", label: "Blocks" },
+  { key: "xrefs", label: "Xrefs" },
+];
 
 const getCrsConfidenceClass = (assessment) => {
   if (!assessment) return { label: "Unknown", color: "#64748b" };
@@ -1254,6 +1265,9 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
   const [cadBackendStatus, setCadBackendStatus] = useState(null);
   const [cadBackendStatusError, setCadBackendStatusError] = useState("");
   const [cadInspection, setCadInspection] = useState(null);
+  const [cadPurgeAudit, setCadPurgeAudit] = useState(null);
+  const [cadPurgeAuditLoading, setCadPurgeAuditLoading] = useState(false);
+  const [cadPurgeAuditError, setCadPurgeAuditError] = useState("");
   const [cadSourceGeometry, setCadSourceGeometry] = useState(null);
   const [cadGeometrySourceCrs, setCadGeometrySourceCrs] = useState(null);
   const [cadValidationSortBy, setCadValidationSortBy] = useState("severity");
@@ -1553,6 +1567,29 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     const report = buildCadDiagnosticReportPayload(cadInspection, importCrsNotice);
     downloadFile(JSON.stringify(report, null, 2), `cad-diagnostic-${stamp}.json`, "json");
   }, [cadInspection, importCrsNotice]);
+
+  const runCadPurgeAuditForSelectedFile = useCallback(async () => {
+    const file = bulkUploadFile;
+    const ext = (file?.name?.split('.')?.pop() || '').toLowerCase();
+
+    if (!file || !["dxf", "dwg"].includes(ext)) {
+      setCadPurgeAuditError("Select a DXF or DWG file to run Safe PURGE Audit.");
+      return;
+    }
+
+    setCadPurgeAuditLoading(true);
+    setCadPurgeAuditError("");
+    setBulkUploadError("");
+
+    try {
+      const report = await getCadPurgeAudit(file);
+      setCadPurgeAudit(report || null);
+    } catch (err) {
+      setCadPurgeAuditError(err?.message || "Safe PURGE Audit failed.");
+    } finally {
+      setCadPurgeAuditLoading(false);
+    }
+  }, [bulkUploadFile]);
 
   const detectLocalReferenceFromRows = useCallback((rows) => {
     if (!Array.isArray(rows) || rows.length === 0) return null;
@@ -4070,6 +4107,9 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     setBulkUploadError("");
     setCadStrictExistingPointsOnly(true);
     setCadInspection(null);
+    setCadPurgeAudit(null);
+    setCadPurgeAuditError("");
+    setCadPurgeAuditLoading(false);
     setCadSourceGeometry(null);
     setCadGeometrySourceCrs(null);
     setSelectedBulkRows([]);
@@ -4126,6 +4166,9 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     setBulkUploadFile(file || null);
     setBulkUploadError("");
     setImportCrsNotice("");
+    setCadPurgeAudit(null);
+    setCadPurgeAuditError("");
+    setCadPurgeAuditLoading(false);
     setCadSourceGeometry(null);
     setCadGeometrySourceCrs(null);
     setCadInspection(file ? {
@@ -6147,6 +6190,27 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
             {t('converter.resetBulk')}
           </button>
           <MapToolTip
+            title="Safe PURGE Audit"
+            description="Runs a 100% safe dry-run on the selected CAD file and reports removable unused definitions without deleting geometry."
+          >
+            <button
+              onClick={runCadPurgeAuditForSelectedFile}
+              disabled={cadPurgeAuditLoading || !bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())}
+              style={{
+                padding: "0.5rem 0.9rem",
+                background: "#0b3b8f",
+                color: "#fff",
+                border: "none",
+                borderRadius: "6px",
+                cursor: cadPurgeAuditLoading ? "wait" : "pointer",
+                fontWeight: 600,
+                opacity: (!bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())) ? 0.65 : 1,
+              }}
+            >
+              {cadPurgeAuditLoading ? "Running PURGE audit..." : "Safe PURGE Audit"}
+            </button>
+          </MapToolTip>
+          <MapToolTip
             title={t('converter.downloadCadSummaryTitle')}
             description={t('converter.downloadCadSummaryDescription')}
           >
@@ -6341,6 +6405,34 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
                 {cadInspection.layerSummary?.layers?.length > 0 && (
                   <div>
                     <strong>Layers:</strong> standardized={cadInspection.layerSummary.totalStandardizedLayers ?? cadInspection.layerSummary.layers.length}, renamed={cadInspection.layerSummary.renamedLayers ?? 0}, top={cadInspection.layerSummary.layers.slice(0, 4).map((layer) => `${layer.displayName} (${layer.entityCount})`).join(" | ")}
+                  </div>
+                )}
+                {cadPurgeAuditError && (
+                  <div style={{ color: "#991b1b", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "6px", padding: "0.45rem 0.55rem" }}>
+                    <strong>Safe PURGE Audit:</strong> {cadPurgeAuditError}
+                  </div>
+                )}
+                {cadPurgeAudit?.summary && (
+                  <div style={{ color: "#0f172a", background: "#f8fbff", border: "1px solid #bfdbfe", borderRadius: "6px", padding: "0.5rem 0.6rem", display: "grid", gap: "0.25rem" }}>
+                    <div style={{ fontWeight: 700 }}>Safe PURGE Audit (dry-run)</div>
+                    <div>Safety: geometry protected={cadPurgeAudit?.safety?.geometryProtected ? "yes" : "no"}, modifies drawing={cadPurgeAudit?.willModifyDrawing ? "yes" : "no"}</div>
+                    <div>Total candidate definitions: <strong>{cadPurgeAudit.summary.totalCandidates ?? 0}</strong></div>
+                    <div>Overkill potential: duplicate line groups={cadPurgeAudit.summary?.overkillPotential?.duplicateLineGroups ?? 0}, duplicate line entities={cadPurgeAudit.summary?.overkillPotential?.duplicateLineEntities ?? 0}</div>
+                    {CAD_PURGE_AUDIT_SECTIONS.map((section) => {
+                      const items = Array.isArray(cadPurgeAudit?.candidates?.[section.key]) ? cadPurgeAudit.candidates[section.key] : [];
+                      if (items.length === 0) return null;
+                      return (
+                        <details key={section.key}>
+                          <summary style={{ cursor: "pointer", fontWeight: 600 }}>{section.label}: {items.length}</summary>
+                          <ul style={{ margin: "0.35rem 0 0 1rem" }}>
+                            {items.slice(0, 30).map((name, idx) => (
+                              <li key={`${section.key}-${idx}`}>{name}</li>
+                            ))}
+                            {items.length > 30 && <li>... and {items.length - 30} more</li>}
+                          </ul>
+                        </details>
+                      );
+                    })}
                   </div>
                 )}
               </div>

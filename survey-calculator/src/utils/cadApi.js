@@ -461,3 +461,25 @@ export async function getCadBackendStatus() {
   if (!response.ok) throw new Error(translateUi('errors.cadHealthFailed', { target: CAD_API_BASE_URL }));
   return response.json();
 }
+
+export async function getCadPurgeAudit(file, options = {}) {
+  if (!file) {
+    throw new Error('No CAD file was provided for purge audit.');
+  }
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${CAD_API_BASE_URL}/purge/audit`, {
+    method: 'POST',
+    body: formData,
+    signal: options.signal,
+  });
+
+  const payload = await parseJsonSafely(response);
+  if (!response.ok) {
+    throw new Error(payload?.message || 'CAD purge audit failed.');
+  }
+
+  return payload || null;
+}
