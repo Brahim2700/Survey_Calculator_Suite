@@ -1757,8 +1757,8 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     const fileSizeMb = Number(file?.size || 0) / (1024 * 1024);
     setBulkProgress(
       fileSizeMb >= 8
-        ? `SafePurge accepted ${fileSizeMb.toFixed(1)} MB file. Uploading and processing...`
-        : "Applying SafePurge to audited unreferenced definitions..."
+        ? `SafePurge Advanced accepted ${fileSizeMb.toFixed(1)} MB file. Uploading and processing...`
+        : "Applying SafePurge Advanced: audit + purge + xref + overkill + transfer..."
     );
 
     try {
@@ -6411,8 +6411,8 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
             {t('converter.resetBulk')}
           </button>
           <MapToolTip
-            title="SafePurge (Audit + Purge)"
-            description="Runs safe purge in one step: audit + apply, removes only proven unreferenced definitions, and exports cleaned DXF."
+            title="SafePurge Advanced"
+            description="Runs the full purge bundle in one step: audit + apply, xref policy, overkill, and clean-template transfer, while keeping geometry safe."
           >
             <button
               onClick={runCadPurgeApplyForSelectedFile}
@@ -6428,7 +6428,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
                 opacity: (!bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())) ? 0.65 : 1,
               }}
             >
-              {cadPurgeApplyLoading ? "Running SafePurge..." : "SafePurge (Audit + Purge)"}
+              {cadPurgeApplyLoading ? "Running SafePurge Advanced..." : "SafePurge Advanced"}
             </button>
           </MapToolTip>
           <MapToolTip
