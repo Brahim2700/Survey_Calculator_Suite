@@ -169,6 +169,43 @@ const buildCadPurgeAuditReportPayload = (cadPurgeAudit, fileName = null) => {
   };
 };
 
+const deriveSafePurgeOptionsFromAudit = (cadPurgeAudit) => {
+  const xrefDetachEligible = Array.isArray(cadPurgeAudit?.xrefPolicy?.detachEligible) ? cadPurgeAudit.xrefPolicy.detachEligible : [];
+  const duplicateGroupCount = Number(cadPurgeAudit?.overkill?.duplicateMap?.duplicateGroupCount ?? 0);
+
+  return {
+    xrefMode: xrefDetachEligible.length > 0 ? 'detach-unreferenced' : 'report-only',
+    overkillMode: duplicateGroupCount > 0 ? 'delete-duplicates' : 'report-only',
+    overkillTolerance: Number(cadPurgeAudit?.overkill?.tolerance ?? 0.000001) || 0.000001,
+    templateTransferMode: 'clean-template-transfer',
+  };
+};
+
+const buildSafePurgeCombinedReportPayload = (cadPurgeApplyReport, cadPurgeAudit, fileName = null) => {
+  const auditBefore = cadPurgeApplyReport?.auditBefore || cadPurgeAudit || null;
+  const auditAfter = cadPurgeApplyReport?.auditAfter || null;
+
+  return {
+    generatedAt: new Date().toISOString(),
+    fileName: fileName || cadPurgeApplyReport?.fileName || cadPurgeAudit?.fileName || null,
+    mode: cadPurgeApplyReport?.mode || 'apply-safe',
+    safe: Boolean(cadPurgeApplyReport?.safe),
+    willModifyDrawing: Boolean(cadPurgeApplyReport?.willModifyDrawing),
+    willRemoveGeometry: Boolean(cadPurgeApplyReport?.willRemoveGeometry),
+    optionsApplied: cadPurgeApplyReport?.optionsApplied || null,
+    summary: cadPurgeApplyReport?.summary || null,
+    removed: cadPurgeApplyReport?.removed || null,
+    auditBefore,
+    auditAfter,
+    xrefPolicy: auditBefore?.xrefPolicy || null,
+    overkill: auditBefore?.overkill || null,
+    templateTransfer: auditBefore?.templateTransfer || null,
+    liveDependencies: auditBefore?.liveDependencies || null,
+    safetyNotes: Array.isArray(cadPurgeApplyReport?.safety?.notes) ? cadPurgeApplyReport.safety.notes : [],
+    auditNotes: Array.isArray(auditBefore?.safety?.notes) ? auditBefore.safety.notes : [],
+  };
+};
+
 const buildCadPurgeAuditSummaryHtml = (report) => {
   const sectionSummary = Array.isArray(report?.sectionSummary) ? report.sectionSummary : [];
   const nonEmptySections = sectionSummary.filter((section) => Number(section?.count || 0) > 0);
@@ -263,6 +300,125 @@ const buildCadPurgeAuditSummaryHtml = (report) => {
       </div>
 
       <p class="small">This report is generated from a dry-run safe audit and is intended for review before any apply-stage purge workflow.</p>
+    </div>
+  </body>
+</html>`;
+};
+
+const buildSafePurgeCombinedSummaryHtml = (report) => {
+  const summary = report?.summary || {};
+  const auditBefore = report?.auditBefore || {};
+  const auditAfter = report?.auditAfter || {};
+  const xrefPolicy = report?.xrefPolicy || {};
+  const overkill = report?.overkill || {};
+  const optionsApplied = report?.optionsApplied || {};
+  const removedCounts = summary?.removedCounts || {};
+
+  const sectionRows = CAD_PURGE_AUDIT_SECTIONS.map((section) => {
+    const before = Number(auditBefore?.summary?.candidateCounts?.[section.key] ?? 0);
+    const after = Number(auditAfter?.summary?.candidateCounts?.[section.key] ?? 0);
+    const removed = Number(removedCounts?.[section.key] ?? 0);
+    return { label: section.label, before, after, removed };
+  }).filter((row) => row.before > 0 || row.after > 0 || row.removed > 0);
+
+  const xrefRows = Array.isArray(xrefPolicy?.references) ? xrefPolicy.references : [];
+  const autoDecisions = [
+    `XREF mode: ${optionsApplied?.xrefMode || 'report-only'}`,
+    `Overkill mode: ${optionsApplied?.overkillMode || 'report-only'}`,
+    `Template transfer: ${optionsApplied?.templateTransferMode || 'clean-template-transfer'}`,
+  ];
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SafePurge Combined Report</title>
+    <style>
+      body { font-family: Georgia, "Times New Roman", serif; margin: 0; background: #f8fafc; color: #0f172a; }
+      .page { max-width: 1100px; margin: 0 auto; padding: 32px 24px 48px; }
+      .hero { background: linear-gradient(135deg, #0b3b8f, #1d4ed8); color: #eff6ff; border-radius: 18px; padding: 24px; }
+      h1 { margin: 0 0 8px; font-size: 30px; }
+      h2 { margin: 26px 0 12px; font-size: 18px; color: #0f172a; }
+      p, li { line-height: 1.55; }
+      .card { background: #fff; border: 1px solid #dbeafe; border-radius: 14px; padding: 16px; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05); }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+      .pill { display: inline-flex; align-items: center; padding: 0.2rem 0.55rem; border-radius: 999px; font-size: 12px; font-weight: 700; }
+      .pill-safe { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+      .pill-info { background: #dbeafe; color: #1e3a8a; border: 1px solid #93c5fd; }
+      table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05); }
+      td, th { padding: 12px 14px; border-bottom: 1px solid #e5e7eb; vertical-align: top; text-align: left; }
+      td:first-child, th:first-child { width: 240px; color: #475569; font-weight: 700; }
+      ul { margin: 8px 0 0 18px; }
+      .small { font-size: 13px; color: #64748b; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <section class="hero">
+        <h1>SafePurge Combined Report</h1>
+        <p>One-button automated purge: audit + purge + XREF handling + overkill + clean-template transfer.</p>
+      </section>
+
+      <h2>Automation Summary</h2>
+      <div class="card" style="display:flex; gap:10px; flex-wrap:wrap;">
+        <span class="pill pill-safe">Safe</span>
+        <span class="pill ${report?.willModifyDrawing ? 'pill-info' : 'pill-safe'}">Modify Drawing: ${report?.willModifyDrawing ? 'Yes' : 'No'}</span>
+        <span class="pill ${report?.willRemoveGeometry ? 'pill-info' : 'pill-safe'}">Remove Geometry: ${report?.willRemoveGeometry ? 'Yes' : 'No'}</span>
+        ${autoDecisions.map((item) => `<span class="pill pill-info">${escapeHtml(item)}</span>`).join('')}
+      </div>
+
+      <h2>Overview</h2>
+      <table>
+        <tbody>
+          ${[
+            ['Generated', report?.generatedAt],
+            ['File', report?.fileName],
+            ['Removed Total', summary?.removedTotal ?? 0],
+            ['Size Before', Number.isFinite(Number(summary?.sizeBeforeBytes)) ? formatBytes(Number(summary.sizeBeforeBytes)) : 'n/a'],
+            ['Size After', Number.isFinite(Number(summary?.sizeAfterBytes)) ? formatBytes(Number(summary.sizeAfterBytes)) : 'n/a'],
+            ['XREF Detach Eligible', xrefPolicy?.detachEligible?.length ?? 0],
+            ['XREF Bind Required', xrefPolicy?.bindRequired?.length ?? 0],
+            ['Duplicate Groups', overkill?.duplicateMap?.duplicateGroupCount ?? 0],
+            ['Duplicate Entities', overkill?.duplicateMap?.duplicateEntities ?? 0],
+          ].map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(String(value ?? ''))}</td></tr>`).join('')}
+        </tbody>
+      </table>
+
+      <h2>What Was Done</h2>
+      <div class="card">
+        <ul>
+          <li>Audited the file first to detect unused definitions, xrefs, and duplicate geometry candidates.</li>
+          <li>Automatically selected XREF detach only when unreferenced xrefs existed.</li>
+          <li>Automatically selected conservative overkill deletion only when duplicate groups existed.</li>
+          <li>Ran clean-template transfer to keep only live entities and their required dependencies.</li>
+          <li>Preserved geometry and kept referenced xrefs protected from silent removal.</li>
+        </ul>
+      </div>
+
+      <h2>Category Impact</h2>
+      <table>
+        <tbody>
+          <tr><th>Category</th><th>Before</th><th>After</th><th>Removed</th></tr>
+          ${sectionRows.map((row) => `<tr><td>${escapeHtml(row.label)}</td><td>${escapeHtml(String(row.before))}</td><td>${escapeHtml(String(row.after))}</td><td>${escapeHtml(String(row.removed))}</td></tr>`).join('')}
+        </tbody>
+      </table>
+
+      <h2>XREF Policy</h2>
+      <div class="card">
+        <p><strong>Resolved:</strong> ${escapeHtml(String(xrefPolicy?.resolved?.length ?? 0))} | <strong>Unresolved:</strong> ${escapeHtml(String(xrefPolicy?.unresolved?.length ?? 0))}</p>
+        <p><strong>Detached automatically:</strong> ${escapeHtml(String(summary?.xrefs?.detachedUnreferencedCount ?? 0))}</p>
+        <p><strong>Bind required:</strong> ${escapeHtml(String(xrefPolicy?.bindRequired?.length ?? 0))}</p>
+        ${xrefRows.length > 0 ? `<ul>${xrefRows.slice(0, 20).map((xref) => `<li>${escapeHtml(`${xref.name} | refs=${xref.references} | ${xref.resolution}`)}</li>`).join('')}</ul>` : '<p class="small">No xrefs detected.</p>'}
+      </div>
+
+      <h2>Safety Notes</h2>
+      <div class="card">
+        <ul>
+          ${(Array.isArray(report?.safetyNotes) ? report.safetyNotes : []).map((note) => `<li>${escapeHtml(note)}</li>`).join('')}
+          ${(Array.isArray(report?.auditNotes) ? report.auditNotes : []).map((note) => `<li>${escapeHtml(note)}</li>`).join('')}
+        </ul>
+      </div>
     </div>
   </body>
 </html>`;
@@ -1407,11 +1563,6 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
   const [cadPurgeApplyLoading, setCadPurgeApplyLoading] = useState(false);
   const [cadPurgeApplyError, setCadPurgeApplyError] = useState("");
   const [cadFileAcceptanceNotice, setCadFileAcceptanceNotice] = useState("");
-  const [showCadPurgeAdvancedOptions, setShowCadPurgeAdvancedOptions] = useState(false);
-  const [cadPurgeXrefMode, setCadPurgeXrefMode] = useState("report-only");
-  const [cadPurgeOverkillMode, setCadPurgeOverkillMode] = useState("report-only");
-  const [cadPurgeOverkillTolerance, setCadPurgeOverkillTolerance] = useState("0.000001");
-  const [cadPurgeTemplateTransferEnabled, setCadPurgeTemplateTransferEnabled] = useState(false);
   const [cadSourceGeometry, setCadSourceGeometry] = useState(null);
   const [cadGeometrySourceCrs, setCadGeometrySourceCrs] = useState(null);
   const [cadValidationSortBy, setCadValidationSortBy] = useState("severity");
@@ -1713,12 +1864,13 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
   }, [cadInspection, importCrsNotice]);
 
   const downloadCadPurgeAuditSummaryReport = useCallback(() => {
-    if (!cadPurgeAudit) return;
+    if (!cadPurgeAudit && !cadPurgeApplyReport) return;
     const stamp = new Date().toISOString().replace(/[:]/g, "-");
-    const report = buildCadPurgeAuditReportPayload(cadPurgeAudit, bulkUploadFile?.name || null);
-    const html = buildCadPurgeAuditSummaryHtml(report);
+    const html = cadPurgeApplyReport
+      ? buildSafePurgeCombinedSummaryHtml(cadPurgeApplyReport)
+      : buildCadPurgeAuditSummaryHtml(buildCadPurgeAuditReportPayload(cadPurgeAudit, bulkUploadFile?.name || null));
     downloadFile(html, `cad-purge-audit-summary-${stamp}.html`, "html");
-  }, [cadPurgeAudit, bulkUploadFile]);
+  }, [cadPurgeApplyReport, cadPurgeAudit, bulkUploadFile]);
 
   const runCadPurgeApplyForSelectedFile = useCallback(async () => {
     const file = bulkUploadFile;
@@ -1733,14 +1885,6 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     if (String(confirmation || '').trim().toUpperCase() !== 'APPLY') {
       return;
     }
-
-    const parsedTolerance = Number(cadPurgeOverkillTolerance);
-    const purgeOptions = {
-      xrefMode: cadPurgeXrefMode === 'detach-unreferenced' ? 'detach-unreferenced' : 'report-only',
-      overkillMode: cadPurgeOverkillMode === 'delete-duplicates' ? 'delete-duplicates' : 'report-only',
-      overkillTolerance: Number.isFinite(parsedTolerance) && parsedTolerance > 0 ? parsedTolerance : 1e-6,
-      templateTransferMode: cadPurgeTemplateTransferEnabled ? 'clean-template-transfer' : 'none',
-    };
 
     setCadPurgeApplyLoading(true);
     setCadPurgeApplyError("");
@@ -1757,13 +1901,21 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     const fileSizeMb = Number(file?.size || 0) / (1024 * 1024);
     setBulkProgress(
       fileSizeMb >= 8
-        ? `SafePurge Advanced accepted ${fileSizeMb.toFixed(1)} MB file. Uploading and processing...`
-        : "Applying SafePurge Advanced: audit + purge + xref + overkill + transfer..."
+        ? `SafePurge smart mode accepted ${fileSizeMb.toFixed(1)} MB file. Auditing and processing...`
+        : "Applying SafePurge smart mode: audit + purge + xref + overkill + transfer..."
     );
 
     try {
+      const auditResponse = await getCadPurgeAudit(file, { purgeMode: 'smart-auto' });
+      const auditData = auditResponse?.data || null;
+      if (auditData) {
+        setCadPurgeAudit(auditData);
+      }
+
+      const purgeOptions = deriveSafePurgeOptionsFromAudit(auditData);
       const report = await getCadPurgeApply(file, { purgeOptions });
-      setCadPurgeApplyReport(report || null);
+      const combinedReport = buildSafePurgeCombinedReportPayload(report || null, auditData, file.name);
+      setCadPurgeApplyReport(combinedReport);
       if (report?.cleanedDxfText) {
         const outputName = report?.cleanedFileName || `${file.name.replace(/\.[^.]+$/, '') || 'drawing'}-safepurge.dxf`;
         downloadFile(report.cleanedDxfText, outputName, 'dxf');
@@ -1772,6 +1924,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       if (report?.auditAfter) {
         setCadPurgeAudit(report.auditAfter);
       }
+      setCadPurgeReportHtml(buildSafePurgeCombinedSummaryHtml(combinedReport));
       const completedAt = Date.now();
       setCadPurgeAuditMeta({
         status: "ready",
@@ -1795,7 +1948,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     } finally {
       setCadPurgeApplyLoading(false);
     }
-  }, [bulkUploadFile, cadPurgeOverkillMode, cadPurgeOverkillTolerance, cadPurgeTemplateTransferEnabled, cadPurgeXrefMode]);
+  }, [bulkUploadFile]);
 
   const detectLocalReferenceFromRows = useCallback((rows) => {
     if (!Array.isArray(rows) || rows.length === 0) return null;
@@ -6411,8 +6564,8 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
             {t('converter.resetBulk')}
           </button>
           <MapToolTip
-            title="SafePurge Advanced"
-            description="Runs the full purge bundle in one step: audit + apply, xref policy, overkill, and clean-template transfer, while keeping geometry safe."
+            title="Smart SafePurge"
+            description="Runs audit + apply in one step and automatically selects xref, overkill, and clean-template transfer behavior from the file itself."
           >
             <button
               onClick={runCadPurgeApplyForSelectedFile}
@@ -6428,26 +6581,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
                 opacity: (!bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())) ? 0.65 : 1,
               }}
             >
-              {cadPurgeApplyLoading ? "Running SafePurge Advanced..." : "SafePurge Advanced"}
-            </button>
-          </MapToolTip>
-          <MapToolTip
-            title="SafePurge Advanced"
-            description="Configure optional XREF/Overkill/template-transfer policies. Defaults are conservative and safe."
-          >
-            <button
-              onClick={() => setShowCadPurgeAdvancedOptions((prev) => !prev)}
-              style={{
-                padding: "0.5rem 0.9rem",
-                background: "#f8fafc",
-                color: "#0f172a",
-                border: "1px solid #cbd5e1",
-                borderRadius: "6px",
-                cursor: "pointer",
-                fontWeight: 600,
-              }}
-            >
-              {showCadPurgeAdvancedOptions ? "Hide SafePurge Advanced" : "Show SafePurge Advanced"}
+              {cadPurgeApplyLoading ? "Running Smart SafePurge..." : "Smart SafePurge"}
             </button>
           </MapToolTip>
           <MapToolTip
@@ -6488,62 +6622,6 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
           </MapToolTip>
           {bulkUploadFile && <span style={{ fontSize: "0.85rem", color: "#059669", fontWeight: 500 }}>✓ {bulkUploadFile.name}</span>}
         </div>
-        {showCadPurgeAdvancedOptions && (
-          <div style={{ border: "1px solid #cbd5e1", borderRadius: "8px", background: "#f8fafc", padding: "0.65rem 0.75rem", display: "grid", gap: "0.55rem" }}>
-            <div style={{ fontWeight: 700, color: "#0f172a", fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-              SafePurge Advanced Options
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "0.55rem" }}>
-              <label style={{ display: "grid", gap: "0.25rem", fontSize: "0.82rem", color: "#334155" }}>
-                XREF policy
-                <select
-                  value={cadPurgeXrefMode}
-                  onChange={(e) => setCadPurgeXrefMode(e.target.value)}
-                  style={{ borderRadius: "6px", border: "1px solid #cbd5e1", padding: "0.35rem 0.45rem", fontSize: "0.8rem" }}
-                >
-                  <option value="report-only">Report-only (default, safest)</option>
-                  <option value="detach-unreferenced">Detach only unreferenced XREFs</option>
-                </select>
-              </label>
-
-              <label style={{ display: "grid", gap: "0.25rem", fontSize: "0.82rem", color: "#334155" }}>
-                Overkill mode
-                <select
-                  value={cadPurgeOverkillMode}
-                  onChange={(e) => setCadPurgeOverkillMode(e.target.value)}
-                  style={{ borderRadius: "6px", border: "1px solid #cbd5e1", padding: "0.35rem 0.45rem", fontSize: "0.8rem" }}
-                >
-                  <option value="report-only">Report duplicates only (default)</option>
-                  <option value="delete-duplicates">Delete conservative duplicates</option>
-                </select>
-              </label>
-
-              <label style={{ display: "grid", gap: "0.25rem", fontSize: "0.82rem", color: "#334155" }}>
-                Overkill tolerance
-                <input
-                  type="number"
-                  min="0.000000001"
-                  step="0.0000001"
-                  value={cadPurgeOverkillTolerance}
-                  onChange={(e) => setCadPurgeOverkillTolerance(e.target.value)}
-                  style={{ borderRadius: "6px", border: "1px solid #cbd5e1", padding: "0.35rem 0.45rem", fontSize: "0.8rem" }}
-                />
-              </label>
-
-              <label style={{ display: "flex", alignItems: "center", gap: "0.45rem", fontSize: "0.82rem", color: "#334155", border: "1px dashed #cbd5e1", borderRadius: "6px", padding: "0.45rem 0.55rem", background: "#fff" }}>
-                <input
-                  type="checkbox"
-                  checked={cadPurgeTemplateTransferEnabled}
-                  onChange={(e) => setCadPurgeTemplateTransferEnabled(e.target.checked)}
-                />
-                Clean template transfer mode
-              </label>
-            </div>
-            <div style={{ fontSize: "0.78rem", color: "#475569" }}>
-              Defaults remain conservative: XREF report-only, Overkill report-only, and template transfer disabled until explicitly enabled.
-            </div>
-          </div>
-        )}
         {bulkUploadError && <div role="alert" style={{ color: "#b91c1c" }}>{bulkUploadError}</div>}
         {cadFileAcceptanceNotice && (
           <div role="status" style={{ color: "#155e75", background: "#ecfeff", border: "1px solid #67e8f9", borderRadius: "6px", padding: "0.55rem 0.7rem", fontSize: "0.84rem" }}>
@@ -6737,7 +6815,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
                 )}
                 {cadPurgeApplyReport?.summary && (
                   <div style={{ color: "#0f172a", background: "#f0fdf4", border: "1px solid #86efac", borderRadius: "6px", padding: "0.5rem 0.6rem", display: "grid", gap: "0.25rem" }}>
-                    <div style={{ fontWeight: 700 }}>SafePurge Apply completed</div>
+                    <div style={{ fontWeight: 700 }}>Smart SafePurge completed</div>
                     <div>Output file: <strong>{cadPurgeApplyReport.cleanedFileName || "cleaned-safepurge.dxf"}</strong></div>
                     <div>Total definitions removed: <strong>{cadPurgeApplyReport?.summary?.removedTotal ?? 0}</strong></div>
                     <div>Geometry safety: removed geometry = {cadPurgeApplyReport?.willRemoveGeometry ? "yes" : "no"}</div>
@@ -6775,9 +6853,19 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
                         })}
                       </div>
                     </details>
+                    {cadPurgeApplyReport?.auditBefore && (
+                      <details>
+                        <summary style={{ cursor: "pointer", fontWeight: 600 }}>Smart decisions</summary>
+                        <div style={{ marginTop: "0.3rem", display: "grid", gap: "0.2rem", fontSize: "0.8rem" }}>
+                          <div>XREF mode: <strong>{cadPurgeApplyReport?.optionsApplied?.xrefMode || "report-only"}</strong></div>
+                          <div>Overkill mode: <strong>{cadPurgeApplyReport?.optionsApplied?.overkillMode || "report-only"}</strong></div>
+                          <div>Template transfer: <strong>{cadPurgeApplyReport?.optionsApplied?.templateTransferMode || "clean-template-transfer"}</strong></div>
+                        </div>
+                      </details>
+                    )}
                   </div>
                 )}
-                {cadPurgeAudit?.summary && (
+                {!cadPurgeApplyReport?.summary && cadPurgeAudit?.summary && (
                   <div style={{ color: "#0f172a", background: "#f8fbff", border: "1px solid #bfdbfe", borderRadius: "6px", padding: "0.5rem 0.6rem", display: "grid", gap: "0.25rem" }}>
                     <div style={{ fontWeight: 700 }}>Safe PURGE Audit (dry-run)</div>
                     <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginBottom: "0.1rem" }}>
