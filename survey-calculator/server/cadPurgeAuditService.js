@@ -66,7 +66,8 @@ function buildRecordsFromDxfText(dxfText) {
   for (let i = 0; i < lines.length - 1; i += 2) {
     const code = Number.parseInt(String(lines[i] || '').trim(), 10);
     if (!Number.isInteger(code)) continue;
-    pairs.push({ code, value: String(lines[i + 1] || '').trim() });
+    // Keep raw value text as-is to preserve strict DXF fidelity for downstream CAD readers.
+    pairs.push({ code, value: String(lines[i + 1] ?? '') });
   }
 
   const records = [];
