@@ -806,22 +806,20 @@ export const exportAsDXFGeometry = (geometry, metadata = null) => {
       '40', String(textHeight), '1', textValue, '50', String(rotation), '7', styleName);
   });
 
-  // DIMENSION entities (re-exported as simplified DIMENSION stubs with text)
+  // DIMENSION entities are exported as TEXT labels only.
+  // A full DIMENSION entity needs companion anonymous blocks and style linkage;
+  // emitting partial DIMENSION stubs can make strict CAD readers reject the DXF.
   safeGeometry.dimensions.forEach((dimEntity) => {
     const mid = dimEntity?.midPoint;
-    const def = dimEntity?.defPoint;
     if (!Array.isArray(mid) || !Number.isFinite(mid[0]) || !Number.isFinite(mid[1])) return;
     const layer = normalizeDxfLayerName(dimEntity?.layerStandardized || dimEntity?.layerNormalized || dimEntity?.layer || '0');
     const dimText = dimEntity?.text || '';
-    const typeCode = Number(dimEntity?.typeCode ?? 0);
-    const defX = Array.isArray(def) && Number.isFinite(def[0]) ? def[0] : mid[0];
-    const defY = Array.isArray(def) && Number.isFinite(def[1]) ? def[1] : mid[1];
-    const defZ = Array.isArray(def) && Number.isFinite(def[2]) ? def[2] : 0;
-    lines.push('0', 'DIMENSION', '8', layer,
-      '10', String(defX), '20', String(defY), '30', String(defZ),
-      '11', String(mid[0]), '21', String(mid[1]), '31', String(mid[2] ?? 0),
-      '70', String(typeCode),
-      '1', dimText
+    if (!String(dimText).trim()) return;
+    lines.push('0', 'TEXT', '8', layer,
+      '10', String(mid[0]), '20', String(mid[1]), '30', String(mid[2] ?? 0),
+      '40', '2.5',
+      '1', String(dimText).replace(/\r?\n/g, ' ').trim(),
+      '7', 'STANDARD'
     );
   });
 
@@ -899,7 +897,14 @@ export const downloadFile = (data, filename, format = 'csv') => {
       URL.revokeObjectURL(url);
     } else {
       // It's a string
-      const blob = new Blob([data], { type: getContentType(format) });
+      let content = data;
+      if (format === 'dxf' && typeof content === 'string') {
+        // Normalize DXF line endings and ensure terminal EOF line break for AutoCAD readers.
+        content = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\u0000/g, '');
+        if (!/\n$/.test(content)) content += '\n';
+        content = content.replace(/\n/g, '\r\n');
+      }
+      const blob = new Blob([content], { type: getContentType(format) });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -929,7 +934,7 @@ const getContentType = (format) => {
     gpx: 'application/gpx+xml;charset=utf-8;',
     wkt: 'text/plain;charset=utf-8;',
     xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    dxf: 'application/dxf;charset=utf-8;',
+    dxf: 'application/octet-stream',
     dwg: 'application/acad;charset=utf-8;',
     zip: 'application/zip',
   };

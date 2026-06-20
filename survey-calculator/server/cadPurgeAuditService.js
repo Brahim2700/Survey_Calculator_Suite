@@ -399,6 +399,67 @@ function serializeRecordsToDxfText(records) {
   return `${lines.join('\n')}\n`;
 }
 
+function normalizeTableCounts(records) {
+  let section = '';
+  let activeTable = '';
+  let activeTableRecord = null;
+  let activeTableCount = 0;
+
+  const flushTableCount = () => {
+    if (!activeTableRecord) return;
+    const code70Pair = activeTableRecord.pairs.find((pair) => Number(pair?.code) === 70);
+    if (code70Pair) {
+      code70Pair.value = String(activeTableCount);
+    }
+  };
+
+  for (const record of records) {
+    const type = normalizeName(record?.type || '');
+
+    if (type === 'SECTION') {
+      section = normalizeName(getRecordValue(record, 2));
+      if (section !== 'TABLES') {
+        flushTableCount();
+        activeTable = '';
+        activeTableRecord = null;
+        activeTableCount = 0;
+      }
+      continue;
+    }
+
+    if (type === 'ENDSEC') {
+      flushTableCount();
+      section = '';
+      activeTable = '';
+      activeTableRecord = null;
+      activeTableCount = 0;
+      continue;
+    }
+
+    if (section !== 'TABLES') continue;
+
+    if (type === 'TABLE') {
+      flushTableCount();
+      activeTable = normalizeName(getRecordValue(record, 2));
+      activeTableRecord = record;
+      activeTableCount = 0;
+      continue;
+    }
+
+    if (type === 'ENDTAB') {
+      flushTableCount();
+      activeTable = '';
+      activeTableRecord = null;
+      activeTableCount = 0;
+      continue;
+    }
+
+    if (activeTable && type === activeTable) {
+      activeTableCount += 1;
+    }
+  }
+}
+
 function applySafePurgeToDxfText(dxfText, audit) {
   const records = buildRecordsFromDxfText(dxfText);
   const options = normalizePurgeOptions(audit?.optionsApplied || {});
@@ -648,6 +709,7 @@ function applySafePurgeToDxfText(dxfText, audit) {
   );
 
   const removedTotal = Object.values(removedCounts).reduce((sum, value) => sum + Number(value || 0), 0);
+  normalizeTableCounts(kept);
   const cleanedDxfText = serializeRecordsToDxfText(kept);
 
   return {
