@@ -492,7 +492,7 @@ function sanitizeDxfTextForAutoCAD(text, records = []) {
     output = output.replace(/\s*$/, '') + '\n0\nEOF\n';
   }
 
-  return output.replace(/\n/g, '\r\n');
+  return output;
 }
 
 function normalizeTableCounts(records) {

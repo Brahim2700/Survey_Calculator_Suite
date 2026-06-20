@@ -978,10 +978,9 @@ export const downloadFile = (data, filename, format = 'csv') => {
       // It's a string
       let content = data;
       if (format === 'dxf' && typeof content === 'string') {
-        // Normalize DXF line endings and ensure terminal EOF line break for AutoCAD readers.
+        // Keep compact LF line endings and ensure a terminal newline for DXF readers.
         content = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\u0000/g, '');
         if (!/\n$/.test(content)) content += '\n';
-        content = content.replace(/\n/g, '\r\n');
       }
       const blob = new Blob([content], { type: getContentType(format) });
       const url = URL.createObjectURL(blob);

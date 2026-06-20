@@ -154,6 +154,8 @@ describe('analyzeDxfTextForPurgeAudit', () => {
     expect(result.cleanedDxfText).toContain('USED_BLOCK');
     expect(result.cleanedDxfText).toContain('XREF_UNUSED');
     expect(result.cleanedDxfText).not.toContain('UNUSED_BLOCK');
+    expect(result.cleanedDxfText).not.toContain('\r\n');
+    expect(result.summary.sizeAfterBytes).toBeLessThan(result.summary.sizeBeforeBytes);
   });
 
   it('supports optional unreferenced xref detach mode only', async () => {
