@@ -400,6 +400,101 @@ function serializeRecordsToDxfText(records) {
   return `${lines.join('\n')}\n`;
 }
 
+function buildAutoCadMinimalSectionShellParts(layerNames = []) {
+  const safeLayers = [...new Set(['0', ...layerNames.map((name) => String(name || '').trim()).filter(Boolean)])].sort((a, b) => String(a).localeCompare(String(b)));
+
+  const header = [
+    '0', 'SECTION', '2', 'HEADER',
+    '9', '$ACADVER', '1', 'AC1009',
+    '9', '$DWGCODEPAGE', '3', 'ANSI_1252',
+    '0', 'ENDSEC',
+  ].join('\n') + '\n';
+
+  const tables = [
+    '0', 'SECTION', '2', 'TABLES',
+    '0', 'TABLE', '2', 'LTYPE', '70', '1',
+    '0', 'LTYPE', '2', 'CONTINUOUS', '70', '0', '3', 'Solid line', '72', '65', '73', '0', '40', '0.0',
+    '0', 'ENDTAB',
+    '0', 'TABLE', '2', 'STYLE', '70', '1',
+    '0', 'STYLE', '2', 'STANDARD', '70', '0', '40', '0.0', '41', '1.0', '50', '0.0', '71', '0', '42', '0.2', '3', 'arial.ttf', '4', '',
+    '0', 'ENDTAB',
+    '0', 'TABLE', '2', 'LAYER', '70', String(safeLayers.length),
+  ];
+  for (const layerName of safeLayers) {
+    tables.push('0', 'LAYER', '2', layerName, '70', '0', '62', '7', '6', 'CONTINUOUS');
+  }
+  tables.push('0', 'ENDTAB', '0', 'ENDSEC');
+
+  const blocks = [
+    '0', 'SECTION', '2', 'BLOCKS',
+    '0', 'BLOCK', '8', '0', '2', '*MODEL_SPACE', '70', '0', '10', '0', '20', '0', '30', '0', '3', '*MODEL_SPACE',
+    '0', 'ENDBLK', '8', '0',
+    '0', 'BLOCK', '8', '0', '2', '*PAPER_SPACE', '70', '0', '10', '0', '20', '0', '30', '0', '3', '*PAPER_SPACE',
+    '0', 'ENDBLK', '8', '0',
+    '0', 'ENDSEC',
+  ].join('\n') + '\n';
+
+  return { header, tables: `${tables.join('\n')}\n`, blocks };
+}
+
+function sanitizeDxfTextForAutoCAD(text, records = []) {
+  if (typeof text !== 'string' || text.length === 0) return text;
+
+  let normalized = text.replace(/\uFEFF/g, '');
+  normalized = normalized.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  normalized = normalized.replace(/\u0000/g, '');
+  normalized = normalized.replace(/[^\t\n\r\u0020-\u007E\u00A0-\uFFFF]/g, '');
+
+  const recordList = Array.isArray(records) && records.length > 0 ? records : buildRecordsFromDxfText(normalized);
+  const entityLayers = new Set();
+  let activeSection = '';
+  for (const record of recordList) {
+    const type = normalizeName(record?.type || '');
+    if (type === 'SECTION') {
+      activeSection = normalizeName(getRecordValue(record, 2));
+      continue;
+    }
+    if (type === 'ENDSEC') {
+      activeSection = '';
+      continue;
+    }
+    if (!isEntitySection(activeSection)) continue;
+    const layerName = String(getRecordValue(record, 8) || '').trim();
+    if (layerName) entityLayers.add(layerName);
+  }
+
+  const shellParts = buildAutoCadMinimalSectionShellParts([...entityLayers]);
+  if (!normalized.startsWith('0\nSECTION\n2\nHEADER\n')) {
+    normalized = `${shellParts.header}${normalized}`;
+  }
+
+  const headerLines = normalized.split('\n');
+  const hasAcadVer = headerLines.some((line) => String(line || '').trim().toUpperCase() === '$ACADVER');
+  const hasCodePage = headerLines.some((line) => String(line || '').trim().toUpperCase() === '$DWGCODEPAGE');
+  const headerIndex = headerLines.findIndex((line) => String(line || '').trim().toUpperCase() === 'HEADER');
+  if (headerIndex >= 0) {
+    const insertLines = [];
+    if (!hasAcadVer) {
+      insertLines.push('9', '$ACADVER', '1', 'AC1009');
+    }
+    if (!hasCodePage) {
+      insertLines.push('9', '$DWGCODEPAGE', '3', 'ANSI_1252');
+    }
+    if (insertLines.length > 0) {
+      headerLines.splice(headerIndex + 1, 0, ...insertLines);
+    }
+  }
+  normalized = headerLines.join('\n');
+
+  let output = normalized;
+  output = output.replace(/\n(\s*0\s*\nEOF\s*)$/i, '\n0\nEOF\n');
+  if (!/\n0\nEOF\s*$/i.test(output)) {
+    output = output.replace(/\s*$/, '') + '\n0\nEOF\n';
+  }
+
+  return output.replace(/\n/g, '\r\n');
+}
+
 function normalizeTableCounts(records) {
   let section = '';
   let activeTable = '';
@@ -711,7 +806,7 @@ function applySafePurgeToDxfText(dxfText, audit) {
 
   const removedTotal = Object.values(removedCounts).reduce((sum, value) => sum + Number(value || 0), 0);
   normalizeTableCounts(kept);
-  const cleanedDxfText = serializeRecordsToDxfText(kept);
+  const cleanedDxfText = sanitizeDxfTextForAutoCAD(serializeRecordsToDxfText(kept));
 
   return {
     cleanedDxfText,
