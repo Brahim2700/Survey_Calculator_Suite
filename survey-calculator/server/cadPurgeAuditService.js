@@ -181,6 +181,7 @@ function serializeRecordsToDxfText(records) {
   for (const record of records) {
     const pairs = Array.isArray(record?.pairs) ? record.pairs : [];
     for (const pair of pairs) {
+      if (Number(pair.code) === 999) continue;
       lines.push(String(pair.code ?? '0'));
       lines.push(String(pair.value ?? ''));
     }
@@ -203,12 +204,27 @@ function applySafePurgeToDxfText(dxfText, audit) {
   let section = '';
   let table = '';
   let skippingBlock = false;
+  let skippingSection = '';
+  let skippedThumbnailSection = false;
 
   for (const record of records) {
     const type = record.type;
 
+    if (skippingSection) {
+      if (type === 'ENDSEC') {
+        skippingSection = '';
+      }
+      continue;
+    }
+
     if (type === 'SECTION') {
       section = normalizeName(getRecordValue(record, 2));
+      if (section === 'THUMBNAILIMAGE') {
+        skippingSection = section;
+        skippedThumbnailSection = true;
+        table = '';
+        continue;
+      }
       table = '';
       if (!skippingBlock) kept.push(record);
       continue;
@@ -343,6 +359,10 @@ function applySafePurgeToDxfText(dxfText, audit) {
     removed,
     removedCounts,
     removedTotal,
+    compaction: {
+      removedThumbnailSection: skippedThumbnailSection,
+      commentPairsStripped: true,
+    },
   };
 }
 
@@ -629,6 +649,7 @@ export async function runCadPurgeApply({ buffer, originalName }) {
       sizeAfterBytes,
       sizeDeltaBytes,
       sizeDeltaPercent,
+      compaction: applyResult.compaction,
       candidateCountsBefore: auditBefore?.summary?.candidateCounts || null,
       candidateCountsAfter: auditAfter?.summary?.candidateCounts || null,
     },

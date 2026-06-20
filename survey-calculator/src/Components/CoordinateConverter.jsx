@@ -10,7 +10,7 @@ import CrsSearchSelector from "./CrsSearchSelector";
 import GeoidLoader from "./GeoidLoader";
 import MapToolTip from "./MapToolTip";
 import { tryParseWKT, tryParseUTM, parseHemisphericNumber, parseGeoJSONFile, parseGPXFile, parseKMLFile, parseKMZFile, parseShapefileZip, parseXLSXFile, parseDXFFile, parseDWGFile } from "../utils/fileImport";
-import { getCadBackendStatus, getCadPurgeAudit, getCadPurgeApply } from "../utils/cadApi";
+import { getCadBackendStatus, getCadPurgeApply } from "../utils/cadApi";
 import { exportAsCSV, exportAsGeoJSON, exportAsKML, exportAsGPX, exportAsXLSX, exportAsWKT, exportAsDXF, exportAsDXFGeometry, exportAllFormats, downloadFile } from "../utils/exportData";
 // Import the map visualization component
 import MapVisualization from "./MapVisualization";
@@ -1401,7 +1401,6 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
   const [cadBackendStatusError, setCadBackendStatusError] = useState("");
   const [cadInspection, setCadInspection] = useState(null);
   const [cadPurgeAudit, setCadPurgeAudit] = useState(null);
-  const [cadPurgeAuditLoading, setCadPurgeAuditLoading] = useState(false);
   const [cadPurgeAuditError, setCadPurgeAuditError] = useState("");
   const [cadPurgeAuditMeta, setCadPurgeAuditMeta] = useState(null);
   const [cadPurgeApplyReport, setCadPurgeApplyReport] = useState(null);
@@ -1707,13 +1706,6 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     downloadFile(JSON.stringify(report, null, 2), `cad-diagnostic-${stamp}.json`, "json");
   }, [cadInspection, importCrsNotice]);
 
-  const downloadCadPurgeAuditReport = useCallback(() => {
-    if (!cadPurgeAudit) return;
-    const stamp = new Date().toISOString().replace(/[:]/g, "-");
-    const report = buildCadPurgeAuditReportPayload(cadPurgeAudit, bulkUploadFile?.name || null);
-    downloadFile(JSON.stringify(report, null, 2), `cad-purge-audit-${stamp}.json`, "json");
-  }, [cadPurgeAudit, bulkUploadFile]);
-
   const downloadCadPurgeAuditSummaryReport = useCallback(() => {
     if (!cadPurgeAudit) return;
     const stamp = new Date().toISOString().replace(/[:]/g, "-");
@@ -1721,57 +1713,6 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     const html = buildCadPurgeAuditSummaryHtml(report);
     downloadFile(html, `cad-purge-audit-summary-${stamp}.html`, "html");
   }, [cadPurgeAudit, bulkUploadFile]);
-
-  const runCadPurgeAuditForSelectedFile = useCallback(async () => {
-    const file = bulkUploadFile;
-    const ext = (file?.name?.split('.')?.pop() || '').toLowerCase();
-
-    if (!file || !["dxf", "dwg"].includes(ext)) {
-      setCadPurgeAuditError("Select a DXF or DWG file to run Safe PURGE Audit.");
-      return;
-    }
-
-    setCadPurgeAuditLoading(true);
-    setCadPurgeAuditError("");
-    setBulkUploadError("");
-    const startedAt = Date.now();
-    const startedAtIso = new Date(startedAt).toISOString();
-    setCadPurgeAuditMeta({
-      status: "running",
-      fileName: file.name,
-      startedAtIso,
-      completedAtIso: null,
-      durationMs: null,
-    });
-    setBulkProgress("Running Safe PURGE Audit (read-only analysis)...");
-
-    try {
-      const report = await getCadPurgeAudit(file);
-      setCadPurgeAudit(report || null);
-      const completedAt = Date.now();
-      setCadPurgeAuditMeta({
-        status: "ready",
-        fileName: file.name,
-        startedAtIso,
-        completedAtIso: new Date(completedAt).toISOString(),
-        durationMs: completedAt - startedAt,
-      });
-      setBulkProgress(null);
-    } catch (err) {
-      const completedAt = Date.now();
-      setCadPurgeAuditError(err?.message || "Safe PURGE Audit failed.");
-      setCadPurgeAuditMeta({
-        status: "error",
-        fileName: file.name,
-        startedAtIso,
-        completedAtIso: new Date(completedAt).toISOString(),
-        durationMs: completedAt - startedAt,
-      });
-      setBulkProgress(null);
-    } finally {
-      setCadPurgeAuditLoading(false);
-    }
-  }, [bulkUploadFile]);
 
   const runCadPurgeApplyForSelectedFile = useCallback(async () => {
     const file = bulkUploadFile;
@@ -1790,6 +1731,15 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     setCadPurgeApplyLoading(true);
     setCadPurgeApplyError("");
     setBulkUploadError("");
+    const startedAt = Date.now();
+    const startedAtIso = new Date(startedAt).toISOString();
+    setCadPurgeAuditMeta({
+      status: "running",
+      fileName: file.name,
+      startedAtIso,
+      completedAtIso: null,
+      durationMs: null,
+    });
     setBulkProgress("Applying SafePurge to audited unreferenced definitions...");
 
     try {
@@ -1797,30 +1747,31 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       setCadPurgeApplyReport(report || null);
       if (report?.cleanedDxfText) {
         const outputName = report?.cleanedFileName || `${file.name.replace(/\.[^.]+$/, '') || 'drawing'}-safepurge.dxf`;
-        const inputExt = String(file?.name?.split('.')?.pop() || '').toLowerCase();
-        const sourceIsDwg = inputExt === 'dwg';
-        const cleanedBytes = Number(report?.summary?.sizeAfterBytes || new Blob([report.cleanedDxfText]).size || 0);
-        const uploadedBytes = Number(file?.size || 0);
-        const shouldZip = sourceIsDwg || (uploadedBytes > 0 && cleanedBytes > uploadedBytes);
-
-        if (shouldZip) {
-          const zipName = outputName.replace(/\.dxf$/i, '.zip');
-          const { default: JSZip } = await import('jszip');
-          const zip = new JSZip();
-          zip.file(outputName, report.cleanedDxfText);
-          const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 9 } });
-          downloadFile(blob, zipName, 'zip');
-        } else {
-          downloadFile(report.cleanedDxfText, outputName, 'dxf');
-        }
+        downloadFile(report.cleanedDxfText, outputName, 'dxf');
       }
 
       if (report?.auditAfter) {
         setCadPurgeAudit(report.auditAfter);
       }
+      const completedAt = Date.now();
+      setCadPurgeAuditMeta({
+        status: "ready",
+        fileName: file.name,
+        startedAtIso,
+        completedAtIso: new Date(completedAt).toISOString(),
+        durationMs: completedAt - startedAt,
+      });
       setBulkProgress(null);
     } catch (err) {
       setCadPurgeApplyError(err?.message || "SafePurge apply failed.");
+      const completedAt = Date.now();
+      setCadPurgeAuditMeta({
+        status: "error",
+        fileName: file.name,
+        startedAtIso,
+        completedAtIso: new Date(completedAt).toISOString(),
+        durationMs: completedAt - startedAt,
+      });
       setBulkProgress(null);
     } finally {
       setCadPurgeApplyLoading(false);
@@ -4345,7 +4296,6 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     setCadInspection(null);
     setCadPurgeAudit(null);
     setCadPurgeAuditError("");
-    setCadPurgeAuditLoading(false);
     setCadPurgeAuditMeta(null);
     setCadPurgeApplyReport(null);
     setCadPurgeApplyError("");
@@ -4408,7 +4358,6 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     setImportCrsNotice("");
     setCadPurgeAudit(null);
     setCadPurgeAuditError("");
-    setCadPurgeAuditLoading(false);
     setCadPurgeAuditMeta(null);
     setCadPurgeApplyReport(null);
     setCadPurgeApplyError("");
@@ -6434,36 +6383,15 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
             {t('converter.resetBulk')}
           </button>
           <MapToolTip
-            title="Safe PURGE Audit"
-            description="Runs a 100% safe dry-run on the selected CAD file and reports removable unused definitions without deleting geometry."
-          >
-            <button
-              onClick={runCadPurgeAuditForSelectedFile}
-              disabled={cadPurgeAuditLoading || !bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())}
-              style={{
-                padding: "0.5rem 0.9rem",
-                background: "#0b3b8f",
-                color: "#fff",
-                border: "none",
-                borderRadius: "6px",
-                cursor: cadPurgeAuditLoading ? "wait" : "pointer",
-                fontWeight: 600,
-                opacity: (!bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())) ? 0.65 : 1,
-              }}
-            >
-              {cadPurgeAuditLoading ? "Running PURGE audit..." : "Safe PURGE Audit"}
-            </button>
-          </MapToolTip>
-          <MapToolTip
-            title="Apply SafePurge"
-            description="Removes only unreferenced definitions from a cleaned DXF copy, while keeping protected/system objects and all referenced geometry definitions."
+            title="SafePurge (Audit + Purge)"
+            description="Runs safe purge in one step: audit + apply, removes only proven unreferenced definitions, and exports cleaned DXF."
           >
             <button
               onClick={runCadPurgeApplyForSelectedFile}
               disabled={cadPurgeApplyLoading || !bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())}
               style={{
                 padding: "0.5rem 0.9rem",
-                background: "#14532d",
+                background: "#0b3b8f",
                 color: "#fff",
                 border: "none",
                 borderRadius: "6px",
@@ -6472,7 +6400,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
                 opacity: (!bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())) ? 0.65 : 1,
               }}
             >
-              {cadPurgeApplyLoading ? "Applying SafePurge..." : "Apply SafePurge"}
+              {cadPurgeApplyLoading ? "Running SafePurge..." : "SafePurge (Audit + Purge)"}
             </button>
           </MapToolTip>
           <MapToolTip
@@ -6497,18 +6425,6 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
               style={{ padding: "0.5rem 0.9rem", background: "#f8fafc", color: "#334155", border: "1px solid #cbd5e1", borderRadius: "6px", cursor: cadInspection ? "pointer" : "not-allowed", opacity: cadInspection ? 1 : 0.55, fontWeight: 600 }}
             >
               {t('converter.downloadRawCadDebug')}
-            </button>
-          </MapToolTip>
-          <MapToolTip
-            title="Export PURGE Audit Report"
-            description="Downloads a JSON report of what the safe purge audit found, including candidate counts and names by category."
-          >
-            <button
-              onClick={downloadCadPurgeAuditReport}
-              disabled={!cadPurgeAudit}
-              style={{ padding: "0.5rem 0.9rem", background: "#eff6ff", color: "#1e3a8a", border: "1px solid #93c5fd", borderRadius: "6px", cursor: cadPurgeAudit ? "pointer" : "not-allowed", opacity: cadPurgeAudit ? 1 : 0.55, fontWeight: 600 }}
-            >
-              Export PURGE Audit JSON
             </button>
           </MapToolTip>
           <MapToolTip
@@ -6722,7 +6638,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
                     )}
                     {String(bulkUploadFile?.name || '').toLowerCase().endsWith('.dwg') && (
                       <div style={{ color: "#155e75", background: "#ecfeff", border: "1px solid #67e8f9", borderRadius: "6px", padding: "0.35rem 0.45rem" }}>
-                        Source upload is DWG (binary) while cleaned export is DXF (text), so raw DXF may be larger. The app auto-downloads a ZIP package to keep delivery size compact.
+                        Source upload is DWG (binary) while cleaned export is DXF (text), so raw DXF may still be larger. SafePurge now also strips thumbnail/comment bloat to reduce DXF output when possible.
                       </div>
                     )}
                     <details>
