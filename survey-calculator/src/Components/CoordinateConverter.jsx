@@ -169,6 +169,105 @@ const buildCadPurgeAuditReportPayload = (cadPurgeAudit, fileName = null) => {
   };
 };
 
+const buildCadPurgeAuditSummaryHtml = (report) => {
+  const sectionSummary = Array.isArray(report?.sectionSummary) ? report.sectionSummary : [];
+  const nonEmptySections = sectionSummary.filter((section) => Number(section?.count || 0) > 0);
+  const topFindings = Array.isArray(report?.topFindings) ? report.topFindings : [];
+  const overkill = report?.overkillPotential || {};
+  const safetyNotes = Array.isArray(report?.safetyNotes) ? report.safetyNotes : [];
+
+  const metricRows = [
+    ["Generated", report?.generatedAt],
+    ["File", report?.fileName],
+    ["Mode", report?.mode],
+    ["Safe", report?.safe ? "Yes" : "No"],
+    ["Will Modify Drawing", report?.willModifyDrawing ? "Yes" : "No"],
+    ["Will Remove Geometry", report?.willRemoveGeometry ? "Yes" : "No"],
+    ["Total Candidates", report?.summary?.totalCandidates ?? 0],
+    ["Duplicate Line Groups", overkill?.duplicateLineGroups ?? 0],
+    ["Duplicate Line Entities", overkill?.duplicateLineEntities ?? 0],
+  ].filter(([, value]) => value !== undefined && value !== null && value !== "");
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CAD PURGE Audit Report</title>
+    <style>
+      body { font-family: Georgia, "Times New Roman", serif; margin: 0; background: #f8fafc; color: #0f172a; }
+      .page { max-width: 980px; margin: 0 auto; padding: 32px 24px 48px; }
+      .hero { background: linear-gradient(135deg, #0b3b8f, #1d4ed8); color: #eff6ff; border-radius: 18px; padding: 24px; }
+      h1 { margin: 0 0 8px; font-size: 30px; }
+      h2 { margin: 26px 0 12px; font-size: 18px; color: #0f172a; }
+      p { line-height: 1.55; }
+      .card { background: #fff; border: 1px solid #dbeafe; border-radius: 14px; padding: 16px; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05); }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+      .pill { display: inline-flex; align-items: center; padding: 0.2rem 0.55rem; border-radius: 999px; font-size: 12px; font-weight: 700; }
+      .pill-safe { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+      .pill-info { background: #dbeafe; color: #1e3a8a; border: 1px solid #93c5fd; }
+      table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05); }
+      td { padding: 12px 14px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+      td:first-child { width: 260px; color: #475569; font-weight: 700; }
+      ul { margin: 8px 0 0 18px; }
+      li { margin: 6px 0; }
+      .small { font-size: 13px; color: #64748b; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <section class="hero">
+        <h1>CAD PURGE Audit Report</h1>
+        <p>Executive dry-run summary of what would be purged, without modifying the drawing.</p>
+      </section>
+
+      <h2>Safety Contract</h2>
+      <div class="card" style="display:flex; gap:10px; flex-wrap:wrap;">
+        <span class="pill pill-safe">Audit-Only</span>
+        <span class="pill ${report?.willModifyDrawing ? "pill-info" : "pill-safe"}">Modify Drawing: ${report?.willModifyDrawing ? "Yes" : "No"}</span>
+        <span class="pill ${report?.willRemoveGeometry ? "pill-info" : "pill-safe"}">Remove Geometry: ${report?.willRemoveGeometry ? "Yes" : "No"}</span>
+      </div>
+
+      <h2>Overview</h2>
+      <table>
+        <tbody>
+          ${metricRows.map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`).join("")}
+        </tbody>
+      </table>
+
+      <h2>What Was Done</h2>
+      <div class="card">
+        <ul>
+          <li>Scanned the drawing database for unused named definitions.</li>
+          <li>Did not alter source geometry or write any changes back to the drawing.</li>
+          <li>Calculated conservative Overkill potential from duplicate LINE entities.</li>
+          ${topFindings.length > 0 ? `<li>Top purge opportunities: ${escapeHtml(topFindings.join(", "))}</li>` : "<li>No major purge opportunities found.</li>"}
+        </ul>
+      </div>
+
+      <h2>Candidate Counts</h2>
+      <div class="grid">
+        ${nonEmptySections.length > 0
+          ? nonEmptySections.map((section) => `
+            <div class="card">
+              <div style="font-size:12px; color:#64748b; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px;">${escapeHtml(section.label)}</div>
+              <div style="font-size:22px; font-weight:700; color:#0f172a;">${escapeHtml(section.count)}</div>
+            </div>
+          `).join("")
+          : `<div class="card"><div>No purge candidates were detected.</div></div>`}
+      </div>
+
+      <h2>Safety Notes</h2>
+      <div class="card">
+        ${safetyNotes.length > 0 ? `<ul>${safetyNotes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>` : `<p class="small">No additional safety notes were provided.</p>`}
+      </div>
+
+      <p class="small">This report is generated from a dry-run safe audit and is intended for review before any apply-stage purge workflow.</p>
+    </div>
+  </body>
+</html>`;
+};
+
 const buildCadSummaryHtml = (report) => {
   const inspection = report?.inspection || {};
   const diagnostics = inspection?.diagnostics || {};
@@ -1609,6 +1708,14 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     const stamp = new Date().toISOString().replace(/[:]/g, "-");
     const report = buildCadPurgeAuditReportPayload(cadPurgeAudit, bulkUploadFile?.name || null);
     downloadFile(JSON.stringify(report, null, 2), `cad-purge-audit-${stamp}.json`, "json");
+  }, [cadPurgeAudit, bulkUploadFile]);
+
+  const downloadCadPurgeAuditSummaryReport = useCallback(() => {
+    if (!cadPurgeAudit) return;
+    const stamp = new Date().toISOString().replace(/[:]/g, "-");
+    const report = buildCadPurgeAuditReportPayload(cadPurgeAudit, bulkUploadFile?.name || null);
+    const html = buildCadPurgeAuditSummaryHtml(report);
+    downloadFile(html, `cad-purge-audit-summary-${stamp}.html`, "html");
   }, [cadPurgeAudit, bulkUploadFile]);
 
   const runCadPurgeAuditForSelectedFile = useCallback(async () => {
@@ -6287,6 +6394,18 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
               style={{ padding: "0.5rem 0.9rem", background: "#eff6ff", color: "#1e3a8a", border: "1px solid #93c5fd", borderRadius: "6px", cursor: cadPurgeAudit ? "pointer" : "not-allowed", opacity: cadPurgeAudit ? 1 : 0.55, fontWeight: 600 }}
             >
               Export PURGE Audit JSON
+            </button>
+          </MapToolTip>
+          <MapToolTip
+            title="Export PURGE Executive Report"
+            description="Downloads an HTML executive summary of what was analyzed and what purge opportunities were found."
+          >
+            <button
+              onClick={downloadCadPurgeAuditSummaryReport}
+              disabled={!cadPurgeAudit}
+              style={{ padding: "0.5rem 0.9rem", background: "#ecfeff", color: "#155e75", border: "1px solid #67e8f9", borderRadius: "6px", cursor: cadPurgeAudit ? "pointer" : "not-allowed", opacity: cadPurgeAudit ? 1 : 0.55, fontWeight: 600 }}
+            >
+              Export PURGE Summary HTML
             </button>
           </MapToolTip>
           {bulkUploadFile && <span style={{ fontSize: "0.85rem", color: "#059669", fontWeight: 500 }}>✓ {bulkUploadFile.name}</span>}
