@@ -11,6 +11,7 @@ import fs from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { getCadBackendStatus, parseCadUpload } from './cadService.js';
 import { prescanCadBuffer } from './cadPrescanService.js';
+import { runCadPurgeAudit } from './cadPurgeAuditService.js';
 
 const app = express();
 const port = Number(process.env.PORT || process.env.CAD_API_PORT || 4000);
@@ -639,6 +640,27 @@ app.post('/api/cad/parse', parseRateLimit, upload.single('file'), async (req, re
     const statusCode = err.statusCode || 500;
     res.status(statusCode).json({
       message: err.message || 'CAD parsing failed.',
+    });
+  }
+});
+
+app.post('/api/cad/purge/audit', parseRateLimit, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      res.status(400).json({ message: 'No CAD file was uploaded for purge audit.' });
+      return;
+    }
+
+    const report = await runCadPurgeAudit({
+      buffer: req.file.buffer,
+      originalName: req.file.originalname,
+    });
+
+    res.json(report);
+  } catch (err) {
+    const statusCode = err.statusCode || 500;
+    res.status(statusCode).json({
+      message: err.message || 'CAD purge audit failed.',
     });
   }
 });

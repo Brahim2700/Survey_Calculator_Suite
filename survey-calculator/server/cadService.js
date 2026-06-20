@@ -745,6 +745,45 @@ async function convertDwgBufferToDxfText(buffer, originalName, preferredMode = n
   }
 }
 
+export async function resolveCadUploadToDxfText({ buffer, originalName, preferredConverterMode = null }) {
+  const ext = getFileExtension(originalName);
+  if (!['.dxf', '.dwg'].includes(ext)) {
+    const error = new Error(`Unsupported CAD file type: ${ext || 'unknown'}`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const data = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  if (ext === '.dxf') {
+    return {
+      sourceFormat: 'dxf',
+      dxfText: Buffer.from(data).toString('utf8'),
+      converterModeUsed: null,
+      converterAttemptedModes: [],
+      notes: [],
+    };
+  }
+
+  if (!isLikelyNativeDwgData(data) && isLikelyDxfData(data)) {
+    return {
+      sourceFormat: 'dwg-dxf-text',
+      dxfText: Buffer.from(data).toString('utf8'),
+      converterModeUsed: null,
+      converterAttemptedModes: [],
+      notes: ['The uploaded .dwg file contained DXF text and was parsed without converter assistance.'],
+    };
+  }
+
+  const converted = await convertDwgBufferToDxfText(Buffer.from(data), originalName, preferredConverterMode);
+  return {
+    sourceFormat: 'dwg-converted',
+    dxfText: converted.dxfText,
+    converterModeUsed: converted.modeUsed || null,
+    converterAttemptedModes: Array.isArray(converted.attemptedModes) ? converted.attemptedModes : [],
+    notes: [],
+  };
+}
+
 export function getCadBackendStatus() {
   const availableConverterModes = getAvailableConverterModes();
   const converterMode = getConfiguredConverterMode();
