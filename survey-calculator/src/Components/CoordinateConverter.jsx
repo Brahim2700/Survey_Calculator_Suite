@@ -1881,11 +1881,6 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       return;
     }
 
-    const confirmation = window.prompt('Type APPLY to confirm SafePurge apply mode. This produces a cleaned DXF copy and removes only unreferenced definitions.');
-    if (String(confirmation || '').trim().toUpperCase() !== 'APPLY') {
-      return;
-    }
-
     setCadPurgeApplyLoading(true);
     setCadPurgeApplyError("");
     setBulkUploadError("");
@@ -1907,10 +1902,8 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
 
     try {
       const auditResponse = await getCadPurgeAudit(file, { purgeMode: 'smart-auto' });
-      const auditData = auditResponse?.data || null;
-      if (auditData) {
-        setCadPurgeAudit(auditData);
-      }
+      const auditData = auditResponse || null;
+      setCadPurgeAudit(auditData);
 
       const purgeOptions = deriveSafePurgeOptionsFromAudit(auditData);
       const report = await getCadPurgeApply(file, { purgeOptions });
