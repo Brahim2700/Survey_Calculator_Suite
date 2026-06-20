@@ -24,18 +24,24 @@ const BatchOperations = ({ points = [], filteredPoints = null, onBatchOperation,
   const handleBatchExport = () => {
     if (activeCount === 0) return;
 
+    const csvEscape = (value) => {
+      if (value === null || value === undefined) return '';
+      const stringValue = String(value);
+      return `"${stringValue.replace(/"/g, '""')}"`;
+    };
+
     const csv = [
       ['ID', 'Label', 'Latitude', 'Longitude', 'Height (m)', 'CRS', 'Source Type', 'Imported Name'].join(','),
       ...activePoints.map((p) =>
         [
-          `"${p?.id || ''}"`,
-          `"${p?.label || ''}"`,
+          csvEscape(p?.id),
+          csvEscape(p?.label),
           p?.lat || '',
           p?.lng || '',
           p?.height || '',
-          `"${p?.crs || ''}"`,
-          `"${p?.sourceType || ''}"`,
-          `"${p?.importedCadName || ''}"`,
+          csvEscape(p?.crs),
+          csvEscape(p?.sourceType),
+          csvEscape(p?.importedCadName),
         ].join(',')
       ),
     ].join('\n');
