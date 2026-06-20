@@ -469,6 +469,9 @@ export async function getCadPurgeAudit(file, options = {}) {
 
   const formData = new FormData();
   formData.append('file', file);
+  if (options?.purgeOptions && typeof options.purgeOptions === 'object') {
+    formData.append('options', JSON.stringify(options.purgeOptions));
+  }
 
   const response = await fetch(`${CAD_API_BASE_URL}/purge/audit`, {
     method: 'POST',
@@ -491,6 +494,9 @@ export async function getCadPurgeApply(file, options = {}) {
 
   const formData = new FormData();
   formData.append('file', file);
+  if (options?.purgeOptions && typeof options.purgeOptions === 'object') {
+    formData.append('options', JSON.stringify(options.purgeOptions));
+  }
 
   const response = await fetch(`${CAD_API_BASE_URL}/purge/apply`, {
     method: 'POST',

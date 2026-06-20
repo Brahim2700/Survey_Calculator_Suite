@@ -141,7 +141,7 @@ describe('analyzeDxfTextForPurgeAudit', () => {
     expect(result.summary.removedCounts.dimensionStyles).toBeGreaterThanOrEqual(1);
     expect(result.summary.removedCounts.regapps).toBeGreaterThanOrEqual(1);
     expect(result.summary.removedCounts.blocks).toBeGreaterThanOrEqual(1);
-    expect(result.summary.removedCounts.xrefs).toBeGreaterThanOrEqual(1);
+    expect(result.summary.removedCounts.xrefs).toBe(0);
 
     expect(result.auditAfter?.summary?.candidateCounts?.layers ?? 0).toBe(0);
     expect(result.auditAfter?.summary?.candidateCounts?.linetypes ?? 0).toBe(0);
@@ -152,7 +152,105 @@ describe('analyzeDxfTextForPurgeAudit', () => {
     expect(result.cleanedDxfText).toContain('SECTION');
     expect(result.cleanedDxfText).toContain('EOF');
     expect(result.cleanedDxfText).toContain('USED_BLOCK');
+    expect(result.cleanedDxfText).toContain('XREF_UNUSED');
     expect(result.cleanedDxfText).not.toContain('UNUSED_BLOCK');
+  });
+
+  it('supports optional unreferenced xref detach mode only', async () => {
+    const input = buildMinimalDxf();
+    const result = await runCadPurgeApply({
+      buffer: Buffer.from(input, 'utf8'),
+      originalName: 'sample.dxf',
+      options: {
+        xrefMode: 'detach-unreferenced',
+      },
+    });
+
+    expect(result.summary.removedCounts.xrefs).toBeGreaterThanOrEqual(1);
     expect(result.cleanedDxfText).not.toContain('XREF_UNUSED');
+  });
+
+  it('builds and applies conservative overkill duplicate map for line/point/arc/circle', async () => {
+    const input = [
+      '0', 'SECTION',
+      '2', 'TABLES',
+      '0', 'TABLE',
+      '2', 'LAYER',
+      '0', 'LAYER',
+      '2', '0',
+      '0', 'ENDTAB',
+      '0', 'ENDSEC',
+      '0', 'SECTION',
+      '2', 'ENTITIES',
+      '0', 'LINE',
+      '8', '0',
+      '10', '0',
+      '20', '0',
+      '11', '10',
+      '21', '10',
+      '0', 'LINE',
+      '8', '0',
+      '10', '0',
+      '20', '0',
+      '11', '10',
+      '21', '10',
+      '0', 'POINT',
+      '8', '0',
+      '10', '5',
+      '20', '5',
+      '0', 'POINT',
+      '8', '0',
+      '10', '5',
+      '20', '5',
+      '0', 'CIRCLE',
+      '8', '0',
+      '10', '3',
+      '20', '3',
+      '40', '2',
+      '0', 'CIRCLE',
+      '8', '0',
+      '10', '3',
+      '20', '3',
+      '40', '2',
+      '0', 'ARC',
+      '8', '0',
+      '10', '3',
+      '20', '3',
+      '40', '2',
+      '50', '0',
+      '51', '90',
+      '0', 'ARC',
+      '8', '0',
+      '10', '3',
+      '20', '3',
+      '40', '2',
+      '50', '0',
+      '51', '90',
+      '0', 'ENDSEC',
+      '0', 'EOF',
+    ].join('\n');
+
+    const audit = analyzeDxfTextForPurgeAudit(input, {
+      fileName: 'overkill.dxf',
+      options: {
+        overkillMode: 'report-only',
+        overkillTolerance: 1e-6,
+      },
+    });
+
+    expect(audit.overkill?.duplicateMap?.duplicateGroupCount).toBeGreaterThanOrEqual(4);
+    expect(audit.overkill?.duplicateMap?.duplicateEntities).toBeGreaterThanOrEqual(4);
+
+    const applied = await runCadPurgeApply({
+      buffer: Buffer.from(input, 'utf8'),
+      originalName: 'overkill.dxf',
+      options: {
+        overkillMode: 'delete-duplicates',
+        overkillTolerance: 1e-6,
+      },
+    });
+
+    expect(applied.summary.overkill?.removedDuplicatesTotal).toBeGreaterThanOrEqual(4);
+    expect(applied.cleanedDxfText).toContain('EOF');
   });
 });

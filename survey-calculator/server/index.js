@@ -651,9 +651,20 @@ app.post('/api/cad/purge/audit', parseRateLimit, upload.single('file'), async (r
       return;
     }
 
+    let options = {};
+    if (typeof req.body?.options === 'string' && req.body.options.trim()) {
+      try {
+        options = JSON.parse(req.body.options);
+      } catch {
+        res.status(400).json({ message: 'Invalid purge options JSON payload.' });
+        return;
+      }
+    }
+
     const report = await runCadPurgeAudit({
       buffer: req.file.buffer,
       originalName: req.file.originalname,
+      options,
     });
 
     res.json(report);
@@ -672,9 +683,20 @@ app.post('/api/cad/purge/apply', parseRateLimit, upload.single('file'), async (r
       return;
     }
 
+    let options = {};
+    if (typeof req.body?.options === 'string' && req.body.options.trim()) {
+      try {
+        options = JSON.parse(req.body.options);
+      } catch {
+        res.status(400).json({ message: 'Invalid purge options JSON payload.' });
+        return;
+      }
+    }
+
     const report = await runCadPurgeApply({
       buffer: req.file.buffer,
       originalName: req.file.originalname,
+      options,
     });
 
     res.json(report);
