@@ -133,6 +133,42 @@ const buildCadDiagnosticReportPayload = (cadInspection, importCrsNotice) => ({
   inspection: cadInspection,
 });
 
+const buildCadPurgeAuditReportPayload = (cadPurgeAudit, fileName = null) => {
+  const summary = cadPurgeAudit?.summary || {};
+  const candidates = cadPurgeAudit?.candidates || {};
+
+  const sectionSummary = CAD_PURGE_AUDIT_SECTIONS.map((section) => {
+    const names = Array.isArray(candidates?.[section.key]) ? candidates[section.key] : [];
+    return {
+      key: section.key,
+      label: section.label,
+      count: names.length,
+    };
+  });
+
+  const topSections = sectionSummary
+    .filter((section) => section.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 3)
+    .map((section) => `${section.label} (${section.count})`);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    fileName: fileName || cadPurgeAudit?.fileName || null,
+    mode: cadPurgeAudit?.mode || 'audit-only',
+    safe: Boolean(cadPurgeAudit?.safe),
+    willModifyDrawing: Boolean(cadPurgeAudit?.willModifyDrawing),
+    willRemoveGeometry: Boolean(cadPurgeAudit?.willRemoveGeometry),
+    summary,
+    sectionSummary,
+    topFindings: topSections,
+    overkillPotential: summary?.overkillPotential || null,
+    candidates,
+    safetyNotes: Array.isArray(cadPurgeAudit?.safety?.notes) ? cadPurgeAudit.safety.notes : [],
+    conversion: cadPurgeAudit?.conversion || null,
+  };
+};
+
 const buildCadSummaryHtml = (report) => {
   const inspection = report?.inspection || {};
   const diagnostics = inspection?.diagnostics || {};
@@ -1567,6 +1603,13 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     const report = buildCadDiagnosticReportPayload(cadInspection, importCrsNotice);
     downloadFile(JSON.stringify(report, null, 2), `cad-diagnostic-${stamp}.json`, "json");
   }, [cadInspection, importCrsNotice]);
+
+  const downloadCadPurgeAuditReport = useCallback(() => {
+    if (!cadPurgeAudit) return;
+    const stamp = new Date().toISOString().replace(/[:]/g, "-");
+    const report = buildCadPurgeAuditReportPayload(cadPurgeAudit, bulkUploadFile?.name || null);
+    downloadFile(JSON.stringify(report, null, 2), `cad-purge-audit-${stamp}.json`, "json");
+  }, [cadPurgeAudit, bulkUploadFile]);
 
   const runCadPurgeAuditForSelectedFile = useCallback(async () => {
     const file = bulkUploadFile;
@@ -6232,6 +6275,18 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
               style={{ padding: "0.5rem 0.9rem", background: "#f8fafc", color: "#334155", border: "1px solid #cbd5e1", borderRadius: "6px", cursor: cadInspection ? "pointer" : "not-allowed", opacity: cadInspection ? 1 : 0.55, fontWeight: 600 }}
             >
               {t('converter.downloadRawCadDebug')}
+            </button>
+          </MapToolTip>
+          <MapToolTip
+            title="Export PURGE Audit Report"
+            description="Downloads a JSON report of what the safe purge audit found, including candidate counts and names by category."
+          >
+            <button
+              onClick={downloadCadPurgeAuditReport}
+              disabled={!cadPurgeAudit}
+              style={{ padding: "0.5rem 0.9rem", background: "#eff6ff", color: "#1e3a8a", border: "1px solid #93c5fd", borderRadius: "6px", cursor: cadPurgeAudit ? "pointer" : "not-allowed", opacity: cadPurgeAudit ? 1 : 0.55, fontWeight: 600 }}
+            >
+              Export PURGE Audit JSON
             </button>
           </MapToolTip>
           {bulkUploadFile && <span style={{ fontSize: "0.85rem", color: "#059669", fontWeight: 500 }}>✓ {bulkUploadFile.name}</span>}
