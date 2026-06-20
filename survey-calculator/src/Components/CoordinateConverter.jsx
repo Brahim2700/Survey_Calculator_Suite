@@ -1406,6 +1406,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
   const [cadPurgeApplyReport, setCadPurgeApplyReport] = useState(null);
   const [cadPurgeApplyLoading, setCadPurgeApplyLoading] = useState(false);
   const [cadPurgeApplyError, setCadPurgeApplyError] = useState("");
+  const [cadFileAcceptanceNotice, setCadFileAcceptanceNotice] = useState("");
   const [showCadPurgeAdvancedOptions, setShowCadPurgeAdvancedOptions] = useState(false);
   const [cadPurgeXrefMode, setCadPurgeXrefMode] = useState("report-only");
   const [cadPurgeOverkillMode, setCadPurgeOverkillMode] = useState("report-only");
@@ -1753,7 +1754,12 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       completedAtIso: null,
       durationMs: null,
     });
-    setBulkProgress("Applying SafePurge to audited unreferenced definitions...");
+    const fileSizeMb = Number(file?.size || 0) / (1024 * 1024);
+    setBulkProgress(
+      fileSizeMb >= 8
+        ? `SafePurge accepted ${fileSizeMb.toFixed(1)} MB file. Uploading and processing...`
+        : "Applying SafePurge to audited unreferenced definitions..."
+    );
 
     try {
       const report = await getCadPurgeApply(file, { purgeOptions });
@@ -4313,6 +4319,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     setCadPurgeApplyReport(null);
     setCadPurgeApplyError("");
     setCadPurgeApplyLoading(false);
+    setCadFileAcceptanceNotice("");
     setCadSourceGeometry(null);
     setCadGeometrySourceCrs(null);
     setSelectedBulkRows([]);
@@ -4375,6 +4382,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     setCadPurgeApplyReport(null);
     setCadPurgeApplyError("");
     setCadPurgeApplyLoading(false);
+    setCadFileAcceptanceNotice("");
     setCadSourceGeometry(null);
     setCadGeometrySourceCrs(null);
     setCadInspection(file ? {
@@ -4386,7 +4394,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       warnings: [],
       nativeDwg: false,
       usedConverter: false,
-      processingRoute: null,
+      processingRoute: "queued-for-analysis",
       pointExtractionMode: getCadExtractionModeLabel(cadStrictExistingPointsOnly),
       bounds: null,
       backendMode: cadBackendStatus?.converterMode || "none",
@@ -4395,6 +4403,13 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
 
     const ext = (file?.name?.split('.')?.pop() || '').toLowerCase();
     if (file && ["dwg", "dxf"].includes(ext)) {
+      const fileSizeMb = Number(file.size || 0) / (1024 * 1024);
+      const isLargeCad = fileSizeMb >= 8;
+      setCadFileAcceptanceNotice(
+        isLargeCad
+          ? `Large CAD file accepted (${fileSizeMb.toFixed(1)} MB). Inspection can stay pending while parsing, but SafePurge can run now.`
+          : "CAD file accepted. SafePurge can run now even before full inspection is shown."
+      );
       refreshCadStatus();
     }
     detectFileFormatsAndCRS(file);
@@ -6530,6 +6545,11 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
           </div>
         )}
         {bulkUploadError && <div role="alert" style={{ color: "#b91c1c" }}>{bulkUploadError}</div>}
+        {cadFileAcceptanceNotice && (
+          <div role="status" style={{ color: "#155e75", background: "#ecfeff", border: "1px solid #67e8f9", borderRadius: "6px", padding: "0.55rem 0.7rem", fontSize: "0.84rem" }}>
+            <strong>CAD intake:</strong> {cadFileAcceptanceNotice}
+          </div>
+        )}
         {importCrsNotice && (
           <div role="status" style={{ color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "6px", padding: "0.55rem 0.7rem", fontSize: "0.84rem" }}>
             <strong>{t('converter.crsNotice')}</strong> {importCrsNotice}
@@ -6573,6 +6593,11 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
                 <div><strong>{cadInspection.fileName}</strong> {cadInspection.extension ? `(${cadInspection.extension})` : ""}</div>
                 <div>{t('converter.size')} {formatBytes(cadInspection.fileSizeBytes)}</div>
                 <div>{t('converter.route')} {cadInspection.processingRoute || t('converter.pending')}</div>
+                {String(cadInspection.processingRoute || '').toLowerCase() === 'queued-for-analysis' && (
+                  <div style={{ color: "#155e75", background: "#ecfeff", border: "1px solid #67e8f9", borderRadius: "6px", padding: "0.35rem 0.45rem" }}>
+                    File accepted. Inspection details appear after Detect + Visualize or Convert. SafePurge is already available.
+                  </div>
+                )}
                 {cadInspection.pointExtractionMode && (
                   <div>
                     {t('converter.pointExtraction')}
