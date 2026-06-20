@@ -571,6 +571,28 @@ export const exportAsDXF = (results, metadata = null) => {
     .filter(({ xy }) => Boolean(xy));
 
   const lines = [];
+  const bounds = filtered.reduce((acc, { row, xy }) => {
+    const x = Number(xy.x);
+    const y = Number(xy.y);
+    const z = row.outputZ !== undefined && row.outputZ !== null && row.outputZ !== ''
+      ? Number(row.outputZ)
+      : 0;
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return acc;
+    acc.minX = Math.min(acc.minX, x);
+    acc.minY = Math.min(acc.minY, y);
+    acc.minZ = Math.min(acc.minZ, z);
+    acc.maxX = Math.max(acc.maxX, x);
+    acc.maxY = Math.max(acc.maxY, y);
+    acc.maxZ = Math.max(acc.maxZ, z);
+    return acc;
+  }, {
+    minX: Number.POSITIVE_INFINITY,
+    minY: Number.POSITIVE_INFINITY,
+    minZ: Number.POSITIVE_INFINITY,
+    maxX: Number.NEGATIVE_INFINITY,
+    maxY: Number.NEGATIVE_INFINITY,
+    maxZ: Number.NEGATIVE_INFINITY,
+  });
 
   // HEADER section (DXF R12 / AC1009 for widest compatibility)
   lines.push(
@@ -587,6 +609,11 @@ export const exportAsDXF = (results, metadata = null) => {
   // Make POINT entities visible in most CAD viewers by default.
   lines.push('9', '$PDMODE', '70', '35');
   lines.push('9', '$PDSIZE', '40', '1.0');
+
+  if (Number.isFinite(bounds.minX) && Number.isFinite(bounds.maxX)) {
+    lines.push('9', '$EXTMIN', '10', String(bounds.minX), '20', String(bounds.minY), '30', String(bounds.minZ));
+    lines.push('9', '$EXTMAX', '10', String(bounds.maxX), '20', String(bounds.maxY), '30', String(bounds.maxZ));
+  }
 
   if (metadata && metadata.fromCrs && metadata.toCrs) {
     lines.push('999', `CRS_FROM=${metadata.fromCrs};CRS_TO=${metadata.toCrs}`);
@@ -711,6 +738,48 @@ export const exportAsDXFGeometry = (geometry, metadata = null) => {
     return null;
   }
 
+  const updateBounds = (acc, x, y, z = 0) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return acc;
+    acc.minX = Math.min(acc.minX, x);
+    acc.minY = Math.min(acc.minY, y);
+    acc.minZ = Math.min(acc.minZ, z);
+    acc.maxX = Math.max(acc.maxX, x);
+    acc.maxY = Math.max(acc.maxY, y);
+    acc.maxZ = Math.max(acc.maxZ, z);
+    return acc;
+  };
+
+  const geometryBounds = {
+    minX: Number.POSITIVE_INFINITY,
+    minY: Number.POSITIVE_INFINITY,
+    minZ: Number.POSITIVE_INFINITY,
+    maxX: Number.NEGATIVE_INFINITY,
+    maxY: Number.NEGATIVE_INFINITY,
+    maxZ: Number.NEGATIVE_INFINITY,
+  };
+
+  safeGeometry.points.forEach((pointEntity) => {
+    updateBounds(geometryBounds, Number(pointEntity?.x ?? pointEntity?.[0]), Number(pointEntity?.y ?? pointEntity?.[1]), Number(pointEntity?.z ?? pointEntity?.[2] ?? 0));
+  });
+  safeGeometry.lines.forEach((lineEntity) => {
+    const start = Array.isArray(lineEntity?.start) ? lineEntity.start : [];
+    const end = Array.isArray(lineEntity?.end) ? lineEntity.end : [];
+    updateBounds(geometryBounds, Number(start[0]), Number(start[1]), Number(start[2] ?? 0));
+    updateBounds(geometryBounds, Number(end[0]), Number(end[1]), Number(end[2] ?? 0));
+  });
+  safeGeometry.polylines.forEach((polyEntity) => {
+    const pts = Array.isArray(polyEntity?.points) ? polyEntity.points : [];
+    pts.forEach((pt) => updateBounds(geometryBounds, Number(pt?.[0]), Number(pt?.[1]), Number(pt?.[2] ?? 0)));
+  });
+  safeGeometry.texts.forEach((textEntity) => {
+    const position = Array.isArray(textEntity?.position) ? textEntity.position : [];
+    updateBounds(geometryBounds, Number(position[0]), Number(position[1]), Number(position[2] ?? 0));
+  });
+  safeGeometry.dimensions.forEach((dimEntity) => {
+    const mid = Array.isArray(dimEntity?.midPoint) ? dimEntity.midPoint : [];
+    updateBounds(geometryBounds, Number(mid[0]), Number(mid[1]), Number(mid[2] ?? 0));
+  });
+
   // HEADER section — R2000 (AC1015) for LWPOLYLINE support
   lines.push('0', 'SECTION', '2', 'HEADER');
   lines.push('9', '$ACADVER', '1', 'AC1015');
@@ -718,6 +787,10 @@ export const exportAsDXFGeometry = (geometry, metadata = null) => {
   lines.push('9', '$MEASUREMENT', '70', '1'); // 1 = Metric
   lines.push('9', '$PDMODE', '70', '35');
   lines.push('9', '$PDSIZE', '40', '1.0');
+  if (Number.isFinite(geometryBounds.minX) && Number.isFinite(geometryBounds.maxX)) {
+    lines.push('9', '$EXTMIN', '10', String(geometryBounds.minX), '20', String(geometryBounds.minY), '30', String(geometryBounds.minZ));
+    lines.push('9', '$EXTMAX', '10', String(geometryBounds.maxX), '20', String(geometryBounds.maxY), '30', String(geometryBounds.maxZ));
+  }
   if (metadata?.fromCrs && metadata?.toCrs) {
     lines.push('999', `CRS_FROM=${metadata.fromCrs};CRS_TO=${metadata.toCrs}`);
   }

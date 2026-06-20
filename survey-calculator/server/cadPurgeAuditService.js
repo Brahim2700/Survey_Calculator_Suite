@@ -901,7 +901,8 @@ export function analyzeDxfTextForPurgeAudit(dxfText, { fileName = '', options = 
     }
   }
 
-  const reachableBlocks = computeReachableBlocks(topLevelBlockRefs, blockGraph);
+  const allInsertRoots = new Set([...topLevelBlockRefs, ...blockInsertCounts.keys()]);
+  const reachableBlocks = computeReachableBlocks(allInsertRoots, blockGraph);
   for (const blockName of reachableBlocks) {
     usage.blocks.add(blockName);
   }
