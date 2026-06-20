@@ -1403,6 +1403,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
   const [cadPurgeAudit, setCadPurgeAudit] = useState(null);
   const [cadPurgeAuditLoading, setCadPurgeAuditLoading] = useState(false);
   const [cadPurgeAuditError, setCadPurgeAuditError] = useState("");
+  const [cadPurgeAuditMeta, setCadPurgeAuditMeta] = useState(null);
   const [cadSourceGeometry, setCadSourceGeometry] = useState(null);
   const [cadGeometrySourceCrs, setCadGeometrySourceCrs] = useState(null);
   const [cadValidationSortBy, setCadValidationSortBy] = useState("severity");
@@ -1730,12 +1731,40 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     setCadPurgeAuditLoading(true);
     setCadPurgeAuditError("");
     setBulkUploadError("");
+    const startedAt = Date.now();
+    const startedAtIso = new Date(startedAt).toISOString();
+    setCadPurgeAuditMeta({
+      status: "running",
+      fileName: file.name,
+      startedAtIso,
+      completedAtIso: null,
+      durationMs: null,
+    });
+    setBulkProgress("Running Safe PURGE Audit (read-only analysis)...");
 
     try {
       const report = await getCadPurgeAudit(file);
       setCadPurgeAudit(report || null);
+      const completedAt = Date.now();
+      setCadPurgeAuditMeta({
+        status: "ready",
+        fileName: file.name,
+        startedAtIso,
+        completedAtIso: new Date(completedAt).toISOString(),
+        durationMs: completedAt - startedAt,
+      });
+      setBulkProgress(null);
     } catch (err) {
+      const completedAt = Date.now();
       setCadPurgeAuditError(err?.message || "Safe PURGE Audit failed.");
+      setCadPurgeAuditMeta({
+        status: "error",
+        fileName: file.name,
+        startedAtIso,
+        completedAtIso: new Date(completedAt).toISOString(),
+        durationMs: completedAt - startedAt,
+      });
+      setBulkProgress(null);
     } finally {
       setCadPurgeAuditLoading(false);
     }
@@ -4260,6 +4289,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     setCadPurgeAudit(null);
     setCadPurgeAuditError("");
     setCadPurgeAuditLoading(false);
+    setCadPurgeAuditMeta(null);
     setCadSourceGeometry(null);
     setCadGeometrySourceCrs(null);
     setSelectedBulkRows([]);
@@ -4319,6 +4349,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     setCadPurgeAudit(null);
     setCadPurgeAuditError("");
     setCadPurgeAuditLoading(false);
+    setCadPurgeAuditMeta(null);
     setCadSourceGeometry(null);
     setCadGeometrySourceCrs(null);
     setCadInspection(file ? {
@@ -6589,9 +6620,52 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
                 {cadPurgeAudit?.summary && (
                   <div style={{ color: "#0f172a", background: "#f8fbff", border: "1px solid #bfdbfe", borderRadius: "6px", padding: "0.5rem 0.6rem", display: "grid", gap: "0.25rem" }}>
                     <div style={{ fontWeight: 700 }}>Safe PURGE Audit (dry-run)</div>
+                    <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginBottom: "0.1rem" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", padding: "0.1rem 0.45rem", borderRadius: "999px", fontSize: "0.74rem", fontWeight: 700, background: "#dcfce7", color: "#166534", border: "1px solid #86efac" }}>
+                        No drawing changes applied
+                      </span>
+                      {cadPurgeAuditMeta?.durationMs !== null && (
+                        <span style={{ display: "inline-flex", alignItems: "center", padding: "0.1rem 0.45rem", borderRadius: "999px", fontSize: "0.74rem", fontWeight: 700, background: "#dbeafe", color: "#1e3a8a", border: "1px solid #93c5fd" }}>
+                          Duration {(Number(cadPurgeAuditMeta.durationMs) / 1000).toFixed(2)}s
+                        </span>
+                      )}
+                      {cadPurgeAuditMeta?.status === "ready" && (
+                        <span style={{ display: "inline-flex", alignItems: "center", padding: "0.1rem 0.45rem", borderRadius: "999px", fontSize: "0.74rem", fontWeight: 700, background: "#ecfeff", color: "#155e75", border: "1px solid #67e8f9" }}>
+                          Analysis completed
+                        </span>
+                      )}
+                    </div>
+                    <div>Analyzed file: <strong>{cadPurgeAuditMeta?.fileName || bulkUploadFile?.name || cadPurgeAudit?.fileName || "Unknown"}</strong></div>
+                    <div>Completed: {cadPurgeAuditMeta?.completedAtIso ? new Date(cadPurgeAuditMeta.completedAtIso).toLocaleString() : "now"}</div>
                     <div>Safety: geometry protected={cadPurgeAudit?.safety?.geometryProtected ? "yes" : "no"}, modifies drawing={cadPurgeAudit?.willModifyDrawing ? "yes" : "no"}</div>
                     <div>Total candidate definitions: <strong>{cadPurgeAudit.summary.totalCandidates ?? 0}</strong></div>
                     <div>Overkill potential: duplicate line groups={cadPurgeAudit.summary?.overkillPotential?.duplicateLineGroups ?? 0}, duplicate line entities={cadPurgeAudit.summary?.overkillPotential?.duplicateLineEntities ?? 0}</div>
+                    <div style={{ marginTop: "0.25rem", background: "#ffffff", border: "1px solid #dbeafe", borderRadius: "6px", padding: "0.45rem 0.55rem" }}>
+                      <div style={{ fontWeight: 700, marginBottom: "0.25rem" }}>What was done for this file</div>
+                      <ul style={{ margin: "0.25rem 0 0 1rem" }}>
+                        <li>Scanned named definition tables and reference graph for unused entries.</li>
+                        <li>Computed purge candidates by category without editing the drawing database.</li>
+                        <li>Estimated Overkill opportunities using duplicate LINE grouping.</li>
+                      </ul>
+                    </div>
+                    {cadPurgeAudit?.summary?.totalDefinitions && cadPurgeAudit?.summary?.candidateCounts && (
+                      <details style={{ marginTop: "0.2rem" }}>
+                        <summary style={{ cursor: "pointer", fontWeight: 700 }}>Impact preview (before vs after apply)</summary>
+                        <div style={{ marginTop: "0.3rem", display: "grid", gap: "0.2rem", fontSize: "0.8rem" }}>
+                          {CAD_PURGE_AUDIT_SECTIONS.map((section) => {
+                            const before = Number(cadPurgeAudit.summary?.totalDefinitions?.[section.key] ?? 0);
+                            const removed = Number(cadPurgeAudit.summary?.candidateCounts?.[section.key] ?? 0);
+                            const after = Math.max(0, before - removed);
+                            if (!before && !removed) return null;
+                            return (
+                              <div key={`${section.key}-impact`}>
+                                <strong>{section.label}:</strong> {before} -> {after} (would remove {removed})
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </details>
+                    )}
                     {CAD_PURGE_AUDIT_SECTIONS.map((section) => {
                       const items = Array.isArray(cadPurgeAudit?.candidates?.[section.key]) ? cadPurgeAudit.candidates[section.key] : [];
                       if (items.length === 0) return null;
