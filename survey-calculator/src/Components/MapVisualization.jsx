@@ -317,6 +317,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
   const [labelsTouched, setLabelsTouched] = useState(false);
   const [hiddenCadLayers, setHiddenCadLayers] = useState({});
   const [robustFitDebug, setRobustFitDebug] = useState({ active: false, message: '' });
+  const [mapViewportWidth, setMapViewportWidth] = useState(0);
 
   const effectiveShowLabels =
     Array.isArray(points) && points.length === 0
@@ -2171,6 +2172,11 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
   useEffect(() => {
     if (!isVisible || !map.current || !mapContainer.current) return;
 
+    const updateViewportMetrics = () => {
+      if (!mapRootContainer.current) return;
+      setMapViewportWidth(mapRootContainer.current.clientWidth || 0);
+    };
+
     const applyViewportConstraints = () => {
       if (!map.current) return;
       map.current.invalidateSize({ pan: false, debounceMoveend: true });
@@ -2182,6 +2188,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
           map.current.setZoom(minZoomForViewport);
         }
       }
+      updateViewportMetrics();
     };
 
     const initialFrame = requestAnimationFrame(applyViewportConstraints);
@@ -2200,12 +2207,16 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
     const handleWindowResize = () => requestAnimationFrame(applyViewportConstraints);
     window.addEventListener('resize', handleWindowResize);
 
+    updateViewportMetrics();
+
     return () => {
       cancelAnimationFrame(initialFrame);
       window.removeEventListener('resize', handleWindowResize);
       if (resizeObserver) resizeObserver.disconnect();
     };
   }, [isVisible, mapFocusMode]);
+
+  const legendDockLeft = mapFocusMode || (mapViewportWidth > 0 && mapViewportWidth < 920);
 
   return (
     <div
@@ -2236,14 +2247,15 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
           className="map-legend-overlay"
           style={{
             position: 'absolute',
-            top: '10px',
-            right: '10px',
+            top: legendDockLeft ? '110px' : '10px',
+            left: legendDockLeft ? '10px' : 'auto',
+            right: legendDockLeft ? 'auto' : '10px',
             backgroundColor: 'rgba(15,32,64,0.9)',
             backdropFilter: 'blur(8px)',
             padding: '8px 9px',
             borderRadius: '12px',
             boxShadow: '0 4px 16px rgba(0,0,0,0.24)',
-            zIndex: 999,
+            zIndex: 1200,
             fontSize: '10px',
             lineHeight: '1.35',
             border: '1px solid rgba(255,255,255,0.10)',
