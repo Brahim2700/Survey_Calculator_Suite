@@ -1406,6 +1406,11 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
   const [cadPurgeApplyReport, setCadPurgeApplyReport] = useState(null);
   const [cadPurgeApplyLoading, setCadPurgeApplyLoading] = useState(false);
   const [cadPurgeApplyError, setCadPurgeApplyError] = useState("");
+  const [showCadPurgeAdvancedOptions, setShowCadPurgeAdvancedOptions] = useState(false);
+  const [cadPurgeXrefMode, setCadPurgeXrefMode] = useState("report-only");
+  const [cadPurgeOverkillMode, setCadPurgeOverkillMode] = useState("report-only");
+  const [cadPurgeOverkillTolerance, setCadPurgeOverkillTolerance] = useState("0.000001");
+  const [cadPurgeTemplateTransferEnabled, setCadPurgeTemplateTransferEnabled] = useState(false);
   const [cadSourceGeometry, setCadSourceGeometry] = useState(null);
   const [cadGeometrySourceCrs, setCadGeometrySourceCrs] = useState(null);
   const [cadValidationSortBy, setCadValidationSortBy] = useState("severity");
@@ -1728,6 +1733,14 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       return;
     }
 
+    const parsedTolerance = Number(cadPurgeOverkillTolerance);
+    const purgeOptions = {
+      xrefMode: cadPurgeXrefMode === 'detach-unreferenced' ? 'detach-unreferenced' : 'report-only',
+      overkillMode: cadPurgeOverkillMode === 'delete-duplicates' ? 'delete-duplicates' : 'report-only',
+      overkillTolerance: Number.isFinite(parsedTolerance) && parsedTolerance > 0 ? parsedTolerance : 1e-6,
+      templateTransferMode: cadPurgeTemplateTransferEnabled ? 'clean-template-transfer' : 'none',
+    };
+
     setCadPurgeApplyLoading(true);
     setCadPurgeApplyError("");
     setBulkUploadError("");
@@ -1743,7 +1756,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     setBulkProgress("Applying SafePurge to audited unreferenced definitions...");
 
     try {
-      const report = await getCadPurgeApply(file);
+      const report = await getCadPurgeApply(file, { purgeOptions });
       setCadPurgeApplyReport(report || null);
       if (report?.cleanedDxfText) {
         const outputName = report?.cleanedFileName || `${file.name.replace(/\.[^.]+$/, '') || 'drawing'}-safepurge.dxf`;
@@ -1776,7 +1789,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     } finally {
       setCadPurgeApplyLoading(false);
     }
-  }, [bulkUploadFile]);
+  }, [bulkUploadFile, cadPurgeOverkillMode, cadPurgeOverkillTolerance, cadPurgeTemplateTransferEnabled, cadPurgeXrefMode]);
 
   const detectLocalReferenceFromRows = useCallback((rows) => {
     if (!Array.isArray(rows) || rows.length === 0) return null;
@@ -6404,6 +6417,25 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
             </button>
           </MapToolTip>
           <MapToolTip
+            title="SafePurge Advanced"
+            description="Configure optional XREF/Overkill/template-transfer policies. Defaults are conservative and safe."
+          >
+            <button
+              onClick={() => setShowCadPurgeAdvancedOptions((prev) => !prev)}
+              style={{
+                padding: "0.5rem 0.9rem",
+                background: "#f8fafc",
+                color: "#0f172a",
+                border: "1px solid #cbd5e1",
+                borderRadius: "6px",
+                cursor: "pointer",
+                fontWeight: 600,
+              }}
+            >
+              {showCadPurgeAdvancedOptions ? "Hide SafePurge Advanced" : "Show SafePurge Advanced"}
+            </button>
+          </MapToolTip>
+          <MapToolTip
             title={t('converter.downloadCadSummaryTitle')}
             description={t('converter.downloadCadSummaryDescription')}
           >
@@ -6441,6 +6473,62 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
           </MapToolTip>
           {bulkUploadFile && <span style={{ fontSize: "0.85rem", color: "#059669", fontWeight: 500 }}>✓ {bulkUploadFile.name}</span>}
         </div>
+        {showCadPurgeAdvancedOptions && (
+          <div style={{ border: "1px solid #cbd5e1", borderRadius: "8px", background: "#f8fafc", padding: "0.65rem 0.75rem", display: "grid", gap: "0.55rem" }}>
+            <div style={{ fontWeight: 700, color: "#0f172a", fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              SafePurge Advanced Options
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "0.55rem" }}>
+              <label style={{ display: "grid", gap: "0.25rem", fontSize: "0.82rem", color: "#334155" }}>
+                XREF policy
+                <select
+                  value={cadPurgeXrefMode}
+                  onChange={(e) => setCadPurgeXrefMode(e.target.value)}
+                  style={{ borderRadius: "6px", border: "1px solid #cbd5e1", padding: "0.35rem 0.45rem", fontSize: "0.8rem" }}
+                >
+                  <option value="report-only">Report-only (default, safest)</option>
+                  <option value="detach-unreferenced">Detach only unreferenced XREFs</option>
+                </select>
+              </label>
+
+              <label style={{ display: "grid", gap: "0.25rem", fontSize: "0.82rem", color: "#334155" }}>
+                Overkill mode
+                <select
+                  value={cadPurgeOverkillMode}
+                  onChange={(e) => setCadPurgeOverkillMode(e.target.value)}
+                  style={{ borderRadius: "6px", border: "1px solid #cbd5e1", padding: "0.35rem 0.45rem", fontSize: "0.8rem" }}
+                >
+                  <option value="report-only">Report duplicates only (default)</option>
+                  <option value="delete-duplicates">Delete conservative duplicates</option>
+                </select>
+              </label>
+
+              <label style={{ display: "grid", gap: "0.25rem", fontSize: "0.82rem", color: "#334155" }}>
+                Overkill tolerance
+                <input
+                  type="number"
+                  min="0.000000001"
+                  step="0.0000001"
+                  value={cadPurgeOverkillTolerance}
+                  onChange={(e) => setCadPurgeOverkillTolerance(e.target.value)}
+                  style={{ borderRadius: "6px", border: "1px solid #cbd5e1", padding: "0.35rem 0.45rem", fontSize: "0.8rem" }}
+                />
+              </label>
+
+              <label style={{ display: "flex", alignItems: "center", gap: "0.45rem", fontSize: "0.82rem", color: "#334155", border: "1px dashed #cbd5e1", borderRadius: "6px", padding: "0.45rem 0.55rem", background: "#fff" }}>
+                <input
+                  type="checkbox"
+                  checked={cadPurgeTemplateTransferEnabled}
+                  onChange={(e) => setCadPurgeTemplateTransferEnabled(e.target.checked)}
+                />
+                Clean template transfer mode
+              </label>
+            </div>
+            <div style={{ fontSize: "0.78rem", color: "#475569" }}>
+              Defaults remain conservative: XREF report-only, Overkill report-only, and template transfer disabled until explicitly enabled.
+            </div>
+          </div>
+        )}
         {bulkUploadError && <div role="alert" style={{ color: "#b91c1c" }}>{bulkUploadError}</div>}
         {importCrsNotice && (
           <div role="status" style={{ color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "6px", padding: "0.55rem 0.7rem", fontSize: "0.84rem" }}>
@@ -6628,6 +6716,17 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
                     <div>Output file: <strong>{cadPurgeApplyReport.cleanedFileName || "cleaned-safepurge.dxf"}</strong></div>
                     <div>Total definitions removed: <strong>{cadPurgeApplyReport?.summary?.removedTotal ?? 0}</strong></div>
                     <div>Geometry safety: removed geometry = {cadPurgeApplyReport?.willRemoveGeometry ? "yes" : "no"}</div>
+                    {cadPurgeApplyReport?.optionsApplied && (
+                      <div>
+                        Modes: XREF=<strong>{cadPurgeApplyReport.optionsApplied.xrefMode || "report-only"}</strong>, Overkill=<strong>{cadPurgeApplyReport.optionsApplied.overkillMode || "report-only"}</strong>, Transfer=<strong>{cadPurgeApplyReport.optionsApplied.templateTransferMode || "none"}</strong>
+                      </div>
+                    )}
+                    {Number(cadPurgeApplyReport?.summary?.xrefs?.detachedUnreferencedCount ?? 0) > 0 && (
+                      <div>XREF detached (unreferenced only): <strong>{Number(cadPurgeApplyReport.summary.xrefs.detachedUnreferencedCount)}</strong></div>
+                    )}
+                    {Number(cadPurgeApplyReport?.summary?.overkill?.removedDuplicatesTotal ?? 0) > 0 && (
+                      <div>Overkill duplicates removed: <strong>{Number(cadPurgeApplyReport.summary.overkill.removedDuplicatesTotal)}</strong></div>
+                    )}
                     {Number.isFinite(Number(cadPurgeApplyReport?.summary?.sizeBeforeBytes)) && Number.isFinite(Number(cadPurgeApplyReport?.summary?.sizeAfterBytes)) && (
                       <div>
                         DXF size (before -> after): {formatBytes(Number(cadPurgeApplyReport.summary.sizeBeforeBytes))} -> {formatBytes(Number(cadPurgeApplyReport.summary.sizeAfterBytes))}
