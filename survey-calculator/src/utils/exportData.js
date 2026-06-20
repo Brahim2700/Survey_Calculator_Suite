@@ -780,9 +780,9 @@ export const exportAsDXFGeometry = (geometry, metadata = null) => {
     updateBounds(geometryBounds, Number(mid[0]), Number(mid[1]), Number(mid[2] ?? 0));
   });
 
-  // HEADER section — R2000 (AC1015) for LWPOLYLINE support
+  // HEADER section — R12 (AC1009) for maximum AutoCAD compatibility.
   lines.push('0', 'SECTION', '2', 'HEADER');
-  lines.push('9', '$ACADVER', '1', 'AC1015');
+  lines.push('9', '$ACADVER', '1', 'AC1009');
   lines.push('9', '$INSUNITS', '70', '6'); // 6 = Meters
   lines.push('9', '$MEASUREMENT', '70', '1'); // 1 = Metric
   lines.push('9', '$PDMODE', '70', '35');
@@ -796,7 +796,7 @@ export const exportAsDXFGeometry = (geometry, metadata = null) => {
   }
   lines.push('0', 'ENDSEC');
 
-  // TABLES section — with color-preserving LAYER entries
+  // TABLES section — include LTYPE, LAYER and STYLE for strict readers.
   const layerMetas = collectGeometryLayersWithMeta(safeGeometry);
   lines.push('0', 'SECTION', '2', 'TABLES');
   lines.push('0', 'TABLE', '2', 'LTYPE', '70', '1');
@@ -807,6 +807,10 @@ export const exportAsDXFGeometry = (geometry, metadata = null) => {
   layerMetas.forEach(({ name, aci }) => {
     lines.push('0', 'LAYER', '2', name, '70', '0', '62', String(aci), '6', 'CONTINUOUS');
   });
+  lines.push('0', 'ENDTAB');
+
+  lines.push('0', 'TABLE', '2', 'STYLE', '70', '1');
+  lines.push('0', 'STYLE', '2', 'STANDARD', '70', '0', '40', '0', '41', '1', '50', '0', '71', '0', '42', '0.2', '3', 'txt', '4', '');
   lines.push('0', 'ENDTAB');
   lines.push('0', 'ENDSEC');
 
@@ -844,22 +848,24 @@ export const exportAsDXFGeometry = (geometry, metadata = null) => {
     lines.push('0', 'LINE', '8', layer, '10', String(x1), '20', String(y1), '30', String(z1), '11', String(x2), '21', String(y2), '31', String(z2));
   });
 
-  // LWPOLYLINE entities (R2000+, more compact than legacy POLYLINE)
+  // Legacy POLYLINE entities for broader compatibility.
   safeGeometry.polylines.forEach((polyEntity) => {
     const pts = (Array.isArray(polyEntity?.points) ? polyEntity.points : [])
       .map((point) => {
         const x = toFiniteNumber(point?.[0], NaN);
         const y = toFiniteNumber(point?.[1], NaN);
+        const z = toFiniteNumber(point?.[2], 0);
         if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-        return [x, y];
+        return [x, y, z];
       })
       .filter(Boolean);
     if (pts.length < 2) return;
     const layer = normalizeDxfLayerName(polyEntity?.layerStandardized || polyEntity?.layerNormalized || polyEntity?.layerOriginal || polyEntity?.layer || '0');
-    lines.push('0', 'LWPOLYLINE', '8', layer, '90', String(pts.length), '70', '0');
-    pts.forEach(([x, y]) => {
-      lines.push('10', String(x), '20', String(y));
+    lines.push('0', 'POLYLINE', '8', layer, '66', '1', '70', '0', '10', '0', '20', '0', '30', '0');
+    pts.forEach(([x, y, z]) => {
+      lines.push('0', 'VERTEX', '8', layer, '10', String(x), '20', String(y), '30', String(z));
     });
+    lines.push('0', 'SEQEND', '8', layer);
   });
 
   // TEXT entities
