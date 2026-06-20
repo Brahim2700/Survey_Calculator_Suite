@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analyzeDxfTextForPurgeAudit } from '../../server/cadPurgeAuditService.js';
+import { analyzeDxfTextForPurgeAudit, runCadPurgeApply } from '../../server/cadPurgeAuditService.js';
 
 function buildMinimalDxf() {
   return [
@@ -121,5 +121,38 @@ describe('analyzeDxfTextForPurgeAudit', () => {
     expect(report.candidates.textStyles).not.toContain('STANDARD');
     expect(report.candidates.dimensionStyles).not.toContain('STANDARD');
     expect(report.candidates.regapps).not.toContain('ACAD');
+  });
+
+  it('applies safe purge only to unreferenced definitions and keeps geometry safety', async () => {
+    const input = buildMinimalDxf();
+    const result = await runCadPurgeApply({
+      buffer: Buffer.from(input, 'utf8'),
+      originalName: 'sample.dxf',
+    });
+
+    expect(result.mode).toBe('apply-safe');
+    expect(result.safe).toBe(true);
+    expect(result.willModifyDrawing).toBe(true);
+    expect(result.willRemoveGeometry).toBe(false);
+
+    expect(result.summary.removedCounts.layers).toBeGreaterThanOrEqual(1);
+    expect(result.summary.removedCounts.linetypes).toBeGreaterThanOrEqual(1);
+    expect(result.summary.removedCounts.textStyles).toBeGreaterThanOrEqual(1);
+    expect(result.summary.removedCounts.dimensionStyles).toBeGreaterThanOrEqual(1);
+    expect(result.summary.removedCounts.regapps).toBeGreaterThanOrEqual(1);
+    expect(result.summary.removedCounts.blocks).toBeGreaterThanOrEqual(1);
+    expect(result.summary.removedCounts.xrefs).toBeGreaterThanOrEqual(1);
+
+    expect(result.auditAfter?.summary?.candidateCounts?.layers ?? 0).toBe(0);
+    expect(result.auditAfter?.summary?.candidateCounts?.linetypes ?? 0).toBe(0);
+    expect(result.auditAfter?.summary?.candidateCounts?.textStyles ?? 0).toBe(0);
+    expect(result.auditAfter?.summary?.candidateCounts?.dimensionStyles ?? 0).toBe(0);
+    expect(result.auditAfter?.summary?.candidateCounts?.regapps ?? 0).toBe(0);
+
+    expect(result.cleanedDxfText).toContain('SECTION');
+    expect(result.cleanedDxfText).toContain('EOF');
+    expect(result.cleanedDxfText).toContain('USED_BLOCK');
+    expect(result.cleanedDxfText).not.toContain('UNUSED_BLOCK');
+    expect(result.cleanedDxfText).not.toContain('XREF_UNUSED');
   });
 });

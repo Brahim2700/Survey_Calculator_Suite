@@ -142,6 +142,210 @@ function buildUnusedList(registry, usedSet, protectedSet = new Set(), customFilt
   return values;
 }
 
+function buildRemovalSetsFromAudit(audit) {
+  const candidates = audit?.candidates || {};
+  const normalizeList = (key) => new Set(
+    (Array.isArray(candidates?.[key]) ? candidates[key] : [])
+      .map((name) => normalizeName(name))
+      .filter(Boolean)
+  );
+
+  return {
+    layers: normalizeList('layers'),
+    linetypes: normalizeList('linetypes'),
+    textStyles: normalizeList('textStyles'),
+    dimensionStyles: normalizeList('dimensionStyles'),
+    regapps: normalizeList('regapps'),
+    blocks: normalizeList('blocks'),
+    xrefs: normalizeList('xrefs'),
+    mleaderStyles: normalizeList('mleaderStyles'),
+  };
+}
+
+function emptyRemovedNames() {
+  return {
+    layers: new Set(),
+    linetypes: new Set(),
+    textStyles: new Set(),
+    dimensionStyles: new Set(),
+    regapps: new Set(),
+    blocks: new Set(),
+    xrefs: new Set(),
+    mleaderStyles: new Set(),
+  };
+}
+
+function serializeRecordsToDxfText(records) {
+  const lines = [];
+
+  for (const record of records) {
+    const pairs = Array.isArray(record?.pairs) ? record.pairs : [];
+    for (const pair of pairs) {
+      lines.push(String(pair.code ?? '0'));
+      lines.push(String(pair.value ?? ''));
+    }
+  }
+
+  const eofIdx = records.findIndex((record) => record?.type === 'EOF');
+  if (eofIdx < 0) {
+    lines.push('0', 'EOF');
+  }
+
+  return `${lines.join('\n')}\n`;
+}
+
+function applySafePurgeToDxfText(dxfText, audit) {
+  const records = buildRecordsFromDxfText(dxfText);
+  const removalSets = buildRemovalSetsFromAudit(audit);
+  const removedNames = emptyRemovedNames();
+  const kept = [];
+
+  let section = '';
+  let table = '';
+  let skippingBlock = false;
+
+  for (const record of records) {
+    const type = record.type;
+
+    if (type === 'SECTION') {
+      section = normalizeName(getRecordValue(record, 2));
+      table = '';
+      if (!skippingBlock) kept.push(record);
+      continue;
+    }
+
+    if (type === 'ENDSEC') {
+      section = '';
+      table = '';
+      if (!skippingBlock) kept.push(record);
+      continue;
+    }
+
+    if (section === 'TABLES') {
+      if (type === 'TABLE') {
+        table = normalizeName(getRecordValue(record, 2));
+        kept.push(record);
+        continue;
+      }
+      if (type === 'ENDTAB') {
+        table = '';
+        kept.push(record);
+        continue;
+      }
+
+      if (table === 'LAYER' && type === 'LAYER') {
+        const name = getRecordValue(record, 2);
+        const norm = normalizeName(name);
+        if (removalSets.layers.has(norm)) {
+          removedNames.layers.add(name);
+          continue;
+        }
+      }
+
+      if (table === 'LTYPE' && type === 'LTYPE') {
+        const name = getRecordValue(record, 2);
+        const norm = normalizeName(name);
+        if (removalSets.linetypes.has(norm)) {
+          removedNames.linetypes.add(name);
+          continue;
+        }
+      }
+
+      if (table === 'STYLE' && type === 'STYLE') {
+        const name = getRecordValue(record, 2);
+        const norm = normalizeName(name);
+        if (removalSets.textStyles.has(norm)) {
+          removedNames.textStyles.add(name);
+          continue;
+        }
+      }
+
+      if (table === 'DIMSTYLE' && type === 'DIMSTYLE') {
+        const name = getRecordValue(record, 2);
+        const norm = normalizeName(name);
+        if (removalSets.dimensionStyles.has(norm)) {
+          removedNames.dimensionStyles.add(name);
+          continue;
+        }
+      }
+
+      if (table === 'APPID' && type === 'APPID') {
+        const name = getRecordValue(record, 2);
+        const norm = normalizeName(name);
+        if (removalSets.regapps.has(norm)) {
+          removedNames.regapps.add(name);
+          continue;
+        }
+      }
+
+      if (table === 'BLOCK_RECORD' && type === 'BLOCK_RECORD') {
+        const name = getRecordValue(record, 2);
+        const norm = normalizeName(name);
+        if (removalSets.blocks.has(norm)) {
+          removedNames.blocks.add(name);
+          continue;
+        }
+        if (removalSets.xrefs.has(norm)) {
+          removedNames.xrefs.add(name);
+          continue;
+        }
+      }
+
+      kept.push(record);
+      continue;
+    }
+
+    if (section === 'BLOCKS') {
+      if (!skippingBlock && type === 'BLOCK') {
+        const name = getRecordValue(record, 2);
+        const norm = normalizeName(name);
+        if (removalSets.blocks.has(norm) || removalSets.xrefs.has(norm)) {
+          skippingBlock = true;
+          if (removalSets.xrefs.has(norm)) removedNames.xrefs.add(name);
+          else removedNames.blocks.add(name);
+          continue;
+        }
+      }
+
+      if (skippingBlock) {
+        if (type === 'ENDBLK') {
+          skippingBlock = false;
+        }
+        continue;
+      }
+    }
+
+    if (section === 'OBJECTS' && type === 'MLEADERSTYLE') {
+      const name = getRecordValue(record, 3) || getRecordValue(record, 2) || getRecordValue(record, 300);
+      const norm = normalizeName(name);
+      if (removalSets.mleaderStyles.has(norm)) {
+        removedNames.mleaderStyles.add(name);
+        continue;
+      }
+    }
+
+    kept.push(record);
+  }
+
+  const removed = Object.fromEntries(
+    Object.entries(removedNames).map(([key, set]) => [key, [...set].sort((a, b) => String(a).localeCompare(String(b)))])
+  );
+
+  const removedCounts = Object.fromEntries(
+    Object.entries(removed).map(([key, list]) => [key, Array.isArray(list) ? list.length : 0])
+  );
+
+  const removedTotal = Object.values(removedCounts).reduce((sum, value) => sum + Number(value || 0), 0);
+  const cleanedDxfText = serializeRecordsToDxfText(kept);
+
+  return {
+    cleanedDxfText,
+    removed,
+    removedCounts,
+    removedTotal,
+  };
+}
+
 export function analyzeDxfTextForPurgeAudit(dxfText, { fileName = '' } = {}) {
   const records = buildRecordsFromDxfText(dxfText);
   if (!records.length) {
@@ -395,5 +599,47 @@ export async function runCadPurgeAudit({ buffer, originalName }) {
       converterAttemptedModes: Array.isArray(resolution.converterAttemptedModes) ? resolution.converterAttemptedModes : [],
       notes: Array.isArray(resolution.notes) ? resolution.notes : [],
     },
+  };
+}
+
+export async function runCadPurgeApply({ buffer, originalName }) {
+  const resolution = await resolveCadUploadToDxfText({ buffer, originalName });
+  const auditBefore = analyzeDxfTextForPurgeAudit(resolution.dxfText, { fileName: originalName });
+  const applyResult = applySafePurgeToDxfText(resolution.dxfText, auditBefore);
+  const auditAfter = analyzeDxfTextForPurgeAudit(applyResult.cleanedDxfText, { fileName: originalName });
+  const cleanedFileName = `${String(originalName || 'drawing').replace(/\.[^.]+$/, '') || 'drawing'}-safepurge.dxf`;
+
+  return {
+    mode: 'apply-safe',
+    fileName: String(originalName || ''),
+    cleanedFileName,
+    safe: true,
+    willModifyDrawing: true,
+    willRemoveGeometry: false,
+    summary: {
+      removedTotal: applyResult.removedTotal,
+      removedCounts: applyResult.removedCounts,
+      candidateCountsBefore: auditBefore?.summary?.candidateCounts || null,
+      candidateCountsAfter: auditAfter?.summary?.candidateCounts || null,
+    },
+    removed: applyResult.removed,
+    safety: {
+      geometryProtected: true,
+      notes: [
+        'SafePurge Apply removes only definitions proven unreferenced by audit analysis.',
+        'Model space and paper space block records are protected and never removed.',
+        'Referenced blocks (directly or through block trees) are not removed.',
+        'Protected defaults/system objects are retained.',
+      ],
+    },
+    sourceFormat: resolution.sourceFormat,
+    conversion: {
+      converterModeUsed: resolution.converterModeUsed || null,
+      converterAttemptedModes: Array.isArray(resolution.converterAttemptedModes) ? resolution.converterAttemptedModes : [],
+      notes: Array.isArray(resolution.notes) ? resolution.notes : [],
+    },
+    auditBefore,
+    auditAfter,
+    cleanedDxfText: applyResult.cleanedDxfText,
   };
 }

@@ -10,7 +10,7 @@ import CrsSearchSelector from "./CrsSearchSelector";
 import GeoidLoader from "./GeoidLoader";
 import MapToolTip from "./MapToolTip";
 import { tryParseWKT, tryParseUTM, parseHemisphericNumber, parseGeoJSONFile, parseGPXFile, parseKMLFile, parseKMZFile, parseShapefileZip, parseXLSXFile, parseDXFFile, parseDWGFile } from "../utils/fileImport";
-import { getCadBackendStatus, getCadPurgeAudit } from "../utils/cadApi";
+import { getCadBackendStatus, getCadPurgeAudit, getCadPurgeApply } from "../utils/cadApi";
 import { exportAsCSV, exportAsGeoJSON, exportAsKML, exportAsGPX, exportAsXLSX, exportAsWKT, exportAsDXF, exportAsDXFGeometry, exportAllFormats, downloadFile } from "../utils/exportData";
 // Import the map visualization component
 import MapVisualization from "./MapVisualization";
@@ -1404,6 +1404,9 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
   const [cadPurgeAuditLoading, setCadPurgeAuditLoading] = useState(false);
   const [cadPurgeAuditError, setCadPurgeAuditError] = useState("");
   const [cadPurgeAuditMeta, setCadPurgeAuditMeta] = useState(null);
+  const [cadPurgeApplyReport, setCadPurgeApplyReport] = useState(null);
+  const [cadPurgeApplyLoading, setCadPurgeApplyLoading] = useState(false);
+  const [cadPurgeApplyError, setCadPurgeApplyError] = useState("");
   const [cadSourceGeometry, setCadSourceGeometry] = useState(null);
   const [cadGeometrySourceCrs, setCadGeometrySourceCrs] = useState(null);
   const [cadValidationSortBy, setCadValidationSortBy] = useState("severity");
@@ -1767,6 +1770,45 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       setBulkProgress(null);
     } finally {
       setCadPurgeAuditLoading(false);
+    }
+  }, [bulkUploadFile]);
+
+  const runCadPurgeApplyForSelectedFile = useCallback(async () => {
+    const file = bulkUploadFile;
+    const ext = (file?.name?.split('.')?.pop() || '').toLowerCase();
+
+    if (!file || !["dxf", "dwg"].includes(ext)) {
+      setCadPurgeApplyError("Select a DXF or DWG file to run SafePurge Apply.");
+      return;
+    }
+
+    const confirmation = window.prompt('Type APPLY to confirm SafePurge apply mode. This produces a cleaned DXF copy and removes only unreferenced definitions.');
+    if (String(confirmation || '').trim().toUpperCase() !== 'APPLY') {
+      return;
+    }
+
+    setCadPurgeApplyLoading(true);
+    setCadPurgeApplyError("");
+    setBulkUploadError("");
+    setBulkProgress("Applying SafePurge to audited unreferenced definitions...");
+
+    try {
+      const report = await getCadPurgeApply(file);
+      setCadPurgeApplyReport(report || null);
+      if (report?.cleanedDxfText) {
+        const outputName = report?.cleanedFileName || `${file.name.replace(/\.[^.]+$/, '') || 'drawing'}-safepurge.dxf`;
+        downloadFile(report.cleanedDxfText, outputName, 'dxf');
+      }
+
+      if (report?.auditAfter) {
+        setCadPurgeAudit(report.auditAfter);
+      }
+      setBulkProgress(null);
+    } catch (err) {
+      setCadPurgeApplyError(err?.message || "SafePurge apply failed.");
+      setBulkProgress(null);
+    } finally {
+      setCadPurgeApplyLoading(false);
     }
   }, [bulkUploadFile]);
 
@@ -4290,6 +4332,9 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     setCadPurgeAuditError("");
     setCadPurgeAuditLoading(false);
     setCadPurgeAuditMeta(null);
+    setCadPurgeApplyReport(null);
+    setCadPurgeApplyError("");
+    setCadPurgeApplyLoading(false);
     setCadSourceGeometry(null);
     setCadGeometrySourceCrs(null);
     setSelectedBulkRows([]);
@@ -4350,6 +4395,9 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     setCadPurgeAuditError("");
     setCadPurgeAuditLoading(false);
     setCadPurgeAuditMeta(null);
+    setCadPurgeApplyReport(null);
+    setCadPurgeApplyError("");
+    setCadPurgeApplyLoading(false);
     setCadSourceGeometry(null);
     setCadGeometrySourceCrs(null);
     setCadInspection(file ? {
@@ -6392,6 +6440,27 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
             </button>
           </MapToolTip>
           <MapToolTip
+            title="Apply SafePurge"
+            description="Removes only unreferenced definitions from a cleaned DXF copy, while keeping protected/system objects and all referenced geometry definitions."
+          >
+            <button
+              onClick={runCadPurgeApplyForSelectedFile}
+              disabled={cadPurgeApplyLoading || !bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())}
+              style={{
+                padding: "0.5rem 0.9rem",
+                background: "#14532d",
+                color: "#fff",
+                border: "none",
+                borderRadius: "6px",
+                cursor: cadPurgeApplyLoading ? "wait" : "pointer",
+                fontWeight: 600,
+                opacity: (!bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())) ? 0.65 : 1,
+              }}
+            >
+              {cadPurgeApplyLoading ? "Applying SafePurge..." : "Apply SafePurge"}
+            </button>
+          </MapToolTip>
+          <MapToolTip
             title={t('converter.downloadCadSummaryTitle')}
             description={t('converter.downloadCadSummaryDescription')}
           >
@@ -6615,6 +6684,29 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
                 {cadPurgeAuditError && (
                   <div style={{ color: "#991b1b", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "6px", padding: "0.45rem 0.55rem" }}>
                     <strong>Safe PURGE Audit:</strong> {cadPurgeAuditError}
+                  </div>
+                )}
+                {cadPurgeApplyError && (
+                  <div style={{ color: "#991b1b", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "6px", padding: "0.45rem 0.55rem" }}>
+                    <strong>SafePurge Apply:</strong> {cadPurgeApplyError}
+                  </div>
+                )}
+                {cadPurgeApplyReport?.summary && (
+                  <div style={{ color: "#0f172a", background: "#f0fdf4", border: "1px solid #86efac", borderRadius: "6px", padding: "0.5rem 0.6rem", display: "grid", gap: "0.25rem" }}>
+                    <div style={{ fontWeight: 700 }}>SafePurge Apply completed</div>
+                    <div>Output file: <strong>{cadPurgeApplyReport.cleanedFileName || "cleaned-safepurge.dxf"}</strong></div>
+                    <div>Total definitions removed: <strong>{cadPurgeApplyReport?.summary?.removedTotal ?? 0}</strong></div>
+                    <div>Geometry safety: removed geometry = {cadPurgeApplyReport?.willRemoveGeometry ? "yes" : "no"}</div>
+                    <details>
+                      <summary style={{ cursor: "pointer", fontWeight: 600 }}>Removed counts by category</summary>
+                      <div style={{ marginTop: "0.3rem", display: "grid", gap: "0.2rem", fontSize: "0.8rem" }}>
+                        {CAD_PURGE_AUDIT_SECTIONS.map((section) => {
+                          const count = Number(cadPurgeApplyReport?.summary?.removedCounts?.[section.key] ?? 0);
+                          if (count <= 0) return null;
+                          return <div key={`${section.key}-removed`}><strong>{section.label}:</strong> {count}</div>;
+                        })}
+                      </div>
+                    </details>
                   </div>
                 )}
                 {cadPurgeAudit?.summary && (

@@ -483,3 +483,25 @@ export async function getCadPurgeAudit(file, options = {}) {
 
   return payload || null;
 }
+
+export async function getCadPurgeApply(file, options = {}) {
+  if (!file) {
+    throw new Error('No CAD file was provided for safe purge apply.');
+  }
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${CAD_API_BASE_URL}/purge/apply`, {
+    method: 'POST',
+    body: formData,
+    signal: options.signal,
+  });
+
+  const payload = await parseJsonSafely(response);
+  if (!response.ok) {
+    throw new Error(payload?.message || 'CAD safe purge apply failed.');
+  }
+
+  return payload || null;
+}
