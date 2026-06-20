@@ -1797,7 +1797,22 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       setCadPurgeApplyReport(report || null);
       if (report?.cleanedDxfText) {
         const outputName = report?.cleanedFileName || `${file.name.replace(/\.[^.]+$/, '') || 'drawing'}-safepurge.dxf`;
-        downloadFile(report.cleanedDxfText, outputName, 'dxf');
+        const inputExt = String(file?.name?.split('.')?.pop() || '').toLowerCase();
+        const sourceIsDwg = inputExt === 'dwg';
+        const cleanedBytes = Number(report?.summary?.sizeAfterBytes || new Blob([report.cleanedDxfText]).size || 0);
+        const uploadedBytes = Number(file?.size || 0);
+        const shouldZip = sourceIsDwg || (uploadedBytes > 0 && cleanedBytes > uploadedBytes);
+
+        if (shouldZip) {
+          const zipName = outputName.replace(/\.dxf$/i, '.zip');
+          const { default: JSZip } = await import('jszip');
+          const zip = new JSZip();
+          zip.file(outputName, report.cleanedDxfText);
+          const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 9 } });
+          downloadFile(blob, zipName, 'zip');
+        } else {
+          downloadFile(report.cleanedDxfText, outputName, 'dxf');
+        }
       }
 
       if (report?.auditAfter) {
@@ -6697,6 +6712,19 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
                     <div>Output file: <strong>{cadPurgeApplyReport.cleanedFileName || "cleaned-safepurge.dxf"}</strong></div>
                     <div>Total definitions removed: <strong>{cadPurgeApplyReport?.summary?.removedTotal ?? 0}</strong></div>
                     <div>Geometry safety: removed geometry = {cadPurgeApplyReport?.willRemoveGeometry ? "yes" : "no"}</div>
+                    {Number.isFinite(Number(cadPurgeApplyReport?.summary?.sizeBeforeBytes)) && Number.isFinite(Number(cadPurgeApplyReport?.summary?.sizeAfterBytes)) && (
+                      <div>
+                        DXF size (before -> after): {formatBytes(Number(cadPurgeApplyReport.summary.sizeBeforeBytes))} -> {formatBytes(Number(cadPurgeApplyReport.summary.sizeAfterBytes))}
+                        {Number.isFinite(Number(cadPurgeApplyReport?.summary?.sizeDeltaPercent)) && (
+                          <span> ({Number(cadPurgeApplyReport.summary.sizeDeltaPercent) >= 0 ? '+' : ''}{Number(cadPurgeApplyReport.summary.sizeDeltaPercent).toFixed(2)}%)</span>
+                        )}
+                      </div>
+                    )}
+                    {String(bulkUploadFile?.name || '').toLowerCase().endsWith('.dwg') && (
+                      <div style={{ color: "#155e75", background: "#ecfeff", border: "1px solid #67e8f9", borderRadius: "6px", padding: "0.35rem 0.45rem" }}>
+                        Source upload is DWG (binary) while cleaned export is DXF (text), so raw DXF may be larger. The app auto-downloads a ZIP package to keep delivery size compact.
+                      </div>
+                    )}
                     <details>
                       <summary style={{ cursor: "pointer", fontWeight: 600 }}>Removed counts by category</summary>
                       <div style={{ marginTop: "0.3rem", display: "grid", gap: "0.2rem", fontSize: "0.8rem" }}>

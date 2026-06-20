@@ -608,6 +608,12 @@ export async function runCadPurgeApply({ buffer, originalName }) {
   const applyResult = applySafePurgeToDxfText(resolution.dxfText, auditBefore);
   const auditAfter = analyzeDxfTextForPurgeAudit(applyResult.cleanedDxfText, { fileName: originalName });
   const cleanedFileName = `${String(originalName || 'drawing').replace(/\.[^.]+$/, '') || 'drawing'}-safepurge.dxf`;
+  const sizeBeforeBytes = Buffer.byteLength(String(resolution.dxfText || ''), 'utf8');
+  const sizeAfterBytes = Buffer.byteLength(String(applyResult.cleanedDxfText || ''), 'utf8');
+  const sizeDeltaBytes = sizeAfterBytes - sizeBeforeBytes;
+  const sizeDeltaPercent = sizeBeforeBytes > 0
+    ? Number(((sizeDeltaBytes / sizeBeforeBytes) * 100).toFixed(2))
+    : null;
 
   return {
     mode: 'apply-safe',
@@ -619,6 +625,10 @@ export async function runCadPurgeApply({ buffer, originalName }) {
     summary: {
       removedTotal: applyResult.removedTotal,
       removedCounts: applyResult.removedCounts,
+      sizeBeforeBytes,
+      sizeAfterBytes,
+      sizeDeltaBytes,
+      sizeDeltaPercent,
       candidateCountsBefore: auditBefore?.summary?.candidateCounts || null,
       candidateCountsAfter: auditAfter?.summary?.candidateCounts || null,
     },
