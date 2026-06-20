@@ -30,6 +30,12 @@ Required in production:
 
 - `CAD_ALLOWED_ORIGINS`
 
+Recommended:
+
+- `CAD_API_PORT=4000`
+- `CAD_MAX_UPLOAD_MB=100`
+- `DWG_CONVERTER_TIMEOUT_MS=120000`
+
 Optional overrides:
 
 - `DWG2DXF_PATH`
@@ -42,6 +48,19 @@ Use `.env.vercel.example` as the baseline.
 Required in production:
 
 - `VITE_CAD_API_BASE_URL=https://cad-api.yourdomain.com/api/cad`
+
+Production note:
+
+- Keep `VITE_CAD_BACKEND_PROXY_TARGET` unset in Vercel.
+
+## Cloud Wiring Checklist
+
+1. Deploy Railway service with `railway.json` using `Dockerfile.cad-api`.
+2. Set Railway env `CAD_ALLOWED_ORIGINS` to your Vercel URLs.
+3. Open `https://<railway-domain>/api/cad/health` and verify HTTP 200.
+4. In Vercel project settings, set `VITE_CAD_API_BASE_URL=https://<railway-domain>/api/cad`.
+5. Trigger a Vercel redeploy after setting environment variables.
+6. Upload one `.dxf` and one binary `.dwg` in production to verify both paths.
 
 ## Docker Example
 

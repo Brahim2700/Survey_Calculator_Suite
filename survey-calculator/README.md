@@ -150,6 +150,15 @@ Recommended production shape:
 - A dedicated CAD service on a VM, container host, or managed backend platform for DWG/DXF processing.
 - Optional object storage and job queue for large CAD files.
 
+Production cutover checklist:
+
+1. Deploy backend service on Railway from `Dockerfile.cad-api`.
+2. Set Railway env `CAD_ALLOWED_ORIGINS` to your frontend domains.
+3. Confirm backend health endpoint responds at `https://<cad-host>/api/cad/health`.
+4. Set Vercel env `VITE_CAD_API_BASE_URL=https://<cad-host>/api/cad`.
+5. Ensure `VITE_CAD_BACKEND_PROXY_TARGET` is unset in production.
+6. Redeploy frontend and test one `.dxf` and one binary `.dwg` upload in production.
+
 ## Sample Files
 
 Download ready-made samples from `public/samples/`:
