@@ -779,6 +779,50 @@ function sanitizeDxfTextForAutoCAD(text, records = []) {
   return output;
 }
 
+function buildCanonicalAutoCadDxfText(dxfText) {
+  const records = buildRecordsFromDxfText(dxfText);
+  const allowedSections = new Set(['HEADER', 'TABLES', 'BLOCKS', 'ENTITIES']);
+  const kept = [];
+  let activeSection = '';
+  let keepActiveSection = false;
+  const removedSections = new Set();
+
+  for (const record of records) {
+    const type = normalizeName(record?.type || '');
+
+    if (type === 'SECTION') {
+      activeSection = normalizeName(getRecordValue(record, 2));
+      keepActiveSection = allowedSections.has(activeSection);
+      if (keepActiveSection) {
+        kept.push(record);
+      } else if (activeSection) {
+        removedSections.add(activeSection);
+      }
+      continue;
+    }
+
+    if (type === 'ENDSEC') {
+      if (keepActiveSection) {
+        kept.push(record);
+      }
+      activeSection = '';
+      keepActiveSection = false;
+      continue;
+    }
+
+    if (keepActiveSection) {
+      kept.push(record);
+    }
+  }
+
+  normalizeTableCounts(kept);
+  const canonicalText = sanitizeDxfTextForAutoCAD(serializeRecordsToDxfText(kept), kept);
+  return {
+    cleanedDxfText: canonicalText,
+    removedSections: [...removedSections].sort(),
+  };
+}
+
 function normalizeTableCounts(records) {
   let section = '';
   let activeTable = '';
@@ -1476,36 +1520,51 @@ export async function runCadPurgeAudit({ buffer, originalName, options = {} }) {
 export async function runCadPurgeApply({ buffer, originalName, options = {} }) {
   const normalizedOptions = normalizePurgeOptions(options);
   const resolution = await resolveCadUploadToDxfText({ buffer, originalName });
+  const sourceFormatNormalized = String(resolution?.sourceFormat || '').toLowerCase();
+  const cameFromDwg = sourceFormatNormalized.includes('dwg');
   const sourceText = String(resolution?.dxfText || '');
   const sourceValidation = validateDxfTextStructure(sourceText);
   const sourceRecords = buildRecordsFromDxfText(sourceText);
   const beforeStats = collectDxfCompositionStats(sourceRecords);
   const auditBefore = analyzeDxfTextForPurgeAudit(resolution.dxfText, { fileName: originalName, options: normalizedOptions });
   const applyResult = applySafePurgeToDxfText(resolution.dxfText, auditBefore);
-  const outputValidation = validateDxfTextStructure(applyResult.cleanedDxfText);
+  let cleanedDxfText = applyResult.cleanedDxfText;
+  let compatibilityNormalization = null;
+  if (cameFromDwg) {
+    compatibilityNormalization = buildCanonicalAutoCadDxfText(cleanedDxfText);
+    cleanedDxfText = compatibilityNormalization.cleanedDxfText;
+  }
+
+  const outputValidation = validateDxfTextStructure(cleanedDxfText);
   if (!outputValidation.valid) {
     throw new Error(`SafePurge output failed DXF structural validation: ${outputValidation.errors.join(' | ')}`);
   }
-  const outputRecords = buildRecordsFromDxfText(applyResult.cleanedDxfText);
+  const outputRecords = buildRecordsFromDxfText(cleanedDxfText);
   const afterStats = collectDxfCompositionStats(outputRecords);
-  const auditAfter = analyzeDxfTextForPurgeAudit(applyResult.cleanedDxfText, { fileName: originalName, options: normalizedOptions });
+  const auditAfter = analyzeDxfTextForPurgeAudit(cleanedDxfText, { fileName: originalName, options: normalizedOptions });
   const cleanedFileName = `${String(originalName || 'drawing').replace(/\.[^.]+$/, '') || 'drawing'}-safepurge.dxf`;
   const originalUploadSizeBytes = Buffer.isBuffer(buffer)
     ? buffer.length
     : Buffer.byteLength(String(buffer || ''), 'utf8');
   const sizeBeforeBytes = Buffer.byteLength(String(resolution.dxfText || ''), 'utf8');
-  const sizeAfterBytes = Buffer.byteLength(String(applyResult.cleanedDxfText || ''), 'utf8');
+  const sizeAfterBytes = Buffer.byteLength(String(cleanedDxfText || ''), 'utf8');
   const sizeDeltaBytes = sizeAfterBytes - sizeBeforeBytes;
   const sizeDeltaPercent = sizeBeforeBytes > 0
     ? Number(((sizeDeltaBytes / sizeBeforeBytes) * 100).toFixed(2))
     : null;
-  const outputArtifact = buildTextArtifactPreview(applyResult.cleanedDxfText, 200);
+  const outputArtifact = buildTextArtifactPreview(cleanedDxfText, 200);
   const exportClassification = classifyExportQuality({
     valid: outputValidation.valid,
     sourceFormat: resolution?.sourceFormat,
     originalUploadSizeBytes,
     convertedInputSizeBytes: sizeBeforeBytes,
     outputFileSizeBytes: sizeAfterBytes,
+    compatibilityNormalization: compatibilityNormalization
+      ? {
+        applied: true,
+        removedSections: compatibilityNormalization.removedSections,
+      }
+      : { applied: false, removedSections: [] },
   });
   const exportDiagnostics = {
     originalExtension: String(originalName || '').split('.').pop()?.toLowerCase() || '',
@@ -1555,6 +1614,12 @@ export async function runCadPurgeApply({ buffer, originalName, options = {} }) {
       sizeDeltaPercent,
       exportClassification,
       compaction: applyResult.compaction,
+      compatibilityNormalization: compatibilityNormalization
+        ? {
+          applied: true,
+          removedSections: compatibilityNormalization.removedSections,
+        }
+        : { applied: false, removedSections: [] },
       overkill: applyResult.overkill,
       xrefs: applyResult.xrefs,
       transfer: applyResult.transfer,
@@ -1584,6 +1649,6 @@ export async function runCadPurgeApply({ buffer, originalName, options = {} }) {
     exportValidation: outputValidation,
     exportDiagnostics,
     inputValidation: sourceValidation,
-    cleanedDxfText: applyResult.cleanedDxfText,
+    cleanedDxfText,
   };
 }

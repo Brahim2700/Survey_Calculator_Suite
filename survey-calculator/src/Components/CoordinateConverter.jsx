@@ -1924,6 +1924,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
         console.log('converted input size bytes:', diagnostics.convertedInputSizeBytes);
         console.log('output file size bytes:', diagnostics.outputFileSizeBytes);
         console.log('classification:', diagnostics.classification);
+        console.log('compatibility normalization:', diagnostics.compatibilityNormalization);
         console.log('section order:', diagnostics.sectionOrder);
         console.log('section structure valid:', diagnostics.sectionStructureValid);
         console.log('eof present:', diagnostics.eofPresent);
