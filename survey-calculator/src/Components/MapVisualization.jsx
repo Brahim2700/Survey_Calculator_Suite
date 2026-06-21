@@ -2269,7 +2269,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-            <div>
+            <div style={{ flex: '1 1 auto', minWidth: 0 }}>
               <div style={{ fontWeight: 800, color: '#e0eaff', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Map Tools</div>
               <div style={{ color: '#94a3b8', fontSize: '9px', marginTop: '2px' }}>{cadLayers.length} CAD layers</div>
               {robustFitDebug.active && (
@@ -2290,6 +2290,7 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
                 borderRadius: '999px',
                 fontSize: '10px',
                 padding: '1px 8px',
+                flexShrink: 0,
                 cursor: 'pointer'
               }}
             >
