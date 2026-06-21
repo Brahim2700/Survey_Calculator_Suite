@@ -2247,8 +2247,8 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
           className="map-legend-overlay"
           style={{
             position: 'absolute',
-            top: legendDockLeft ? '110px' : '10px',
-            left: legendDockLeft ? '10px' : 'auto',
+            top: legendDockLeft ? '74px' : '10px',
+            left: legendDockLeft ? '58px' : 'auto',
             right: legendDockLeft ? 'auto' : '10px',
             backgroundColor: 'rgba(15,32,64,0.9)',
             backdropFilter: 'blur(8px)',
