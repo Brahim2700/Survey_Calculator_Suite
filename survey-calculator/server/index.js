@@ -29,6 +29,14 @@ const allowAllCorsOrigins = configuredAllowedOrigins.includes('*');
 const allowedOrigins = allowAllCorsOrigins
   ? ['*']
   : [...new Set([...configuredAllowedOrigins, ...defaultAllowedOrigins])];
+const vercelPreviewOriginPattern = /^https:\/\/[a-z0-9-]+\.vercel\.app$/i;
+
+function isOriginAllowed(origin) {
+  if (!origin) return true;
+  if (allowAllCorsOrigins) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  return vercelPreviewOriginPattern.test(origin);
+}
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: uploadLimitMb * 1024 * 1024 },
@@ -279,23 +287,40 @@ function normalizeCadParseResponse(payload, preScan = null) {
 
 app.use(helmet());
 
+// CORS fail-safe middleware to guarantee ACAO headers for approved origins,
+// including preflight requests and error responses.
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (!origin) {
+    next();
+    return;
+  }
+
+  if (!isOriginAllowed(origin)) {
+    if (req.method === 'OPTIONS') {
+      res.status(403).json({ message: `Origin not allowed by CAD API CORS policy: ${origin}` });
+      return;
+    }
+    res.status(403).json({ message: `Origin not allowed by CAD API CORS policy: ${origin}` });
+    return;
+  }
+
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+
+  next();
+});
+
 app.use(cors({
   origin(origin, callback) {
-    if (allowAllCorsOrigins) {
-      callback(null, true);
-      return;
-    }
-    // When no origins are configured, only allow requests with no origin (same-origin / server-to-server).
-    // Set CAD_ALLOWED_ORIGINS to explicitly permit browser origins.
-    if (!origin) {
-      callback(null, true);
-      return;
-    }
-    if (allowedOrigins.length > 0 && allowedOrigins.includes(origin)) {
-      callback(null, true);
-      return;
-    }
-    callback(new Error(`Origin not allowed by CAD API CORS policy: ${origin}`));
+    callback(null, isOriginAllowed(origin));
   },
 }));
 
