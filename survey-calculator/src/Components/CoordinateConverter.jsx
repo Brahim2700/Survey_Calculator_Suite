@@ -17,6 +17,7 @@ import MapVisualization from "./MapVisualization";
 import { on, emit } from "../utils/eventBus";
 import { safeGetJSON, safeGetString, safeSetJSON, safeSetString, safeRemove } from "../utils/storage";
 import { purgeAppClientData } from "../utils/appDataPurge";
+import { buildPurgedCadDownload } from "../utils/purgeExport";
 import { escapeHtml } from "../utils/escapeHtml";
 import { CAD_DIAGNOSTIC_CODES, collectCadXYBounds, decideCadRouting, isValidLatLng } from "../utils/cadCrsRouting";
 import { tessellateArcSegment, tessellateCircle } from "../lib/cad/curveMath.js";
@@ -1911,7 +1912,12 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       setCadPurgeApplyReport(combinedReport);
       if (report?.cleanedDxfText) {
         const outputName = report?.cleanedFileName || `${file.name.replace(/\.[^.]+$/, '') || 'drawing'}-safepurge.dxf`;
-        downloadFile(report.cleanedDxfText, outputName, 'dxf');
+        const exportPayload = await buildPurgedCadDownload({
+          originalFile: file,
+          cleanedDxfText: report.cleanedDxfText,
+          cleanedFileName: outputName,
+        });
+        downloadFile(exportPayload.blob, exportPayload.filename, exportPayload.usedGzip ? 'zip' : 'dxf');
       }
 
       if (report?.auditAfter) {
