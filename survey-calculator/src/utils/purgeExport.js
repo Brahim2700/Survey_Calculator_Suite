@@ -1,4 +1,5 @@
-const SIZE_GZIP_THRESHOLD_RATIO = 1.15;
+const SIZE_GZIP_THRESHOLD_RATIO = 1.75;
+const SIZE_GZIP_MIN_BYTES = 12 * 1024 * 1024;
 
 function normalizeDxfText(value) {
   if (typeof value !== 'string') return '';
@@ -27,6 +28,7 @@ export async function buildPurgedCadDownload({
   cleanedDxfText,
   cleanedFileName,
   thresholdRatio = SIZE_GZIP_THRESHOLD_RATIO,
+  minBytesForGzip = SIZE_GZIP_MIN_BYTES,
 } = {}) {
   const normalized = normalizeDxfText(cleanedDxfText);
   const rawBlob = new Blob([normalized], { type: 'application/octet-stream' });
@@ -35,6 +37,7 @@ export async function buildPurgedCadDownload({
   const baseName = String(cleanedFileName || 'drawing-safepurge.dxf').trim() || 'drawing-safepurge.dxf';
 
   const shouldTryGzip = originalSize > 0
+    && rawBlob.size >= minBytesForGzip
     && rawBlob.size > originalSize * thresholdRatio
     && canUseCompressionStream();
 
