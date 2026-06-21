@@ -781,45 +781,157 @@ function sanitizeDxfTextForAutoCAD(text, records = []) {
 
 function buildCanonicalAutoCadDxfText(dxfText) {
   const records = buildRecordsFromDxfText(dxfText);
-  const allowedSections = new Set(['HEADER', 'TABLES', 'BLOCKS', 'ENTITIES']);
-  const kept = [];
-  let activeSection = '';
-  let keepActiveSection = false;
-  const removedSections = new Set();
+  const allowedEntityTypes = new Set([
+    'LINE', 'LWPOLYLINE', 'POLYLINE', 'VERTEX', 'SEQEND',
+    'POINT', 'CIRCLE', 'ARC', 'ELLIPSE', 'SPLINE',
+    'TEXT', 'MTEXT', 'HATCH', '3DFACE', 'SOLID',
+    'INSERT', 'MINSERT', 'ATTRIB', 'ATTDEF',
+  ]);
 
-  for (const record of records) {
+  const entityRecords = [];
+  const blockChunks = [];
+  const layerNames = new Set(['0']);
+  const xrefBlockNames = new Set();
+  const removedEntityTypes = {};
+  let removedXrefInserts = 0;
+  const removedSections = new Set();
+  let section = '';
+
+  const markRemovedEntity = (type) => {
+    const key = normalizeName(type || 'UNKNOWN') || 'UNKNOWN';
+    removedEntityTypes[key] = (removedEntityTypes[key] || 0) + 1;
+  };
+
+  const collectLayerFromRecord = (record) => {
+    const layer = String(getRecordValue(record, 8) || '').trim();
+    if (layer) layerNames.add(layer);
+  };
+
+  const isXrefLikeInsertName = (name) => {
+    const raw = String(name || '').trim();
+    if (!raw) return false;
+    const norm = normalizeName(raw);
+    return xrefBlockNames.has(norm) || /\|/.test(raw) || /\.DWG$/i.test(raw) || /^XREF[_\-\s]?/i.test(raw);
+  };
+
+  for (let i = 0; i < records.length; i += 1) {
+    const record = records[i];
     const type = normalizeName(record?.type || '');
 
     if (type === 'SECTION') {
-      activeSection = normalizeName(getRecordValue(record, 2));
-      keepActiveSection = allowedSections.has(activeSection);
-      if (keepActiveSection) {
-        kept.push(record);
-      } else if (activeSection) {
-        removedSections.add(activeSection);
+      section = normalizeName(getRecordValue(record, 2));
+      if (!['HEADER', 'TABLES', 'BLOCKS', 'ENTITIES'].includes(section)) {
+        removedSections.add(section);
       }
       continue;
     }
 
     if (type === 'ENDSEC') {
-      if (keepActiveSection) {
-        kept.push(record);
-      }
-      activeSection = '';
-      keepActiveSection = false;
+      section = '';
       continue;
     }
 
-    if (keepActiveSection) {
-      kept.push(record);
+    if (section === 'ENTITIES') {
+      if (!allowedEntityTypes.has(type)) {
+        markRemovedEntity(type);
+        continue;
+      }
+      if ((type === 'INSERT' || type === 'MINSERT') && isXrefLikeInsertName(getRecordValue(record, 2))) {
+        removedXrefInserts += 1;
+        markRemovedEntity(type);
+        continue;
+      }
+      entityRecords.push(record);
+      collectLayerFromRecord(record);
+      continue;
+    }
+
+    if (section === 'BLOCKS' && type === 'BLOCK') {
+      const chunk = [record];
+      const blockName = getRecordValue(record, 2);
+      const blockNorm = normalizeName(blockName);
+      const flags = getRecordNumericValue(record, 70, NaN);
+      const xrefPath = getRecordValue(record, 1);
+      const blockIsXref = isXrefBlock({ name: blockName, flags, path: xrefPath });
+      if (blockIsXref) xrefBlockNames.add(blockNorm);
+
+      let j = i + 1;
+      while (j < records.length) {
+        const next = records[j];
+        chunk.push(next);
+        if (normalizeName(next?.type || '') === 'ENDBLK') break;
+        j += 1;
+      }
+      i = j;
+
+      if (blockIsXref) {
+        removedSections.add('XREF-BLOCKS');
+        continue;
+      }
+
+      for (const chunkRecord of chunk) {
+        collectLayerFromRecord(chunkRecord);
+      }
+      blockChunks.push({ name: blockName, norm: blockNorm, records: chunk });
+      continue;
     }
   }
 
-  normalizeTableCounts(kept);
-  const canonicalText = sanitizeDxfTextForAutoCAD(serializeRecordsToDxfText(kept), kept);
+  const shellParts = buildAutoCadMinimalSectionShellParts([...layerNames]);
+
+  const extractSectionBodyRecords = (sectionText, sectionName) => {
+    const source = buildRecordsFromDxfText(sectionText);
+    let active = '';
+    const out = [];
+    for (const rec of source) {
+      const t = normalizeName(rec?.type || '');
+      if (t === 'SECTION') {
+        active = normalizeName(getRecordValue(rec, 2));
+        continue;
+      }
+      if (t === 'ENDSEC') {
+        active = '';
+        continue;
+      }
+      if (active === normalizeName(sectionName)) {
+        out.push(rec);
+      }
+    }
+    return out;
+  };
+
+  const headerRecords = buildRecordsFromDxfText(shellParts.header);
+  const tableRecords = buildRecordsFromDxfText(shellParts.tables);
+  const defaultBlockBody = extractSectionBodyRecords(shellParts.blocks, 'BLOCKS');
+
+  const canonicalRecords = [
+    ...headerRecords,
+    ...tableRecords,
+    { type: 'SECTION', pairs: [{ code: 0, value: 'SECTION' }, { code: 2, value: 'BLOCKS' }] },
+    ...defaultBlockBody,
+  ];
+
+  for (const blockChunk of blockChunks) {
+    const bn = normalizeName(blockChunk?.norm || '');
+    if (bn === '*MODEL_SPACE' || bn === '*PAPER_SPACE') continue;
+    canonicalRecords.push(...(Array.isArray(blockChunk?.records) ? blockChunk.records : []));
+  }
+
+  canonicalRecords.push({ type: 'ENDSEC', pairs: [{ code: 0, value: 'ENDSEC' }] });
+  canonicalRecords.push({ type: 'SECTION', pairs: [{ code: 0, value: 'SECTION' }, { code: 2, value: 'ENTITIES' }] });
+  canonicalRecords.push(...entityRecords);
+  canonicalRecords.push({ type: 'ENDSEC', pairs: [{ code: 0, value: 'ENDSEC' }] });
+  canonicalRecords.push({ type: 'EOF', pairs: [{ code: 0, value: 'EOF' }] });
+
+  normalizeTableCounts(canonicalRecords);
+  const canonicalText = sanitizeDxfTextForAutoCAD(serializeRecordsToDxfText(canonicalRecords), canonicalRecords);
   return {
     cleanedDxfText: canonicalText,
     removedSections: [...removedSections].sort(),
+    removedEntityTypes,
+    removedXrefInserts,
+    keptEntityCount: entityRecords.length,
+    keptBlockDefinitionCount: blockChunks.length,
   };
 }
 
@@ -1563,6 +1675,10 @@ export async function runCadPurgeApply({ buffer, originalName, options = {} }) {
       ? {
         applied: true,
         removedSections: compatibilityNormalization.removedSections,
+        removedEntityTypes: compatibilityNormalization.removedEntityTypes,
+        removedXrefInserts: compatibilityNormalization.removedXrefInserts,
+        keptEntityCount: compatibilityNormalization.keptEntityCount,
+        keptBlockDefinitionCount: compatibilityNormalization.keptBlockDefinitionCount,
       }
       : { applied: false, removedSections: [] },
   });
@@ -1618,6 +1734,10 @@ export async function runCadPurgeApply({ buffer, originalName, options = {} }) {
         ? {
           applied: true,
           removedSections: compatibilityNormalization.removedSections,
+          removedEntityTypes: compatibilityNormalization.removedEntityTypes,
+          removedXrefInserts: compatibilityNormalization.removedXrefInserts,
+          keptEntityCount: compatibilityNormalization.keptEntityCount,
+          keptBlockDefinitionCount: compatibilityNormalization.keptBlockDefinitionCount,
         }
         : { applied: false, removedSections: [] },
       overkill: applyResult.overkill,
