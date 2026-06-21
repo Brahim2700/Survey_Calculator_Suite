@@ -401,7 +401,9 @@ function serializeRecordsToDxfText(records) {
 }
 
 export function validateDxfTextStructure(dxfText) {
-  const normalized = String(dxfText || '').replace(/\uFEFF/g, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const rawText = String(dxfText || '');
+  const hasUtf8Bom = rawText.charCodeAt(0) === 0xFEFF;
+  const normalized = rawText.replace(/\uFEFF/g, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   const trimmed = normalized.replace(/\n+$/g, '');
   const lines = trimmed.length > 0 ? trimmed.split('\n') : [];
   const errors = [];
@@ -425,17 +427,27 @@ export function validateDxfTextStructure(dxfText) {
 
   const requiredSections = new Set(['HEADER', 'TABLES', 'BLOCKS', 'ENTITIES']);
   const foundSections = new Set();
+  const sectionOrder = [];
   let sectionDepth = 0;
+  const invalidControlCharMatches = normalized.match(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g) || [];
+  if (invalidControlCharMatches.length > 0) {
+    errors.push(`DXF contains invalid control characters (${invalidControlCharMatches.length}).`);
+  }
 
   for (let i = 0; i < pairs.length; i += 1) {
     const pair = pairs[i];
     if (pair.code === 0 && pair.value === 'SECTION') {
       sectionDepth += 1;
+      if (sectionDepth > 1) {
+        errors.push('Nested SECTION blocks are invalid.');
+      }
       const namePair = pairs[i + 1];
       if (!namePair || namePair.code !== 2 || !String(namePair.value || '').trim()) {
         errors.push(`SECTION without valid section name near pair index ${i}.`);
       } else {
-        foundSections.add(String(namePair.value).trim().toUpperCase());
+        const sectionName = String(namePair.value).trim().toUpperCase();
+        foundSections.add(sectionName);
+        sectionOrder.push(sectionName);
       }
     }
     if (pair.code === 0 && pair.value === 'ENDSEC') {
@@ -457,21 +469,69 @@ export function validateDxfTextStructure(dxfText) {
     }
   }
 
+  const firstNonCommentPair = pairs.find((pair) => pair.code !== 999) || null;
+  if (!firstNonCommentPair || firstNonCommentPair.code !== 0 || firstNonCommentPair.value !== 'SECTION') {
+    errors.push('DXF does not start with a SECTION record (possible wrapper/debug prefix).');
+  }
+
+  const expectedOrder = ['HEADER', 'TABLES', 'BLOCKS', 'ENTITIES'];
+  const indexMap = Object.fromEntries(expectedOrder.map((name) => [name, sectionOrder.indexOf(name)]));
+  for (let i = 1; i < expectedOrder.length; i += 1) {
+    const prev = expectedOrder[i - 1];
+    const next = expectedOrder[i];
+    if (indexMap[prev] >= 0 && indexMap[next] >= 0 && indexMap[next] < indexMap[prev]) {
+      errors.push(`Required section order invalid: ${next} appears before ${prev}.`);
+    }
+  }
+
   const lastPair = pairs[pairs.length - 1];
   const eofPresent = Boolean(lastPair && lastPair.code === 0 && lastPair.value === 'EOF');
   if (!eofPresent) {
     errors.push('Missing EOF marker at the end of the file.');
+  }
+  const firstEofIndex = pairs.findIndex((pair) => pair.code === 0 && pair.value === 'EOF');
+  if (firstEofIndex >= 0 && firstEofIndex !== pairs.length - 1) {
+    errors.push('EOF is not the final DXF record.');
   }
 
   return {
     valid: errors.length === 0,
     errors,
     eofPresent,
-    encoding: 'utf-8',
+    encoding: hasUtf8Bom ? 'utf-8-with-bom' : 'utf-8',
+    hasUtf8Bom,
     dxfVariant: 'ascii',
     pairCount: pairs.length,
+    sectionOrder,
     sections: [...foundSections].sort(),
   };
+}
+
+function buildTextArtifactPreview(text, byteCount = 200) {
+  const buffer = Buffer.from(String(text || ''), 'utf8');
+  const head = buffer.subarray(0, Math.min(byteCount, buffer.length));
+  const tail = buffer.subarray(Math.max(0, buffer.length - byteCount));
+
+  return {
+    byteSize: buffer.length,
+    headUtf8: head.toString('utf8'),
+    tailUtf8: tail.toString('utf8'),
+    headHex: head.toString('hex'),
+    tailHex: tail.toString('hex'),
+  };
+}
+
+function classifyExportQuality({ valid, sourceFormat, convertedInputSizeBytes, outputFileSizeBytes }) {
+  if (!valid) return 'invalid-and-blocked';
+  const baseline = Number(convertedInputSizeBytes || 0);
+  const output = Number(outputFileSizeBytes || 0);
+  if (baseline > 0 && output > baseline * 1.35) {
+    return 'valid-but-bloated';
+  }
+  if (String(sourceFormat || '').toLowerCase() === 'dwg' && output > baseline) {
+    return 'valid-but-bloated';
+  }
+  return 'valid-and-acceptable';
 }
 
 function collectDxfCompositionStats(records) {
@@ -655,12 +715,29 @@ function sanitizeDxfTextForAutoCAD(text, records = []) {
   const hasTablesSection = /\n0\nSECTION\n2\nTABLES\n|^0\nSECTION\n2\nTABLES\n/.test(normalized);
   const hasBlocksSection = /\n0\nSECTION\n2\nBLOCKS\n|^0\nSECTION\n2\nBLOCKS\n/.test(normalized);
 
-  let requiredPrefix = '';
-  if (!hasHeaderSection) requiredPrefix += shellParts.header;
-  if (!hasTablesSection) requiredPrefix += shellParts.tables;
-  if (!hasBlocksSection) requiredPrefix += shellParts.blocks;
-  if (requiredPrefix) {
-    normalized = `${requiredPrefix}${normalized}`;
+  const findSectionStart = (name) => {
+    const pattern = new RegExp(`(?:^|\\n)0\\nSECTION\\n2\\n${name}\\n`);
+    const hit = normalized.match(pattern);
+    if (!hit) return -1;
+    const index = Number(hit.index || 0);
+    return hit[0].startsWith('\n') ? index + 1 : index;
+  };
+
+  if (!hasHeaderSection) {
+    normalized = `${shellParts.header}${normalized}`;
+  }
+
+  if (!hasTablesSection) {
+    const blocksIdx = findSectionStart('BLOCKS');
+    const entitiesIdx = findSectionStart('ENTITIES');
+    const insertAt = blocksIdx >= 0 ? blocksIdx : (entitiesIdx >= 0 ? entitiesIdx : normalized.length);
+    normalized = `${normalized.slice(0, insertAt)}${shellParts.tables}${normalized.slice(insertAt)}`;
+  }
+
+  if (!hasBlocksSection) {
+    const entitiesIdx = findSectionStart('ENTITIES');
+    const insertAt = entitiesIdx >= 0 ? entitiesIdx : normalized.length;
+    normalized = `${normalized.slice(0, insertAt)}${shellParts.blocks}${normalized.slice(insertAt)}`;
   }
 
   const headerLines = normalized.split('\n');
@@ -1410,6 +1487,13 @@ export async function runCadPurgeApply({ buffer, originalName, options = {} }) {
   const sizeDeltaPercent = sizeBeforeBytes > 0
     ? Number(((sizeDeltaBytes / sizeBeforeBytes) * 100).toFixed(2))
     : null;
+  const outputArtifact = buildTextArtifactPreview(applyResult.cleanedDxfText, 200);
+  const exportClassification = classifyExportQuality({
+    valid: outputValidation.valid,
+    sourceFormat: resolution?.sourceFormat,
+    convertedInputSizeBytes: sizeBeforeBytes,
+    outputFileSizeBytes: sizeAfterBytes,
+  });
   const exportDiagnostics = {
     originalExtension: String(originalName || '').split('.').pop()?.toLowerCase() || '',
     originalDetectedFormat: String(resolution?.sourceFormat || 'unknown').toUpperCase(),
@@ -1418,9 +1502,17 @@ export async function runCadPurgeApply({ buffer, originalName, options = {} }) {
     dxfInputVariant: 'ascii',
     dxfOutputVariant: outputValidation.dxfVariant,
     outputEncoding: outputValidation.encoding,
+    hasUtf8Bom: outputValidation.hasUtf8Bom,
     originalFileSizeBytes: originalUploadSizeBytes,
     convertedInputSizeBytes: sizeBeforeBytes,
     outputFileSizeBytes: sizeAfterBytes,
+    outputArtifact,
+    sectionOrder: outputValidation.sectionOrder,
+    sectionStructureValid: outputValidation.valid,
+    eofPresent: outputValidation.eofPresent,
+    groupCodePairCount: outputValidation.pairCount,
+    validationErrors: outputValidation.errors,
+    classification: exportClassification,
     countsBefore: beforeStats,
     countsAfter: afterStats,
     bloatCauses: inferBloatCauses({
@@ -1447,6 +1539,7 @@ export async function runCadPurgeApply({ buffer, originalName, options = {} }) {
       sizeAfterBytes,
       sizeDeltaBytes,
       sizeDeltaPercent,
+      exportClassification,
       compaction: applyResult.compaction,
       overkill: applyResult.overkill,
       xrefs: applyResult.xrefs,

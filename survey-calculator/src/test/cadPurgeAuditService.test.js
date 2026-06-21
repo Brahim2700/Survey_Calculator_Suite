@@ -90,6 +90,90 @@ function buildMinimalDxf() {
   ].join('\n');
 }
 
+function buildTinyLineTextDxf() {
+  return [
+    '0', 'SECTION',
+    '2', 'HEADER',
+    '9', '$ACADVER',
+    '1', 'AC1009',
+    '0', 'ENDSEC',
+
+    '0', 'SECTION',
+    '2', 'TABLES',
+    '0', 'TABLE',
+    '2', 'LTYPE',
+    '70', '1',
+    '0', 'LTYPE',
+    '2', 'CONTINUOUS',
+    '70', '0',
+    '3', 'Solid line',
+    '72', '65',
+    '73', '0',
+    '40', '0.0',
+    '0', 'ENDTAB',
+    '0', 'TABLE',
+    '2', 'STYLE',
+    '70', '1',
+    '0', 'STYLE',
+    '2', 'STANDARD',
+    '70', '0',
+    '40', '0.0',
+    '41', '1.0',
+    '50', '0.0',
+    '71', '0',
+    '42', '0.2',
+    '3', 'arial.ttf',
+    '4', '',
+    '0', 'ENDTAB',
+    '0', 'TABLE',
+    '2', 'LAYER',
+    '70', '1',
+    '0', 'LAYER',
+    '2', '0',
+    '70', '0',
+    '62', '7',
+    '6', 'CONTINUOUS',
+    '0', 'ENDTAB',
+    '0', 'ENDSEC',
+
+    '0', 'SECTION',
+    '2', 'BLOCKS',
+    '0', 'BLOCK',
+    '8', '0',
+    '2', '*MODEL_SPACE',
+    '70', '0',
+    '10', '0',
+    '20', '0',
+    '30', '0',
+    '3', '*MODEL_SPACE',
+    '0', 'ENDBLK',
+    '8', '0',
+    '0', 'ENDSEC',
+
+    '0', 'SECTION',
+    '2', 'ENTITIES',
+    '0', 'LINE',
+    '8', '0',
+    '10', '0',
+    '20', '0',
+    '30', '0',
+    '11', '10',
+    '21', '10',
+    '31', '0',
+    '0', 'TEXT',
+    '8', '0',
+    '10', '1',
+    '20', '1',
+    '30', '0',
+    '40', '1.0',
+    '1', 'TEST',
+    '7', 'STANDARD',
+    '0', 'ENDSEC',
+
+    '0', 'EOF',
+  ].join('\n');
+}
+
 describe('analyzeDxfTextForPurgeAudit', () => {
   it('returns audit-only safety contract and unused definition candidates', () => {
     const report = analyzeDxfTextForPurgeAudit(buildMinimalDxf(), { fileName: 'sample.dxf' });
@@ -170,6 +254,23 @@ describe('analyzeDxfTextForPurgeAudit', () => {
     expect(verdict.valid).toBe(false);
     expect(Array.isArray(verdict.errors)).toBe(true);
     expect(verdict.errors.length).toBeGreaterThan(0);
+  });
+
+  it('produces structurally valid output for tiny line+text sample', async () => {
+    const input = buildTinyLineTextDxf();
+    const result = await runCadPurgeApply({
+      buffer: Buffer.from(input, 'utf8'),
+      originalName: 'tiny.dxf',
+    });
+
+    expect(result.exportValidation?.valid).toBe(true);
+    expect(result.exportValidation?.eofPresent).toBe(true);
+    expect(result.exportDiagnostics?.sectionStructureValid).toBe(true);
+    expect(result.exportDiagnostics?.classification).toMatch(/valid-and-acceptable|valid-but-bloated/);
+    expect(result.exportDiagnostics?.countsAfter?.xrefCount).toBe(0);
+    expect(result.exportDiagnostics?.countsAfter?.proxyObjectCount).toBe(0);
+    expect(result.cleanedDxfText).toContain('0\nSECTION\n2\nENTITIES');
+    expect(result.cleanedDxfText).toContain('0\nEOF\n');
   });
 
   it('supports optional unreferenced xref detach mode only', async () => {
