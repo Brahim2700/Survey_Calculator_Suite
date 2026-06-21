@@ -17,7 +17,6 @@ import MapVisualization from "./MapVisualization";
 import { on, emit } from "../utils/eventBus";
 import { safeGetJSON, safeGetString, safeSetJSON, safeSetString, safeRemove } from "../utils/storage";
 import { purgeAppClientData } from "../utils/appDataPurge";
-import { buildPurgedCadDownload } from "../utils/purgeExport";
 import { escapeHtml } from "../utils/escapeHtml";
 import { CAD_DIAGNOSTIC_CODES, collectCadXYBounds, decideCadRouting, isValidLatLng } from "../utils/cadCrsRouting";
 import { tessellateArcSegment, tessellateCircle } from "../lib/cad/curveMath.js";
@@ -1910,14 +1909,34 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       const report = await getCadPurgeApply(file, { purgeOptions });
       const combinedReport = buildSafePurgeCombinedReportPayload(report || null, auditData, file.name);
       setCadPurgeApplyReport(combinedReport);
+      const diagnostics = report?.exportDiagnostics || null;
+      if (diagnostics) {
+        console.group('SafePurge Export Diagnostics');
+        console.log('original extension:', diagnostics.originalExtension);
+        console.log('original detected format:', diagnostics.originalDetectedFormat);
+        console.log('output extension:', diagnostics.outputExtension);
+        console.log('output written format:', diagnostics.outputWrittenFormat);
+        console.log('dxf input variant:', diagnostics.dxfInputVariant);
+        console.log('dxf output variant:', diagnostics.dxfOutputVariant);
+        console.log('output encoding:', diagnostics.outputEncoding);
+        console.log('original file size bytes:', diagnostics.originalFileSizeBytes);
+        console.log('converted input size bytes:', diagnostics.convertedInputSizeBytes);
+        console.log('output file size bytes:', diagnostics.outputFileSizeBytes);
+        console.log('counts before:', diagnostics.countsBefore);
+        console.log('counts after:', diagnostics.countsAfter);
+        console.log('bloat causes:', diagnostics.bloatCauses);
+        console.groupEnd();
+      }
+
+      if (report?.exportValidation && report.exportValidation.valid === false) {
+        throw new Error(`SafePurge export blocked: ${Array.isArray(report.exportValidation.errors) ? report.exportValidation.errors.join(' | ') : 'DXF structural validation failed.'}`);
+      }
+
       if (report?.cleanedDxfText) {
         const outputName = report?.cleanedFileName || `${file.name.replace(/\.[^.]+$/, '') || 'drawing'}-safepurge.dxf`;
-        const exportPayload = await buildPurgedCadDownload({
-          originalFile: file,
-          cleanedDxfText: report.cleanedDxfText,
-          cleanedFileName: outputName,
-        });
-        downloadFile(exportPayload.blob, exportPayload.filename, exportPayload.usedGzip ? 'zip' : 'dxf');
+        downloadFile(report.cleanedDxfText, outputName, 'dxf');
+      } else {
+        throw new Error('SafePurge apply finished without a cleaned DXF payload.');
       }
 
       if (report?.auditAfter) {

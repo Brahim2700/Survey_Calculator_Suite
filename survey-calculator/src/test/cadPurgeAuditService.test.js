@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analyzeDxfTextForPurgeAudit, runCadPurgeApply } from '../../server/cadPurgeAuditService.js';
+import { analyzeDxfTextForPurgeAudit, runCadPurgeApply, validateDxfTextStructure } from '../../server/cadPurgeAuditService.js';
 
 function buildMinimalDxf() {
   return [
@@ -156,6 +156,20 @@ describe('analyzeDxfTextForPurgeAudit', () => {
     expect(result.cleanedDxfText).not.toContain('UNUSED_BLOCK');
     expect(result.cleanedDxfText).not.toContain('\r\n');
     expect(result.summary.sizeAfterBytes).toBeLessThan(result.summary.sizeBeforeBytes);
+    expect(result.exportValidation?.valid).toBe(true);
+    expect(result.exportDiagnostics?.outputWrittenFormat).toBe('DXF');
+    expect(result.exportDiagnostics?.dxfOutputVariant).toBe('ascii');
+    expect(result.exportDiagnostics?.outputEncoding).toBe('utf-8');
+    expect(result.exportDiagnostics?.countsBefore?.insertCount).toBeGreaterThanOrEqual(0);
+    expect(result.exportDiagnostics?.countsAfter?.insertCount).toBeGreaterThanOrEqual(0);
+  });
+
+  it('detects malformed DXF structures before export', () => {
+    const invalid = '0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n8\n0\n0\nENDSEC\n';
+    const verdict = validateDxfTextStructure(invalid);
+    expect(verdict.valid).toBe(false);
+    expect(Array.isArray(verdict.errors)).toBe(true);
+    expect(verdict.errors.length).toBeGreaterThan(0);
   });
 
   it('supports optional unreferenced xref detach mode only', async () => {

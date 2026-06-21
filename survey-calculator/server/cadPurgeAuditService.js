@@ -400,6 +400,193 @@ function serializeRecordsToDxfText(records) {
   return `${lines.join('\n')}\n`;
 }
 
+export function validateDxfTextStructure(dxfText) {
+  const normalized = String(dxfText || '').replace(/\uFEFF/g, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const trimmed = normalized.replace(/\n+$/g, '');
+  const lines = trimmed.length > 0 ? trimmed.split('\n') : [];
+  const errors = [];
+
+  if (lines.length === 0) {
+    errors.push('DXF is empty.');
+  }
+  if (lines.length % 2 !== 0) {
+    errors.push('Malformed group-code/value sequence (odd number of lines).');
+  }
+
+  const pairs = [];
+  for (let i = 0; i + 1 < lines.length; i += 2) {
+    const codeText = String(lines[i] || '').trim();
+    if (!/^-?\d+$/.test(codeText)) {
+      errors.push(`Invalid group code at line ${i + 1}: "${lines[i]}".`);
+      continue;
+    }
+    pairs.push({ code: Number.parseInt(codeText, 10), value: String(lines[i + 1] ?? '') });
+  }
+
+  const requiredSections = new Set(['HEADER', 'TABLES', 'BLOCKS', 'ENTITIES']);
+  const foundSections = new Set();
+  let sectionDepth = 0;
+
+  for (let i = 0; i < pairs.length; i += 1) {
+    const pair = pairs[i];
+    if (pair.code === 0 && pair.value === 'SECTION') {
+      sectionDepth += 1;
+      const namePair = pairs[i + 1];
+      if (!namePair || namePair.code !== 2 || !String(namePair.value || '').trim()) {
+        errors.push(`SECTION without valid section name near pair index ${i}.`);
+      } else {
+        foundSections.add(String(namePair.value).trim().toUpperCase());
+      }
+    }
+    if (pair.code === 0 && pair.value === 'ENDSEC') {
+      sectionDepth -= 1;
+      if (sectionDepth < 0) {
+        errors.push('ENDSEC appears before SECTION.');
+        sectionDepth = 0;
+      }
+    }
+  }
+
+  if (sectionDepth !== 0) {
+    errors.push('Unbalanced SECTION/ENDSEC markers.');
+  }
+
+  for (const sectionName of requiredSections) {
+    if (!foundSections.has(sectionName)) {
+      errors.push(`Missing required section: ${sectionName}.`);
+    }
+  }
+
+  const lastPair = pairs[pairs.length - 1];
+  const eofPresent = Boolean(lastPair && lastPair.code === 0 && lastPair.value === 'EOF');
+  if (!eofPresent) {
+    errors.push('Missing EOF marker at the end of the file.');
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    eofPresent,
+    encoding: 'utf-8',
+    dxfVariant: 'ascii',
+    pairCount: pairs.length,
+    sections: [...foundSections].sort(),
+  };
+}
+
+function collectDxfCompositionStats(records) {
+  const entityCountByType = {};
+  const tableCounts = {
+    layerCount: 0,
+    linetypeCount: 0,
+    textStyleCount: 0,
+    dimStyleCount: 0,
+    blockRecordCount: 0,
+  };
+  let section = '';
+  let table = '';
+  let blockCount = 0;
+  let insertCount = 0;
+  let xrefCount = 0;
+  let proxyObjectCount = 0;
+
+  for (const record of records) {
+    const type = normalizeName(record?.type || '');
+
+    if (type === 'SECTION') {
+      section = normalizeName(getRecordValue(record, 2));
+      table = '';
+      continue;
+    }
+
+    if (type === 'ENDSEC') {
+      section = '';
+      table = '';
+      continue;
+    }
+
+    if (section === 'TABLES') {
+      if (type === 'TABLE') {
+        table = normalizeName(getRecordValue(record, 2));
+        continue;
+      }
+      if (type === 'ENDTAB') {
+        table = '';
+        continue;
+      }
+      if (table === 'LAYER' && type === 'LAYER') tableCounts.layerCount += 1;
+      if (table === 'LTYPE' && type === 'LTYPE') tableCounts.linetypeCount += 1;
+      if (table === 'STYLE' && type === 'STYLE') tableCounts.textStyleCount += 1;
+      if (table === 'DIMSTYLE' && type === 'DIMSTYLE') tableCounts.dimStyleCount += 1;
+      if (table === 'BLOCK_RECORD' && type === 'BLOCK_RECORD') tableCounts.blockRecordCount += 1;
+      continue;
+    }
+
+    if (section === 'BLOCKS' && type === 'BLOCK') {
+      blockCount += 1;
+      const blockName = getRecordValue(record, 2);
+      const flags = getRecordNumericValue(record, 70, NaN);
+      const xrefPath = getRecordValue(record, 1);
+      if (isXrefBlock({ name: blockName, flags, path: xrefPath })) {
+        xrefCount += 1;
+      }
+      continue;
+    }
+
+    if (isEntitySection(section) && type) {
+      entityCountByType[type] = (entityCountByType[type] || 0) + 1;
+      if (type === 'INSERT' || type === 'MINSERT') {
+        insertCount += 1;
+      }
+      if (type.includes('PROXY')) {
+        proxyObjectCount += 1;
+      }
+    }
+  }
+
+  const duplicateMap = buildOverkillDuplicateMap(records, { tolerance: DEFAULT_OVERKILL_TOLERANCE });
+
+  return {
+    entityCountByType,
+    blockCount,
+    insertCount,
+    layerCount: tableCounts.layerCount,
+    linetypeCount: tableCounts.linetypeCount,
+    textStyleCount: tableCounts.textStyleCount,
+    dimStyleCount: tableCounts.dimStyleCount,
+    blockRecordCount: tableCounts.blockRecordCount,
+    xrefCount,
+    proxyObjectCount,
+    duplicateGeometryCount: Number(duplicateMap?.duplicateEntities || 0),
+  };
+}
+
+function inferBloatCauses({ sourceFormat, sizeBeforeBytes, sizeAfterBytes, beforeStats, afterStats }) {
+  const causes = [];
+  if (String(sourceFormat || '').toLowerCase() === 'dwg') {
+    causes.push('Format change DWG -> DXF ASCII can increase file size.');
+  }
+
+  if ((afterStats?.insertCount || 0) > (beforeStats?.insertCount || 0)) {
+    causes.push('Insert count increased unexpectedly after purge/export.');
+  }
+  if ((afterStats?.blockCount || 0) > (beforeStats?.blockCount || 0)) {
+    causes.push('Block definition count increased unexpectedly after purge/export.');
+  }
+  if ((afterStats?.duplicateGeometryCount || 0) > (beforeStats?.duplicateGeometryCount || 0)) {
+    causes.push('Duplicate geometry increased in output.');
+  }
+  if ((afterStats?.layerCount || 0) > (beforeStats?.layerCount || 0)) {
+    causes.push('Layer table expanded in output.');
+  }
+
+  if (sizeAfterBytes > sizeBeforeBytes && causes.length === 0) {
+    causes.push('ASCII DXF payload is larger than source payload without structural inflation.');
+  }
+
+  return causes;
+}
+
 function buildAutoCadMinimalSectionShellParts(layerNames = []) {
   const safeLayers = [...new Set(['0', ...layerNames.map((name) => String(name || '').trim()).filter(Boolean)])].sort((a, b) => String(a).localeCompare(String(b)));
 
@@ -464,8 +651,16 @@ function sanitizeDxfTextForAutoCAD(text, records = []) {
   }
 
   const shellParts = buildAutoCadMinimalSectionShellParts([...entityLayers]);
-  if (!normalized.startsWith('0\nSECTION\n2\nHEADER\n')) {
-    normalized = `${shellParts.header}${normalized}`;
+  const hasHeaderSection = /\n0\nSECTION\n2\nHEADER\n|^0\nSECTION\n2\nHEADER\n/.test(normalized);
+  const hasTablesSection = /\n0\nSECTION\n2\nTABLES\n|^0\nSECTION\n2\nTABLES\n/.test(normalized);
+  const hasBlocksSection = /\n0\nSECTION\n2\nBLOCKS\n|^0\nSECTION\n2\nBLOCKS\n/.test(normalized);
+
+  let requiredPrefix = '';
+  if (!hasHeaderSection) requiredPrefix += shellParts.header;
+  if (!hasTablesSection) requiredPrefix += shellParts.tables;
+  if (!hasBlocksSection) requiredPrefix += shellParts.blocks;
+  if (requiredPrefix) {
+    normalized = `${requiredPrefix}${normalized}`;
   }
 
   const headerLines = normalized.split('\n');
@@ -1192,16 +1387,50 @@ export async function runCadPurgeAudit({ buffer, originalName, options = {} }) {
 export async function runCadPurgeApply({ buffer, originalName, options = {} }) {
   const normalizedOptions = normalizePurgeOptions(options);
   const resolution = await resolveCadUploadToDxfText({ buffer, originalName });
+  const sourceText = String(resolution?.dxfText || '');
+  const sourceValidation = validateDxfTextStructure(sourceText);
+  const sourceRecords = buildRecordsFromDxfText(sourceText);
+  const beforeStats = collectDxfCompositionStats(sourceRecords);
   const auditBefore = analyzeDxfTextForPurgeAudit(resolution.dxfText, { fileName: originalName, options: normalizedOptions });
   const applyResult = applySafePurgeToDxfText(resolution.dxfText, auditBefore);
+  const outputValidation = validateDxfTextStructure(applyResult.cleanedDxfText);
+  if (!outputValidation.valid) {
+    throw new Error(`SafePurge output failed DXF structural validation: ${outputValidation.errors.join(' | ')}`);
+  }
+  const outputRecords = buildRecordsFromDxfText(applyResult.cleanedDxfText);
+  const afterStats = collectDxfCompositionStats(outputRecords);
   const auditAfter = analyzeDxfTextForPurgeAudit(applyResult.cleanedDxfText, { fileName: originalName, options: normalizedOptions });
   const cleanedFileName = `${String(originalName || 'drawing').replace(/\.[^.]+$/, '') || 'drawing'}-safepurge.dxf`;
+  const originalUploadSizeBytes = Buffer.isBuffer(buffer)
+    ? buffer.length
+    : Buffer.byteLength(String(buffer || ''), 'utf8');
   const sizeBeforeBytes = Buffer.byteLength(String(resolution.dxfText || ''), 'utf8');
   const sizeAfterBytes = Buffer.byteLength(String(applyResult.cleanedDxfText || ''), 'utf8');
   const sizeDeltaBytes = sizeAfterBytes - sizeBeforeBytes;
   const sizeDeltaPercent = sizeBeforeBytes > 0
     ? Number(((sizeDeltaBytes / sizeBeforeBytes) * 100).toFixed(2))
     : null;
+  const exportDiagnostics = {
+    originalExtension: String(originalName || '').split('.').pop()?.toLowerCase() || '',
+    originalDetectedFormat: String(resolution?.sourceFormat || 'unknown').toUpperCase(),
+    outputExtension: 'dxf',
+    outputWrittenFormat: 'DXF',
+    dxfInputVariant: 'ascii',
+    dxfOutputVariant: outputValidation.dxfVariant,
+    outputEncoding: outputValidation.encoding,
+    originalFileSizeBytes: originalUploadSizeBytes,
+    convertedInputSizeBytes: sizeBeforeBytes,
+    outputFileSizeBytes: sizeAfterBytes,
+    countsBefore: beforeStats,
+    countsAfter: afterStats,
+    bloatCauses: inferBloatCauses({
+      sourceFormat: resolution?.sourceFormat,
+      sizeBeforeBytes,
+      sizeAfterBytes,
+      beforeStats,
+      afterStats,
+    }),
+  };
 
   return {
     mode: 'apply-safe',
@@ -1213,6 +1442,7 @@ export async function runCadPurgeApply({ buffer, originalName, options = {} }) {
     summary: {
       removedTotal: applyResult.removedTotal,
       removedCounts: applyResult.removedCounts,
+      originalUploadSizeBytes,
       sizeBeforeBytes,
       sizeAfterBytes,
       sizeDeltaBytes,
@@ -1244,6 +1474,9 @@ export async function runCadPurgeApply({ buffer, originalName, options = {} }) {
     optionsApplied: normalizedOptions,
     auditBefore,
     auditAfter,
+    exportValidation: outputValidation,
+    exportDiagnostics,
+    inputValidation: sourceValidation,
     cleanedDxfText: applyResult.cleanedDxfText,
   };
 }
