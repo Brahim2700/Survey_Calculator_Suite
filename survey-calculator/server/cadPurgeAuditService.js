@@ -521,14 +521,21 @@ function buildTextArtifactPreview(text, byteCount = 200) {
   };
 }
 
-function classifyExportQuality({ valid, sourceFormat, convertedInputSizeBytes, outputFileSizeBytes }) {
+function classifyExportQuality({ valid, sourceFormat, originalUploadSizeBytes, convertedInputSizeBytes, outputFileSizeBytes }) {
   if (!valid) return 'invalid-and-blocked';
+  const normalizedSource = String(sourceFormat || '').toLowerCase();
+  const cameFromDwg = normalizedSource.includes('dwg');
+  const originalUpload = Number(originalUploadSizeBytes || 0);
   const baseline = Number(convertedInputSizeBytes || 0);
   const output = Number(outputFileSizeBytes || 0);
+
+  if (cameFromDwg && originalUpload > 0 && output > originalUpload * 1.35) {
+    return 'valid-but-bloated';
+  }
   if (baseline > 0 && output > baseline * 1.35) {
     return 'valid-but-bloated';
   }
-  if (String(sourceFormat || '').toLowerCase() === 'dwg' && output > baseline) {
+  if (cameFromDwg && output > baseline) {
     return 'valid-but-bloated';
   }
   return 'valid-and-acceptable';
@@ -621,10 +628,15 @@ function collectDxfCompositionStats(records) {
   };
 }
 
-function inferBloatCauses({ sourceFormat, sizeBeforeBytes, sizeAfterBytes, beforeStats, afterStats }) {
+function inferBloatCauses({ sourceFormat, originalUploadSizeBytes, sizeBeforeBytes, sizeAfterBytes, beforeStats, afterStats }) {
   const causes = [];
-  if (String(sourceFormat || '').toLowerCase() === 'dwg') {
+  const normalizedSource = String(sourceFormat || '').toLowerCase();
+  const cameFromDwg = normalizedSource.includes('dwg');
+  if (cameFromDwg) {
     causes.push('Format change DWG -> DXF ASCII can increase file size.');
+    if (Number(originalUploadSizeBytes || 0) > 0 && sizeAfterBytes > Number(originalUploadSizeBytes) * 1.35) {
+      causes.push('Output is much larger than original DWG because DXF ASCII is verbose text format.');
+    }
   }
 
   if ((afterStats?.insertCount || 0) > (beforeStats?.insertCount || 0)) {
@@ -1491,6 +1503,7 @@ export async function runCadPurgeApply({ buffer, originalName, options = {} }) {
   const exportClassification = classifyExportQuality({
     valid: outputValidation.valid,
     sourceFormat: resolution?.sourceFormat,
+    originalUploadSizeBytes,
     convertedInputSizeBytes: sizeBeforeBytes,
     outputFileSizeBytes: sizeAfterBytes,
   });
@@ -1517,6 +1530,7 @@ export async function runCadPurgeApply({ buffer, originalName, options = {} }) {
     countsAfter: afterStats,
     bloatCauses: inferBloatCauses({
       sourceFormat: resolution?.sourceFormat,
+      originalUploadSizeBytes,
       sizeBeforeBytes,
       sizeAfterBytes,
       beforeStats,

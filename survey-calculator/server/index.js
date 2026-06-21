@@ -16,10 +16,19 @@ import { runCadPurgeAudit, runCadPurgeApply } from './cadPurgeAuditService.js';
 const app = express();
 const port = Number(process.env.PORT || process.env.CAD_API_PORT || 4000);
 const uploadLimitMb = Number(process.env.CAD_MAX_UPLOAD_MB || 100);
-const allowedOrigins = String(process.env.CAD_ALLOWED_ORIGINS || '')
+const configuredAllowedOrigins = String(process.env.CAD_ALLOWED_ORIGINS || '')
   .split(',')
   .map((value) => value.trim())
   .filter(Boolean);
+const defaultAllowedOrigins = [
+  'https://survey-calculator-suite.vercel.app',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+];
+const allowAllCorsOrigins = configuredAllowedOrigins.includes('*');
+const allowedOrigins = allowAllCorsOrigins
+  ? ['*']
+  : [...new Set([...configuredAllowedOrigins, ...defaultAllowedOrigins])];
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: uploadLimitMb * 1024 * 1024 },
@@ -272,6 +281,10 @@ app.use(helmet());
 
 app.use(cors({
   origin(origin, callback) {
+    if (allowAllCorsOrigins) {
+      callback(null, true);
+      return;
+    }
     // When no origins are configured, only allow requests with no origin (same-origin / server-to-server).
     // Set CAD_ALLOWED_ORIGINS to explicitly permit browser origins.
     if (!origin) {
