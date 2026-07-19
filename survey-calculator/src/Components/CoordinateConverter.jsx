@@ -63,69 +63,6 @@ const getCrsConfidenceClass = (assessment) => {
   return { label: "Low Confidence", color: "#b91c1c" };
 };
 
-const buildCrsDecisionSummary = (suggestions = [], t = (key) => key) => {
-  if (!Array.isArray(suggestions) || suggestions.length === 0) return null;
-
-  const ranked = [...suggestions]
-    .filter((item) => item && item.code)
-    .sort((a, b) => (Number(b.confidence) || 0) - (Number(a.confidence) || 0));
-  if (ranked.length === 0) return null;
-
-  const top = ranked[0];
-  const second = ranked[1] || null;
-  const topConfidence = Number(top.confidence) || 0;
-  const secondConfidence = Number(second?.confidence) || 0;
-  const confidenceGap = Math.max(0, topConfidence - secondConfidence);
-
-  const profileGeoPenalty = ranked.some((item) => String(item?.reason || "").includes("penalized by geographic coordinate profile"));
-  const profileProjectedPenalty = ranked.some((item) => String(item?.reason || "").includes("penalized by projected coordinate profile"));
-  const topReason = String(top.reason || "Heuristic ranking of coordinate extents.");
-
-  let confidenceLabel = t('converter.summary.low');
-  if (topConfidence >= 0.9) confidenceLabel = t('converter.summary.high');
-  else if (topConfidence >= 0.75) confidenceLabel = t('converter.summary.good');
-  else if (topConfidence >= 0.6) confidenceLabel = t('converter.summary.moderate');
-
-  const points = [
-    t('converter.summary.primarySignal', { reason: topReason }),
-    t('converter.summary.rankingStrength', { label: confidenceLabel, percent: Math.round(topConfidence * 100) }),
-  ];
-
-  if (second) {
-    if (confidenceGap >= 0.15) {
-      points.push(t('converter.summary.gapClear', { points: Math.round(confidenceGap * 100) }));
-    } else if (confidenceGap >= 0.08) {
-      points.push(t('converter.summary.gapReview', { points: Math.round(confidenceGap * 100) }));
-    } else {
-      points.push(t('converter.summary.gapManual', { points: Math.round(confidenceGap * 100) }));
-    }
-  }
-
-  if (profileGeoPenalty) {
-    points.push(t('converter.summary.geographicPenalty'));
-  } else if (profileProjectedPenalty) {
-    points.push(t('converter.summary.projectedPenalty'));
-  }
-
-  let secondChoiceComparison = "";
-  if (second) {
-    const secondReason = String(second.reason || "No additional reason available.");
-    secondChoiceComparison = t('converter.summary.comparison', {
-      top: top.code,
-      second: second.code,
-      points: Math.round(confidenceGap * 100),
-      reason: secondReason,
-    });
-  }
-
-  return {
-    topCode: top.code,
-    points,
-    secondChoiceComparison,
-    tone: topConfidence >= 0.75 ? "solid" : "careful",
-  };
-};
-
 const buildCadDiagnosticReportPayload = (cadInspection, importCrsNotice) => ({
   generatedAt: new Date().toISOString(),
   handlingMode: "permissive-expert-auto",
@@ -1954,7 +1891,6 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
       if (report?.auditAfter) {
         setCadPurgeAudit(report.auditAfter);
       }
-      setCadPurgeReportHtml(buildSafePurgeCombinedSummaryHtml(combinedReport));
       const completedAt = Date.now();
       setCadPurgeAuditMeta({
         status: "ready",
@@ -6862,7 +6798,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
                     )}
                     {Number.isFinite(Number(cadPurgeApplyReport?.summary?.sizeBeforeBytes)) && Number.isFinite(Number(cadPurgeApplyReport?.summary?.sizeAfterBytes)) && (
                       <div>
-                        DXF size (before -> after): {formatBytes(Number(cadPurgeApplyReport.summary.sizeBeforeBytes))} -> {formatBytes(Number(cadPurgeApplyReport.summary.sizeAfterBytes))}
+                        DXF size (before {'->'} after): {formatBytes(Number(cadPurgeApplyReport.summary.sizeBeforeBytes))} {'->'} {formatBytes(Number(cadPurgeApplyReport.summary.sizeAfterBytes))}
                         {Number.isFinite(Number(cadPurgeApplyReport?.summary?.sizeDeltaPercent)) && (
                           <span> ({Number(cadPurgeApplyReport.summary.sizeDeltaPercent) >= 0 ? '+' : ''}{Number(cadPurgeApplyReport.summary.sizeDeltaPercent).toFixed(2)}%)</span>
                         )}
@@ -6937,7 +6873,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
                             if (!before && !removed) return null;
                             return (
                               <div key={`${section.key}-impact`}>
-                                <strong>{section.label}:</strong> {before} -> {after} (would remove {removed})
+                                  <strong>{section.label}:</strong> {before} {'->'} {after} (would remove {removed})
                               </div>
                             );
                           })}

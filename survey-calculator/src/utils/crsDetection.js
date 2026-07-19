@@ -808,7 +808,7 @@ const adjustedExtentConfidence = (entry, bounds, swapped = false) => {
       }
       // Use coverage-band scoring for precise zone discrimination
       const coverageScore = getOldLambertCoverageScore(entry.code, lon, lat);
-      return Math.max(0.42, Math.min(0.82, base + 0.02 + coverageScore));
+      return Math.max(0.42, Math.min(0.9, base + 0.08 + coverageScore));
     }
 
     // CC zones are France-only; if reverse projection lands outside France bounds,
@@ -1091,7 +1091,17 @@ const applyFrenchItalyOverlapGuard = (suggestions, bounds, metadata = {}) => {
   if (hasReferenceMetadata(metadata)) return suggestions;
   if (!Number.isFinite(bounds?.avgX) || !Number.isFinite(bounds?.avgY)) return suggestions;
 
+  const dominantCountry = inferDominantCountryFromSuggestions(suggestions);
+  const anchor = inferGeographicAnchor(suggestions, bounds);
+  if (dominantCountry === 'italy' || anchor?.region === 'italy') return suggestions;
+
   const ranked = [...suggestions].sort((a, b) => (Number(b?.confidence) || 0) - (Number(a?.confidence) || 0));
+  const frenchFamilyCount = ranked.filter((entry) => {
+    const confidence = Number(entry?.confidence) || 0;
+    return confidence >= 0.65 && inferSuggestionCountry(entry) === 'france';
+  }).length;
+  if (frenchFamilyCount < 2) return suggestions;
+
   const bestMonteMario = ranked.find((entry) => isMonteMarioCode(entry?.code));
   const bestFrenchCc = ranked.find((entry) => isFrenchCcCode(entry?.code));
   if (!bestMonteMario || !bestFrenchCc) return suggestions;
@@ -1138,6 +1148,7 @@ const applyFrenchItalyOverlapGuard = (suggestions, bounds, metadata = {}) => {
 
 const FRENCH_PRIORITY_CODES = new Set([
   'EPSG:2154',
+  'EPSG:27561', 'EPSG:27562', 'EPSG:27563', 'EPSG:27564', 'EPSG:27572',
   'EPSG:3942', 'EPSG:3943', 'EPSG:3944', 'EPSG:3945', 'EPSG:3946', 'EPSG:3947', 'EPSG:3948', 'EPSG:3949', 'EPSG:3950',
   'EPSG:32630', 'EPSG:32631', 'EPSG:32632',
   'EPSG:25830', 'EPSG:25831', 'EPSG:25832',

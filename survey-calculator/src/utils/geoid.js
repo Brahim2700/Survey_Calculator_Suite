@@ -2,7 +2,7 @@
 // Efficient geoid sampling with automatic on-demand loading
 
 import { fromArrayBuffer, fromBlob } from 'geotiff';
-import { translateUi } from './uiLanguage';
+import { translateUi } from './uiLanguage.js';
 
 const gridCache = new Map();
 const loadingPromises = new Map(); // Prevent duplicate loads

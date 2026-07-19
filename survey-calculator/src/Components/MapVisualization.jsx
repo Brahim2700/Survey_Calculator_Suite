@@ -317,7 +317,6 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
   const [labelsTouched, setLabelsTouched] = useState(false);
   const [hiddenCadLayers, setHiddenCadLayers] = useState({});
   const [robustFitDebug, setRobustFitDebug] = useState({ active: false, message: '' });
-  const [mapViewportWidth, setMapViewportWidth] = useState(0);
 
   const effectiveShowLabels =
     Array.isArray(points) && points.length === 0
@@ -2172,11 +2171,6 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
   useEffect(() => {
     if (!isVisible || !map.current || !mapContainer.current) return;
 
-    const updateViewportMetrics = () => {
-      if (!mapRootContainer.current) return;
-      setMapViewportWidth(mapRootContainer.current.clientWidth || 0);
-    };
-
     const applyViewportConstraints = () => {
       if (!map.current) return;
       map.current.invalidateSize({ pan: false, debounceMoveend: true });
@@ -2188,7 +2182,6 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
           map.current.setZoom(minZoomForViewport);
         }
       }
-      updateViewportMetrics();
     };
 
     const initialFrame = requestAnimationFrame(applyViewportConstraints);
@@ -2207,16 +2200,12 @@ const MapVisualization = ({ points, cadGeometry = EMPTY_CAD_GEOMETRY, cadPerform
     const handleWindowResize = () => requestAnimationFrame(applyViewportConstraints);
     window.addEventListener('resize', handleWindowResize);
 
-    updateViewportMetrics();
-
     return () => {
       cancelAnimationFrame(initialFrame);
       window.removeEventListener('resize', handleWindowResize);
       if (resizeObserver) resizeObserver.disconnect();
     };
   }, [isVisible, mapFocusMode]);
-
-  const legendDockLeft = mapFocusMode || (mapViewportWidth > 0 && mapViewportWidth < 920);
 
   return (
     <div

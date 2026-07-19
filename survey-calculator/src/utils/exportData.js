@@ -979,7 +979,7 @@ export const downloadFile = (data, filename, format = 'csv') => {
       let content = data;
       if (format === 'dxf' && typeof content === 'string') {
         // Keep compact LF line endings and ensure a terminal newline for DXF readers.
-        content = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\u0000/g, '');
+        content = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replaceAll('\u0000', '');
         if (!/\n$/.test(content)) content += '\n';
       }
       const blob = new Blob([content], { type: getContentType(format) });

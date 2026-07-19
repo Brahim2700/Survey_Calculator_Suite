@@ -146,6 +146,37 @@ describe('detectCRS', () => {
     }
   });
 
+  it('keeps Monte Mario zone 1 first for Italy-like projected data', () => {
+    const coords = [
+      { x: 1532400, y: 5041900 },
+      { x: 1533100, y: 5042600 },
+      { x: 1531800, y: 5041300 },
+    ];
+
+    const results = detectCRS(coords);
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].code).toBe('EPSG:3003');
+  });
+
+  it('keeps old French Lambert III and IV candidates in top suggestions', () => {
+    const lambertIII = [
+      { x: 586474.96, y: 168623.33 },
+      { x: 588089.63, y: 169711.61 },
+      { x: 584861.43, y: 167261.00 },
+    ];
+    const lambertIV = [
+      { x: 601099.88, y: 127941.20 },
+      { x: 602783.12, y: 129061.14 },
+      { x: 599419.06, y: 126541.62 },
+    ];
+
+    const lambertIIIResults = detectCRS(lambertIII).slice(0, 5).map((entry) => entry.code);
+    const lambertIVResults = detectCRS(lambertIV).slice(0, 5).map((entry) => entry.code);
+
+    expect(lambertIIIResults).toContain('EPSG:27563');
+    expect(lambertIVResults).toContain('EPSG:27564');
+  });
+
   it('keeps ETRS89 / LAEA Europe below French national candidates for France-like projected data', () => {
     const coords = [
       { x: 1702000, y: 5203000 },

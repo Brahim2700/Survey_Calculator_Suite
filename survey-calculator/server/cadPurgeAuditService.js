@@ -59,6 +59,17 @@ function getRecordNumericValue(record, code, fallback = NaN) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function countInvalidAsciiControlChars(text) {
+  let count = 0;
+  for (const char of text) {
+    const code = char.charCodeAt(0);
+    if ((code >= 0 && code <= 8) || code === 11 || code === 12 || (code >= 14 && code <= 31)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
 function buildRecordsFromDxfText(dxfText) {
   const lines = String(dxfText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   const pairs = [];
@@ -429,9 +440,9 @@ export function validateDxfTextStructure(dxfText) {
   const foundSections = new Set();
   const sectionOrder = [];
   let sectionDepth = 0;
-  const invalidControlCharMatches = normalized.match(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g) || [];
-  if (invalidControlCharMatches.length > 0) {
-    errors.push(`DXF contains invalid control characters (${invalidControlCharMatches.length}).`);
+  const invalidControlCharCount = countInvalidAsciiControlChars(normalized);
+  if (invalidControlCharCount > 0) {
+    errors.push(`DXF contains invalid control characters (${invalidControlCharCount}).`);
   }
 
   for (let i = 0; i < pairs.length; i += 1) {
@@ -701,7 +712,7 @@ function sanitizeDxfTextForAutoCAD(text, records = []) {
 
   let normalized = text.replace(/\uFEFF/g, '');
   normalized = normalized.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  normalized = normalized.replace(/\u0000/g, '');
+  normalized = normalized.replaceAll('\u0000', '');
   normalized = normalized.replace(/[^\t\n\r\u0020-\u007E\u00A0-\uFFFF]/g, '');
 
   const recordList = Array.isArray(records) && records.length > 0 ? records : buildRecordsFromDxfText(normalized);
