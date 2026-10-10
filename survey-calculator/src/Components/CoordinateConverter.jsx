@@ -4535,24 +4535,6 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
     detectFileFormatsAndCRS(file);
   };
 
-  const handleLoadSampleDwg = async () => {
-    try {
-      setBulkUploadError("");
-      const response = await fetch('/samples/sample_test_text.dwg', { cache: 'no-store' });
-      if (!response.ok) {
-        throw new Error('Unable to load DWG sample file from /samples/sample_test_text.dwg');
-      }
-      const blob = await response.blob();
-      const sampleFile = new File([blob], 'sample_test_text.dwg', {
-        type: 'application/acad',
-        lastModified: Date.now(),
-      });
-      applyBulkFileSelection(sampleFile);
-    } catch (err) {
-      setBulkUploadError(err.message || 'Failed to load DWG sample file.');
-    }
-  };
-
   const handleDetectAndVisualizeCadOnly = useCallback(async () => {
     const file = bulkUploadFile;
     if (!file) {
@@ -6476,7 +6458,6 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
           <a href="/samples/sample.geojson" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", padding: "0.2rem 0.5rem", borderRadius: "999px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", textDecoration: "none", fontSize: "0.78rem", fontWeight: 600 }}>GeoJSON</a>
           <a href="/samples/sample.gpx" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", padding: "0.2rem 0.5rem", borderRadius: "999px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", textDecoration: "none", fontSize: "0.78rem", fontWeight: 600 }}>GPX</a>
           <a href="/samples/sample.kml" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", padding: "0.2rem 0.5rem", borderRadius: "999px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", textDecoration: "none", fontSize: "0.78rem", fontWeight: 600 }}>KML</a>
-          <a href="/samples/sample_test_text.dwg" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", padding: "0.2rem 0.5rem", borderRadius: "999px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", textDecoration: "none", fontSize: "0.78rem", fontWeight: 600 }}>DWG</a>
           <a href="/samples/sample_l93_complex_with_crs.dxf" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", padding: "0.2rem 0.5rem", borderRadius: "999px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", textDecoration: "none", fontSize: "0.78rem", fontWeight: 600 }}>DXF L93</a>
           <a href="/samples/sample_urban_plan_l93.dxf" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", padding: "0.2rem 0.5rem", borderRadius: "999px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", textDecoration: "none", fontSize: "0.78rem", fontWeight: 600 }}>DXF Urban</a>
           <a href="/samples/sample_l93_complex_expected_wgs84.csv" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", padding: "0.2rem 0.5rem", borderRadius: "999px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", textDecoration: "none", fontSize: "0.78rem", fontWeight: 600 }}>Expected WGS84</a>
@@ -6489,9 +6470,6 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
           <button onClick={() => bulkFileInputRef.current?.click()} style={{ padding: "0.5rem 0.9rem", background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", borderRadius: "6px", cursor: "pointer" }}>
             {t('converter.chooseFile')}
           </button>
-            <button onClick={handleLoadSampleDwg} style={{ padding: "0.5rem 0.9rem", background: "#eef2ff", color: "#3730a3", border: "1px solid #c7d2fe", borderRadius: "6px", cursor: "pointer", fontWeight: 600 }}>
-              {t('converter.loadDwgSample')}
-            </button>
           <button onClick={handleBulkConvert} style={{ padding: "0.5rem 0.9rem", background: "#0f766e", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: 600 }}>
             {t('converter.convertFileBulk')}
           </button>
