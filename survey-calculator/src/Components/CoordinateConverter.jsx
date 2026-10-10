@@ -1532,6 +1532,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
   const [bulkFilterMode] = useState("all"); // all | failed | warned | selected
   const [selectedBulkRows, setSelectedBulkRows] = useState([]);
   const [showBulkTextInput, setShowBulkTextInput] = useState(false);
+  const [showAdvancedCadTools, setShowAdvancedCadTools] = useState(false);
   const [panelOpen, setPanelOpen] = useState({
     import: true,
     cad: false,
@@ -6529,27 +6530,21 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
           >
             {t('converter.resetBulk')}
           </button>
-          <MapToolTip
-            title="Smart SafePurge"
-            description="Runs audit + apply in one step and automatically selects xref, overkill, and clean-template transfer behavior from the file itself."
+          <button
+            onClick={() => setShowAdvancedCadTools((value) => !value)}
+            style={{
+              padding: "0.5rem 0.9rem",
+              background: "#e2e8f0",
+              color: "#0f172a",
+              border: "1px solid #cbd5e1",
+              borderRadius: "6px",
+              cursor: "pointer",
+              fontWeight: 600,
+            }}
+            type="button"
           >
-            <button
-              onClick={runCadPurgeApplyForSelectedFile}
-              disabled={cadPurgeApplyLoading || !bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())}
-              style={{
-                padding: "0.5rem 0.9rem",
-                background: "#0b3b8f",
-                color: "#fff",
-                border: "none",
-                borderRadius: "6px",
-                cursor: cadPurgeApplyLoading ? "wait" : "pointer",
-                fontWeight: 600,
-                opacity: (!bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())) ? 0.65 : 1,
-              }}
-            >
-              {cadPurgeApplyLoading ? "Running Smart SafePurge..." : "Smart SafePurge"}
-            </button>
-          </MapToolTip>
+            {showAdvancedCadTools ? "Hide Advanced CAD Tools" : "Advanced CAD Tools"}
+          </button>
           <MapToolTip
             title={t('converter.downloadCadSummaryTitle')}
             description={t('converter.downloadCadSummaryDescription')}
@@ -6574,20 +6569,46 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
               {t('converter.downloadRawCadDebug')}
             </button>
           </MapToolTip>
-          <MapToolTip
-            title="Export PURGE Executive Report"
-            description="Downloads an HTML executive summary of what was analyzed and what purge opportunities were found."
-          >
-            <button
-              onClick={downloadCadPurgeAuditSummaryReport}
-              disabled={!cadPurgeAudit}
-              style={{ padding: "0.5rem 0.9rem", background: "#ecfeff", color: "#155e75", border: "1px solid #67e8f9", borderRadius: "6px", cursor: cadPurgeAudit ? "pointer" : "not-allowed", opacity: cadPurgeAudit ? 1 : 0.55, fontWeight: 600 }}
-            >
-              Export PURGE Summary HTML
-            </button>
-          </MapToolTip>
           {bulkUploadFile && <span style={{ fontSize: "0.85rem", color: "#059669", fontWeight: 500 }}>✓ {bulkUploadFile.name}</span>}
         </div>
+
+        {showAdvancedCadTools && (
+          <div style={{ marginTop: "0.6rem", display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center", padding: "0.6rem 0.7rem", borderRadius: "8px", border: "1px solid #dbeafe", background: "#f8fbff" }}>
+            <MapToolTip
+              title="Smart SafePurge"
+              description="Runs audit + apply in one step and automatically selects xref, overkill, and clean-template transfer behavior from the file itself. This is an advanced CAD cleanup workflow."
+            >
+              <button
+                onClick={runCadPurgeApplyForSelectedFile}
+                disabled={cadPurgeApplyLoading || !bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())}
+                style={{
+                  padding: "0.5rem 0.9rem",
+                  background: "#0b3b8f",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor: cadPurgeApplyLoading ? "wait" : "pointer",
+                  fontWeight: 600,
+                  opacity: (!bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())) ? 0.65 : 1,
+                }}
+              >
+                {cadPurgeApplyLoading ? "Running Smart SafePurge..." : "Smart SafePurge"}
+              </button>
+            </MapToolTip>
+            <MapToolTip
+              title="Export PURGE Executive Report"
+              description="Downloads an HTML executive summary of what was analyzed and what purge opportunities were found."
+            >
+              <button
+                onClick={downloadCadPurgeAuditSummaryReport}
+                disabled={!cadPurgeAudit}
+                style={{ padding: "0.5rem 0.9rem", background: "#ecfeff", color: "#155e75", border: "1px solid #67e8f9", borderRadius: "6px", cursor: cadPurgeAudit ? "pointer" : "not-allowed", opacity: cadPurgeAudit ? 1 : 0.55, fontWeight: 600 }}
+              >
+                Export PURGE Summary HTML
+              </button>
+            </MapToolTip>
+          </div>
+        )}
         {bulkUploadError && <div role="alert" style={{ color: "#b91c1c" }}>{bulkUploadError}</div>}
         {cadFileAcceptanceNotice && (
           <div role="status" style={{ color: "#155e75", background: "#ecfeff", border: "1px solid #67e8f9", borderRadius: "6px", padding: "0.55rem 0.7rem", fontSize: "0.84rem" }}>
