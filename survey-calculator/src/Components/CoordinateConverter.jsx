@@ -6467,10 +6467,10 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
             const f = e.target.files?.[0] || null; 
               applyBulkFileSelection(f);
           }} style={{ display: "none" }} />
-          <button onClick={() => bulkFileInputRef.current?.click()} style={{ padding: "0.5rem 0.9rem", background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", borderRadius: "6px", cursor: "pointer" }}>
+          <button onClick={() => bulkFileInputRef.current?.click()} style={{ minWidth: "140px", padding: "0.7rem 1rem", background: "#eff6ff", color: "#1d4ed8", border: "1px solid #93c5fd", borderRadius: "8px", cursor: "pointer", fontWeight: 700, boxShadow: "0 1px 2px rgba(37, 99, 235, 0.12)" }}>
             {t('converter.chooseFile')}
           </button>
-          <button onClick={handleBulkConvert} style={{ padding: "0.5rem 0.9rem", background: "#0f766e", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: 600 }}>
+          <button onClick={handleBulkConvert} style={{ minWidth: "150px", padding: "0.7rem 1rem", background: "#2563eb", color: "#fff", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: 700, boxShadow: "0 4px 10px rgba(37, 99, 235, 0.25)" }}>
             {t('converter.convertFileBulk')}
           </button>
           <MapToolTip
@@ -6511,13 +6511,15 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
           <button
             onClick={() => setShowAdvancedCadTools((value) => !value)}
             style={{
-              padding: "0.5rem 0.9rem",
+              minWidth: "160px",
+              padding: "0.7rem 1rem",
               background: "#e2e8f0",
               color: "#0f172a",
               border: "1px solid #cbd5e1",
-              borderRadius: "6px",
+              borderRadius: "8px",
               cursor: "pointer",
-              fontWeight: 600,
+              fontWeight: 700,
+              boxShadow: "0 1px 2px rgba(15, 23, 42, 0.08)",
             }}
             type="button"
           >
@@ -6547,7 +6549,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
               <button
                 onClick={downloadCadDiagnosticReport}
                 disabled={!cadInspection}
-                style={{ padding: "0.5rem 0.9rem", background: "#f8fafc", color: "#334155", border: "1px solid #cbd5e1", borderRadius: "6px", cursor: cadInspection ? "pointer" : "not-allowed", opacity: cadInspection ? 1 : 0.55, fontWeight: 600 }}
+                style={{ minWidth: "170px", padding: "0.7rem 1rem", background: "#f8fafc", color: "#334155", border: "1px solid #cbd5e1", borderRadius: "8px", cursor: cadInspection ? "pointer" : "not-allowed", opacity: cadInspection ? 1 : 0.55, fontWeight: 700, boxShadow: "0 1px 2px rgba(51, 65, 85, 0.08)" }}
               >
                 {t('converter.downloadRawCadDebug')}
               </button>
@@ -6560,13 +6562,15 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
                 onClick={runCadPurgeApplyForSelectedFile}
                 disabled={cadPurgeApplyLoading || !bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())}
                 style={{
-                  padding: "0.5rem 0.9rem",
-                  background: "#0b3b8f",
+                  minWidth: "170px",
+                  padding: "0.7rem 1rem",
+                  background: "#4f46e5",
                   color: "#fff",
                   border: "none",
-                  borderRadius: "6px",
+                  borderRadius: "8px",
                   cursor: cadPurgeApplyLoading ? "wait" : "pointer",
-                  fontWeight: 600,
+                  fontWeight: 700,
+                  boxShadow: "0 4px 10px rgba(79, 70, 229, 0.22)",
                   opacity: (!bulkUploadFile || !["dwg", "dxf"].includes((bulkUploadFile?.name?.split('.')?.pop() || '').toLowerCase())) ? 0.65 : 1,
                 }}
               >
@@ -6580,7 +6584,7 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
               <button
                 onClick={downloadCadPurgeAuditSummaryReport}
                 disabled={!cadPurgeAudit}
-                style={{ padding: "0.5rem 0.9rem", background: "#ecfeff", color: "#155e75", border: "1px solid #67e8f9", borderRadius: "6px", cursor: cadPurgeAudit ? "pointer" : "not-allowed", opacity: cadPurgeAudit ? 1 : 0.55, fontWeight: 600 }}
+                style={{ minWidth: "170px", padding: "0.7rem 1rem", background: "#ecfeff", color: "#155e75", border: "1px solid #67e8f9", borderRadius: "8px", cursor: cadPurgeAudit ? "pointer" : "not-allowed", opacity: cadPurgeAudit ? 1 : 0.55, fontWeight: 700, boxShadow: "0 1px 2px rgba(21, 94, 117, 0.08)" }}
               >
                 Export PURGE Summary HTML
               </button>
