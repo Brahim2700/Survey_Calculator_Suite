@@ -6535,23 +6535,23 @@ const CoordinateConverter = ({ uiLanguage = 'en', t: tFromProps }) => {
               {t('converter.downloadCadSummary')}
             </button>
           </MapToolTip>
-          <MapToolTip
-            title={t('converter.downloadRawCadDebugTitle')}
-            description={t('converter.downloadRawCadDebugDescription')}
-          >
-            <button
-              onClick={downloadCadDiagnosticReport}
-              disabled={!cadInspection}
-              style={{ padding: "0.5rem 0.9rem", background: "#f8fafc", color: "#334155", border: "1px solid #cbd5e1", borderRadius: "6px", cursor: cadInspection ? "pointer" : "not-allowed", opacity: cadInspection ? 1 : 0.55, fontWeight: 600 }}
-            >
-              {t('converter.downloadRawCadDebug')}
-            </button>
-          </MapToolTip>
           {bulkUploadFile && <span style={{ fontSize: "0.85rem", color: "#059669", fontWeight: 500 }}>✓ {bulkUploadFile.name}</span>}
         </div>
 
         {showAdvancedCadTools && (
           <div style={{ marginTop: "0.6rem", display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center", padding: "0.6rem 0.7rem", borderRadius: "8px", border: "1px solid #dbeafe", background: "#f8fbff" }}>
+            <MapToolTip
+              title={t('converter.downloadRawCadDebugTitle')}
+              description={t('converter.downloadRawCadDebugDescription')}
+            >
+              <button
+                onClick={downloadCadDiagnosticReport}
+                disabled={!cadInspection}
+                style={{ padding: "0.5rem 0.9rem", background: "#f8fafc", color: "#334155", border: "1px solid #cbd5e1", borderRadius: "6px", cursor: cadInspection ? "pointer" : "not-allowed", opacity: cadInspection ? 1 : 0.55, fontWeight: 600 }}
+              >
+                {t('converter.downloadRawCadDebug')}
+              </button>
+            </MapToolTip>
             <MapToolTip
               title="Smart SafePurge"
               description="Runs audit + apply in one step and automatically selects xref, overkill, and clean-template transfer behavior from the file itself. This is an advanced CAD cleanup workflow."
