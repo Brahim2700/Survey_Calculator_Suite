@@ -1,9 +1,19 @@
 import { calculateGeodesicDistance } from './calculations';
 import { translateUi } from './uiLanguage';
 
+const resolveCadApiBaseUrl = () => {
+  const configured = String(import.meta.env.VITE_CAD_API_BASE_URL || '').trim();
+  if (!configured) return '/api/cad';
+  if (typeof window === 'undefined') return configured;
+
+  const hostname = window.location.hostname;
+  const isLocalHost = ['localhost', '127.0.0.1', '::1'].includes(hostname);
+  return isLocalHost ? '/api/cad' : configured;
+};
+
 const IGN_ALTI_API_BASE_URL = import.meta.env.VITE_IGN_ALTI_API_BASE_URL || 'https://data.geopf.fr/altimetrie/1.0/calcul/alti/rest';
 const IGN_ALTI_RESOURCE = import.meta.env.VITE_IGN_ALTI_RESOURCE || 'ign_rge_alti_wld';
-const CAD_API_BASE_URL = import.meta.env.VITE_CAD_API_BASE_URL || '/api/cad';
+const CAD_API_BASE_URL = resolveCadApiBaseUrl();
 
 const deriveElevationApiBaseUrl = (cadApiBaseUrl) => {
   const base = String(cadApiBaseUrl || '').trim();

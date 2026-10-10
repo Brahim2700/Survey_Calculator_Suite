@@ -5,7 +5,18 @@ import ElevationProfile from './ElevationProfile';
 import { jsPDF } from 'jspdf';
 
 const EARTH_RADIUS_M = 6378137;
-const CAD_API_BASE_URL = import.meta.env.VITE_CAD_API_BASE_URL || '/api/cad';
+
+const resolveCadApiBaseUrl = () => {
+  const configured = String(import.meta.env.VITE_CAD_API_BASE_URL || '').trim();
+  if (!configured) return '/api/cad';
+  if (typeof window === 'undefined') return configured;
+
+  const hostname = window.location.hostname;
+  const isLocalHost = ['localhost', '127.0.0.1', '::1'].includes(hostname);
+  return isLocalHost ? '/api/cad' : configured;
+};
+
+const CAD_API_BASE_URL = resolveCadApiBaseUrl();
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 

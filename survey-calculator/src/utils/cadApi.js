@@ -1,6 +1,16 @@
 import { translateUi } from './uiLanguage';
 
-const CAD_API_BASE_URL = import.meta.env.VITE_CAD_API_BASE_URL || '/api/cad';
+const resolveCadApiBaseUrl = () => {
+  const configured = String(import.meta.env.VITE_CAD_API_BASE_URL || '').trim();
+  if (!configured) return '/api/cad';
+  if (typeof window === 'undefined') return configured;
+
+  const hostname = window.location.hostname;
+  const isLocalHost = ['localhost', '127.0.0.1', '::1'].includes(hostname);
+  return isLocalHost ? '/api/cad' : configured;
+};
+
+const CAD_API_BASE_URL = resolveCadApiBaseUrl();
 
 // Maximum file size the client will attempt to upload (must be ≤ server limit).
 // The server enforces 100 MB via CAD_MAX_UPLOAD_MB; we keep the same cap here
